@@ -139,8 +139,8 @@ namespace MenuScan.Controllers
             if (table == null) return NotFound();
 
             var request = HttpContext.Request;
-            var baseUrl = $"{request.Scheme}://{request.Host}";
-            var customerUrl = $"{baseUrl}/r/{table.Restaurant!.Slug}/t/{table.Token}";
+            var host = request.Host.Host == "localhost" ? "192.168.1.8:5073" : request.Host.Value;
+            var customerUrl = $"http://{host}/r/{table.Restaurant!.Slug}/t/{table.Token}";
             var qrDataUri = _qrService.GenerateQrCodeDataUri(customerUrl);
 
             return Json(new
