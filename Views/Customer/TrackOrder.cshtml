@@ -160,6 +160,10 @@
                             <i class="bi bi-receipt me-1"></i> View Tax Receipt
                         </button>
                     </div>
+
+                    <div id="paymentSuccessAlert" class="alert alert-success d-none rounded-3 py-2 px-3 small mt-3">
+                        <i class="bi bi-check-circle-fill me-1"></i> Payment confirmed! Click <strong>View Tax Receipt</strong> above to inspect or print your official bill.
+                    </div>
                 </div>
             </div>
 
@@ -399,15 +403,18 @@
 
                     <hr class="my-3 text-muted" />
 
-                    <!-- Instant Simulation Verification -->
+                    <!-- Payment Completion Step -->
                     <div class="bg-light p-3 rounded-4 border text-start">
                         <div class="d-flex justify-content-between align-items-center mb-1">
-                            <strong class="small text-dark"><i class="bi bi-shield-check text-success me-1"></i>Instant Verification</strong>
-                            <span class="badge bg-warning text-dark small">Cashier / Test Sync</span>
+                            <strong class="small text-dark"><i class="bi bi-check2-circle text-success me-1"></i>Completed Payment?</strong>
+                            <span class="badge bg-light text-muted border small">Step 2</span>
                         </div>
-                        <small class="text-muted d-block mb-3">Click below to record settlement and generate your official digital tax receipt.</small>
-                        <button type="button" class="btn btn-outline-success w-100 rounded-pill py-2 fw-bold" id="btnSimulateUpiPay" onclick="simulateUpiPayment()">
-                            <i class="bi bi-check-circle-fill me-1"></i> Confirm &amp; Settle Payment
+                        <small class="text-muted d-block mb-2">After scanning and paying via Google Pay, PhonePe, or Paytm, enter your UPI Reference (UTR) number to confirm:</small>
+                        <div class="mb-2">
+                            <input type="text" id="upiUtrNumberInput" class="form-control form-control-sm rounded-3 font-monospace text-center" placeholder="12-digit UPI UTR / Ref (Optional)" maxlength="16" />
+                        </div>
+                        <button type="button" class="btn btn-success w-100 rounded-pill py-2 fw-bold" id="btnSimulateUpiPay" onclick="simulateUpiPayment()">
+                            <i class="bi bi-check-circle-fill me-1"></i> I Have Paid via UPI
                         </button>
                     </div>
                 </div>
@@ -779,6 +786,10 @@
             const btn = document.getElementById('btnSimulateUpiPay');
             if (btn) btn.disabled = true;
 
+            const utrInput = document.getElementById('upiUtrNumberInput');
+            const utrVal = utrInput ? utrInput.value.trim() : '';
+            const paymentRef = utrVal ? `UTR-${utrVal}` : `UPI-APP-${Date.now()}`;
+
             try {
                 const response = await fetch('/api/order/confirm-online-payment', {
                     method: 'POST',
@@ -786,7 +797,7 @@
                     body: JSON.stringify({
                         orderToken: orderToken,
                         paymentMethod: "UPI",
-                        paymentReference: `UPI-ONLINE-${Date.now()}`
+                        paymentReference: paymentRef
                     })
                 });
 
@@ -799,6 +810,7 @@
                     const badge = document.getElementById('badgePaymentStatus');
                     const billNumTxt = document.getElementById('paidBillNumberText');
                     const receiptNumTxt = document.getElementById('receiptBillNum');
+                    const successAlert = document.getElementById('paymentSuccessAlert');
 
                     if (unpaidSec) unpaidSec.classList.add('d-none');
                     if (paidSec) paidSec.classList.remove('d-none');
@@ -810,10 +822,14 @@
                         badge.innerText = "✓ Paid & Settled";
                     }
 
+                    if (successAlert) {
+                        successAlert.classList.remove('d-none');
+                    }
+
                     const feedbackCard = document.getElementById('customerFeedbackCard');
                     if (feedbackCard) feedbackCard.classList.remove('d-none');
 
-                    openReceiptModal();
+                    // Receipt is NOT auto-opened. Diner can click 'View Tax Receipt' when ready.
                 } else {
                     alert(data.message || "Payment verification failed.");
                     if (btn) btn.disabled = false;
