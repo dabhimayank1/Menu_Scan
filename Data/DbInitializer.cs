@@ -54,7 +54,7 @@ namespace MenuScan.Data
                     Name = "Brew & Bliss Coffee House",
                     Slug = "spice-symphony",
                     Address = "104 MG Road, Indiranagar, Bengaluru",
-                    Phone = "+91 98765 43210",
+                    Phone = "+91 8799020418",
                     TaxNumber = "29ABCDE1234F1Z5",
                     DefaultTaxRate = 5.0m,
                     LogoUrl = "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=150&q=80",
@@ -63,11 +63,24 @@ namespace MenuScan.Data
                 context.Restaurants.Add(restaurant);
                 await context.SaveChangesAsync();
             }
-            else if (restaurant.Name != "Brew & Bliss Coffee House")
+            else
             {
-                restaurant.Name = "Brew & Bliss Coffee House";
-                restaurant.LogoUrl = "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=150&q=80";
-                await context.SaveChangesAsync();
+                bool changed = false;
+                if (restaurant.Name != "Brew & Bliss Coffee House")
+                {
+                    restaurant.Name = "Brew & Bliss Coffee House";
+                    restaurant.LogoUrl = "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=150&q=80";
+                    changed = true;
+                }
+                if (restaurant.Phone != "+91 8799020418")
+                {
+                    restaurant.Phone = "+91 8799020418";
+                    changed = true;
+                }
+                if (changed)
+                {
+                    await context.SaveChangesAsync();
+                }
             }
 
             // 4. Seed Restaurant Staff

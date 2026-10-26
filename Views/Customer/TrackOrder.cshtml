@@ -141,12 +141,17 @@
                 
                 <div class="card-body p-4 text-center">
                     <div id="paymentUnpaidSection" class="@(isOrderPaid ? "d-none" : "")">
-                        <span class="badge bg-light text-muted border px-3 py-1 rounded-pill small mb-2">Self-Checkout</span>
+                        <div class="d-flex justify-content-center align-items-center gap-2 mb-2">
+                            <span class="badge bg-light text-muted border px-3 py-1 rounded-pill small">Self-Checkout</span>
+                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-1 rounded-pill small">
+                                <i class="bi bi-phone me-1"></i>Payee: 8799020418
+                            </span>
+                        </div>
                         <h3 class="fw-bold mb-1" style="color: var(--cafe-primary);">₹@Model.Order.TotalAmount.ToString("0.00")</h3>
-                        <p class="text-muted small mb-3">Pay securely at your table using Google Pay, PhonePe, Paytm, or any UPI app</p>
+                        <p class="text-muted small mb-3">Pay securely at your table using Google Pay, PhonePe, Paytm, or UPI scanner to <strong>8799020418</strong></p>
                         
                         <button type="button" class="btn btn-success w-100 rounded-pill py-3 fw-bold shadow-sm" onclick="openUpiCheckoutModal()">
-                            <i class="bi bi-qr-code-scan me-2"></i> Pay with UPI / GPay / PhonePe
+                            <i class="bi bi-qr-code-scan me-2"></i> Scan &amp; Pay via UPI (8799020418)
                         </button>
                     </div>
 
@@ -323,7 +328,7 @@
         <div class="modal-content rounded-4 border-0 shadow-lg overflow-hidden">
             <div class="modal-header text-white p-3" style="background-color: #241812;">
                 <div>
-                    <h5 class="modal-title fw-bold"><i class="bi bi-wallet2 text-success me-2"></i>UPI Self-Checkout</h5>
+                    <h5 class="modal-title fw-bold"><i class="bi bi-qr-code-scan text-success me-2"></i>UPI QR &amp; Mobile Payment</h5>
                     <small class="text-white-50">@Model.Restaurant.Name • Table @Model.Table.TableNumber</small>
                 </div>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -332,24 +337,88 @@
                 <div class="spinner-border text-primary my-4" role="status" id="upiLoadingSpinner"></div>
                 
                 <div id="upiModalContent" class="d-none">
-                    <!-- Dynamic UPI QR -->
-                    <div class="p-3 bg-light rounded-4 d-inline-block border mb-3 shadow-sm">
-                        <img id="upiQrImage" src="" alt="Scan to Pay via UPI" class="img-fluid" style="width: 200px; height: 200px; object-fit: contain;" />
+                    <!-- Dynamic UPI QR Scanner Box -->
+                    <div class="position-relative d-inline-block p-3 bg-white rounded-4 border shadow-sm mb-3" style="max-width: 260px;">
+                        <img id="upiQrImage" src="" alt="Scan to Pay via UPI" class="img-fluid rounded-3" style="width: 210px; height: 210px; object-fit: contain; transition: opacity 0.2s;" />
+                        <div class="small fw-semibold text-muted mt-2 d-flex align-items-center justify-content-center gap-1">
+                            <i class="bi bi-camera text-primary"></i> Scan with GPay, PhonePe, Paytm or BHIM
+                        </div>
                     </div>
                     
                     <div class="mb-3">
-                        <span class="text-muted small d-block">Scan with any UPI app to pay</span>
+                        <span class="text-muted small d-block">Grand Total to Pay</span>
                         <h3 class="fw-bold my-1" style="color: var(--cafe-primary);">₹<span id="upiAmountText">@Model.Order.TotalAmount.ToString("0.00")</span></h3>
-                        <span class="badge bg-light text-dark border rounded-pill px-3 py-1 small">
-                            UPI ID: <strong id="upiIdText">@(Model.Restaurant.Slug)@@upi</strong>
-                        </span>
+                    </div>
+
+                    <!-- Payee Mobile Number & UPI ID Highlight Card -->
+                    <div class="card border-0 bg-light rounded-4 p-3 mb-3 text-start">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div>
+                                <span class="text-muted small d-block">Payee Mobile Number</span>
+                                <span class="fs-6 fw-bold text-dark"><i class="bi bi-phone-fill text-success me-1"></i><span id="upiPhoneText">8799020418</span></span>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-2 py-1" onclick="copyUpiText('8799020418', this)">
+                                <i class="bi bi-clipboard me-1"></i>Copy
+                            </button>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center border-top pt-2">
+                            <div>
+                                <span class="text-muted small d-block">Payee UPI ID</span>
+                                <span class="small fw-bold text-primary font-monospace" id="upiIdText">8799020418@@upi</span>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-2 py-1" onclick="copyUpiText(document.getElementById('upiIdText').innerText, this)">
+                                <i class="bi bi-clipboard me-1"></i>Copy
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- UPI Handle Switcher -->
+                    <div class="mb-3 text-start">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <label class="form-label small fw-bold text-uppercase text-muted mb-0">Select UPI Handle</label>
+                            <small class="text-muted">Updates QR instantly</small>
+                        </div>
+                        <div class="d-flex flex-wrap justify-content-center gap-1" id="upiHandlePills">
+                            <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 upi-handle-btn" data-handle="upi" onclick="switchUpiHandle('upi', this)">
+                                @@upi (BHIM)
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn" data-handle="ybl" onclick="switchUpiHandle('ybl', this)">
+                                @@ybl (PhonePe)
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn" data-handle="okaxis" onclick="switchUpiHandle('okaxis', this)">
+                                @@okaxis (GPay)
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn" data-handle="paytm" onclick="switchUpiHandle('paytm', this)">
+                                @@paytm (Paytm)
+                            </button>
+                        </div>
                     </div>
 
                     <!-- 1-Tap Mobile Intent Buttons -->
-                    <div class="d-flex flex-column gap-2 mb-3">
-                        <a id="btnDirectUpiIntent" href="#" class="btn btn-primary rounded-pill py-2 fw-semibold">
-                            <i class="bi bi-phone me-1"></i> Open in UPI App (GPay / PhonePe / Paytm)
-                        </a>
+                    <div class="mb-3">
+                        <div class="small fw-bold text-muted mb-2 text-uppercase text-start">1-Tap Direct UPI App Pay</div>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <a id="btnDirectGPay" href="#" class="btn btn-outline-dark w-100 rounded-pill py-2 small fw-bold d-flex align-items-center justify-content-center gap-1">
+                                    <i class="bi bi-google text-primary"></i> GPay
+                                </a>
+                            </div>
+                            <div class="col-6">
+                                <a id="btnDirectPhonePe" href="#" class="btn btn-outline-dark w-100 rounded-pill py-2 small fw-bold d-flex align-items-center justify-content-center gap-1">
+                                    <i class="bi bi-phone-fill" style="color: #5f259f;"></i> PhonePe
+                                </a>
+                            </div>
+                            <div class="col-6">
+                                <a id="btnDirectPaytm" href="#" class="btn btn-outline-dark w-100 rounded-pill py-2 small fw-bold d-flex align-items-center justify-content-center gap-1">
+                                    <i class="bi bi-wallet-fill text-info"></i> Paytm
+                                </a>
+                            </div>
+                            <div class="col-6">
+                                <a id="btnDirectUpiIntent" href="#" class="btn btn-primary w-100 rounded-pill py-2 small fw-bold d-flex align-items-center justify-content-center gap-1">
+                                    <i class="bi bi-lightning-charge-fill"></i> Any UPI
+                                </a>
+                            </div>
+                        </div>
                     </div>
 
                     <hr class="my-3 text-muted" />
@@ -358,9 +427,9 @@
                     <div class="bg-light p-3 rounded-4 border text-start">
                         <div class="d-flex justify-content-between align-items-center mb-1">
                             <strong class="small text-dark"><i class="bi bi-shield-check text-success me-1"></i>Instant Verification</strong>
-                            <span class="badge bg-warning text-dark small">Test Mode Available</span>
+                            <span class="badge bg-warning text-dark small">Cashier / Test Sync</span>
                         </div>
-                        <small class="text-muted d-block mb-3">Click below to simulate instant UPI bank confirmation.</small>
+                        <small class="text-muted d-block mb-3">Click below to record settlement and generate your official digital tax receipt.</small>
                         <button type="button" class="btn btn-outline-success w-100 rounded-pill py-2 fw-bold" id="btnSimulateUpiPay" onclick="simulateUpiPayment()">
                             <i class="bi bi-check-circle-fill me-1"></i> Confirm &amp; Settle Payment
                         </button>
@@ -613,8 +682,10 @@
         }
 
         let upiModalInstance = null;
+        let activeHandle = 'upi';
 
-        async function openUpiCheckoutModal() {
+        async function openUpiCheckoutModal(handle = 'upi') {
+            activeHandle = handle;
             if (!upiModalInstance) {
                 upiModalInstance = bootstrap.Modal.getOrCreateInstance(document.getElementById('upiCheckoutModal'));
             }
@@ -625,14 +696,20 @@
             if (content) content.classList.add('d-none');
 
             upiModalInstance.show();
+            await fetchUpiDetails(activeHandle);
+        }
+
+        async function fetchUpiDetails(handle) {
+            const spinner = document.getElementById('upiLoadingSpinner');
+            const content = document.getElementById('upiModalContent');
 
             try {
-                const response = await fetch(`/api/order/upi-payment-details/${orderToken}`);
+                const response = await fetch(`/api/order/upi-payment-details/${orderToken}?handle=${handle}`);
                 const data = await response.json();
 
                 if (response.ok && data.success) {
                     if (data.isAlreadyPaid) {
-                        upiModalInstance.hide();
+                        if (upiModalInstance) upiModalInstance.hide();
                         alert("This order is already settled!");
                         window.location.reload();
                         return;
@@ -641,19 +718,79 @@
                     document.getElementById('upiQrImage').src = data.upiQrDataUri;
                     document.getElementById('upiAmountText').innerText = data.grandTotal.toFixed(2);
                     document.getElementById('upiIdText').innerText = data.upiId;
-                    document.getElementById('btnDirectUpiIntent').href = data.upiUri;
+                    if (document.getElementById('upiPhoneText') && data.phoneNumber) {
+                        document.getElementById('upiPhoneText').innerText = data.phoneNumber;
+                    }
+
+                    // Direct App links
+                    if (document.getElementById('btnDirectUpiIntent')) {
+                        document.getElementById('btnDirectUpiIntent').href = data.upiUri;
+                    }
+                    if (document.getElementById('btnDirectGPay')) {
+                        document.getElementById('btnDirectGPay').href = data.appUris?.gpay || data.upiUri;
+                    }
+                    if (document.getElementById('btnDirectPhonePe')) {
+                        document.getElementById('btnDirectPhonePe').href = data.appUris?.phonepe || data.upiUri;
+                    }
+                    if (document.getElementById('btnDirectPaytm')) {
+                        document.getElementById('btnDirectPaytm').href = data.appUris?.paytm || data.upiUri;
+                    }
+
+                    // Update handle buttons active styling
+                    const buttons = document.querySelectorAll('.upi-handle-btn');
+                    buttons.forEach(btn => {
+                        if (btn.getAttribute('data-handle') === handle) {
+                            btn.className = "btn btn-sm btn-primary rounded-pill px-3 upi-handle-btn";
+                        } else {
+                            btn.className = "btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn";
+                        }
+                    });
 
                     if (spinner) spinner.classList.add('d-none');
                     if (content) content.classList.remove('d-none');
                 } else {
                     alert(data.message || "Unable to fetch UPI details.");
-                    upiModalInstance.hide();
+                    if (upiModalInstance) upiModalInstance.hide();
                 }
             } catch (err) {
                 console.error(err);
                 alert("Network error loading UPI checkout.");
-                upiModalInstance.hide();
+                if (upiModalInstance) upiModalInstance.hide();
             }
+        }
+
+        async function switchUpiHandle(handle, btnElem) {
+            activeHandle = handle;
+            const buttons = document.querySelectorAll('.upi-handle-btn');
+            buttons.forEach(btn => {
+                btn.className = "btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn";
+            });
+            if (btnElem) {
+                btnElem.className = "btn btn-sm btn-primary rounded-pill px-3 upi-handle-btn";
+            }
+
+            const qrImg = document.getElementById('upiQrImage');
+            if (qrImg) qrImg.style.opacity = '0.4';
+
+            await fetchUpiDetails(handle);
+
+            if (qrImg) qrImg.style.opacity = '1.0';
+        }
+
+        function copyUpiText(text, btn) {
+            navigator.clipboard.writeText(text).then(() => {
+                const originalHtml = btn.innerHTML;
+                btn.innerHTML = `<i class="bi bi-check2 me-1"></i>Copied!`;
+                btn.classList.remove('btn-outline-secondary');
+                btn.classList.add('btn-success');
+                setTimeout(() => {
+                    btn.innerHTML = originalHtml;
+                    btn.classList.remove('btn-success');
+                    btn.classList.add('btn-outline-secondary');
+                }, 2000);
+            }).catch(err => {
+                console.error('Copy failed', err);
+            });
         }
 
         async function simulateUpiPayment() {

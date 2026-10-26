@@ -367,7 +367,7 @@ namespace MenuScan.Controllers
         }
 
         [HttpGet("api/order/upi-payment-details/{token}")]
-        public async Task<IActionResult> GetUpiPaymentDetails(string token)
+        public async Task<IActionResult> GetUpiPaymentDetails(string token, [FromQuery] string? handle = "upi")
         {
             var order = await _context.Orders
                 .IgnoreQueryFilters()
@@ -382,31 +382,67 @@ namespace MenuScan.Controllers
             }
 
             var restaurant = order.Restaurant;
-            var upiId = $"{restaurant?.Slug ?? "spicesymphony"}@upi";
+
+            // Target payee mobile number: default 8799020418 or restaurant phone digits
+            var targetMobile = "8799020418";
+            if (!string.IsNullOrWhiteSpace(restaurant?.Phone))
+            {
+                var digitsOnly = new string(restaurant.Phone.Where(char.IsDigit).ToArray());
+                if (digitsOnly.Length == 12 && digitsOnly.StartsWith("91"))
+                {
+                    targetMobile = digitsOnly.Substring(2);
+                }
+                else if (digitsOnly.Length == 10)
+                {
+                    targetMobile = digitsOnly;
+                }
+            }
+
+            // Supported UPI handles
+            var cleanHandle = string.IsNullOrWhiteSpace(handle) ? "upi" : handle.Trim().TrimStart('@').ToLowerInvariant();
+            var validHandles = new HashSet<string> { "upi", "paytm", "ybl", "okaxis", "okhdfcbank", "ibl" };
+            if (!validHandles.Contains(cleanHandle))
+            {
+                cleanHandle = "upi";
+            }
+
+            var upiId = $"{targetMobile}@{cleanHandle}";
             var grandTotalStr = order.TotalAmount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
-            var note = Uri.EscapeDataString($"Order #{order.OrderNumber} at {restaurant?.Name ?? "Restaurant"}");
-            var payeeName = Uri.EscapeDataString(restaurant?.Name ?? "Restaurant");
+            var restName = restaurant?.Name ?? "Spice Symphony Restaurant";
+            var payeeName = Uri.EscapeDataString(restName);
+            var note = Uri.EscapeDataString($"Order #{order.OrderNumber} Table {order.Table?.TableNumber ?? ""} at {restName}");
 
             var upiUri = $"upi://pay?pa={upiId}&pn={payeeName}&am={grandTotalStr}&tr={order.OrderNumber}&tn={note}&cu=INR";
             var upiQr = _qrService.GenerateQrCodeDataUri(upiUri);
 
             var isPaid = order.Status == OrderStatus.Completed || (order.Bill != null && order.Bill.Status == BillStatus.Paid);
 
+            var appUris = new Dictionary<string, string>
+            {
+                { "generic", upiUri },
+                { "gpay", $"upi://pay?pa={targetMobile}@okaxis&pn={payeeName}&am={grandTotalStr}&tr={order.OrderNumber}&tn={note}&cu=INR" },
+                { "phonepe", $"upi://pay?pa={targetMobile}@ybl&pn={payeeName}&am={grandTotalStr}&tr={order.OrderNumber}&tn={note}&cu=INR" },
+                { "paytm", $"upi://pay?pa={targetMobile}@paytm&pn={payeeName}&am={grandTotalStr}&tr={order.OrderNumber}&tn={note}&cu=INR" }
+            };
+
             return Ok(new UpiPaymentDetailsDto
             {
                 Success = true,
                 OrderNumber = order.OrderNumber,
                 TableNumber = order.Table?.TableNumber ?? "Unknown",
-                RestaurantName = restaurant?.Name ?? "Restaurant",
+                RestaurantName = restName,
+                PhoneNumber = targetMobile,
                 SubTotal = order.SubTotal,
                 TaxRate = order.TaxRate,
                 TaxAmount = order.TaxAmount,
                 GrandTotal = order.TotalAmount,
                 UpiId = upiId,
+                SelectedHandle = cleanHandle,
                 UpiUri = upiUri,
                 UpiQrDataUri = upiQr,
                 IsAlreadyPaid = isPaid,
-                BillNumber = order.Bill?.BillNumber
+                BillNumber = order.Bill?.BillNumber,
+                AppUris = appUris
             });
         }
 
