@@ -1,0 +1,286 @@
+@model List<MenuScan.Models.Entities.Order>
+@{
+    ViewData["Title"] = "Cashier & Billing";
+    Layout = "_Layout";
+    var restaurantId = (Guid)ViewBag.RestaurantId;
+    var settledBills = (List<MenuScan.Models.Entities.Bill>)ViewBag.SettledBills;
+}
+
+<div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h3 class="fw-bold mb-0 text-dark"><i class="bi bi-cash-stack text-success me-2"></i>Cashier & Billing Dashboard</h3>
+            <small class="text-muted">Manage table bills, counter settlements, and receipts</small>
+        </div>
+        <div class="d-flex gap-2">
+            <span class="badge bg-success py-2 px-3 fs-6 d-flex align-items-center">
+                <span class="spinner-grow spinner-grow-sm me-2" role="status"></span> Live Billing Hub
+            </span>
+            <button class="btn btn-outline-secondary btn-sm" onclick="window.location.reload()">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+        </div>
+    </div>
+
+    <!-- Active Orders Requiring Billing -->
+    <div class="card shadow-sm border-0 rounded-3 mb-4">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h5 class="fw-bold mb-0"><i class="bi bi-clock-history me-2 text-primary"></i>Active Table Orders</h5>
+            <span class="badge bg-primary">@Model.Count Active</span>
+        </div>
+        <div class="card-body p-0">
+            @if (!Model.Any())
+            {
+                <div class="text-center py-5 text-muted">
+                    <i class="bi bi-emoji-smile display-4"></i>
+                    <h5 class="mt-3">No pending orders to settle!</h5>
+                    <p>New orders placed by customers will automatically appear here.</p>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Table</th>
+                                <th>Order #</th>
+                                <th>Placed At</th>
+                                <th>Items</th>
+                                <th>Status</th>
+                                <th>Total (incl. Tax)</th>
+                                <th class="text-end">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var order in Model)
+                            {
+                                <tr id="row-order-@order.Id">
+                                    <td>
+                                        <span class="badge bg-dark fs-6">@order.Table?.TableNumber</span>
+                                    </td>
+                                    <td>
+                                        <span class="fw-bold">@order.OrderNumber</span>
+                                    </td>
+                                    <td class="text-muted small">
+                                        @order.CreatedAtUtc.ToLocalTime().ToString("hh:mm tt")
+                                    </td>
+                                    <td>
+                                        <span class="fw-semibold">@order.OrderItems.Sum(i => i.Quantity) items</span>
+                                        <small class="text-muted d-block text-truncate" style="max-width: 250px;">
+                                            @string.Join(", ", order.OrderItems.Select(i => $"{i.Quantity}x {i.ItemNameSnapshot}"))
+                                        </small>
+                                    </td>
+                                    <td>
+                                        <span class="badge @(order.Status == MenuScan.Models.Entities.OrderStatus.Served ? "bg-success" : "bg-warning text-dark")">
+                                            @order.Status
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="fw-bold fs-5 text-danger">₹@order.TotalAmount.ToString("0.00")</span>
+                                        <small class="text-muted d-block">(Tax: ₹@order.TaxAmount.ToString("0.00"))</small>
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-success fw-semibold btn-sm px-3" onclick="openSettleModal('@order.Id', '@order.OrderNumber', '@order.Table?.TableNumber', @order.SubTotal, @order.TaxAmount, @order.TotalAmount)">
+                                            <i class="bi bi-wallet2 me-1"></i> Settle Bill
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Recently Settled Bills -->
+    <div class="card shadow-sm border-0 rounded-3">
+        <div class="card-header bg-white py-3">
+            <h5 class="fw-bold mb-0 text-secondary"><i class="bi bi-check2-circle me-2 text-success"></i>Today's Settled Bills</h5>
+        </div>
+        <div class="card-body p-0">
+            @if (settledBills == null || !settledBills.Any())
+            {
+                <div class="text-center py-4 text-muted">No settled bills recorded yet today.</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Bill #</th>
+                                <th>Table</th>
+                                <th>Order #</th>
+                                <th>Settled At</th>
+                                <th>Method</th>
+                                <th>Grand Total</th>
+                                <th class="text-end">Receipt</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var bill in settledBills)
+                            {
+                                <tr>
+                                    <td class="fw-bold">@bill.BillNumber</td>
+                                    <td><span class="badge bg-secondary">@bill.Order?.Table?.TableNumber</span></td>
+                                    <td>@bill.Order?.OrderNumber</td>
+                                    <td class="text-muted small">@bill.ClosedAtUtc?.ToLocalTime().ToString("hh:mm:ss tt")</td>
+                                    <td>
+                                        @{
+                                            var payment = bill.Payments.FirstOrDefault();
+                                            var methodStr = payment?.Method.ToString() ?? "Cash";
+                                        }
+                                        <span class="badge bg-info text-dark">@methodStr</span>
+                                    </td>
+                                    <td class="fw-bold text-success">₹@bill.GrandTotal.ToString("0.00")</td>
+                                    <td class="text-end">
+                                        <a href="/Billing/PrintReceipt?orderId=@bill.OrderId" target="_blank" class="btn btn-outline-dark btn-sm">
+                                            <i class="bi bi-printer"></i> Print
+                                        </a>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- Settle Payment Modal -->
+<div class="modal fade" id="settleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title fw-bold"><i class="bi bi-cash-coin me-2"></i>Settle Order Bill</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <input type="hidden" id="settleOrderId" />
+
+                <div class="text-center mb-3">
+                    <span class="badge bg-dark fs-6" id="settleTableBadge"></span>
+                    <h5 class="mt-2 fw-bold text-muted" id="settleOrderNumberText"></h5>
+                </div>
+
+                <div class="bg-light p-3 rounded-3 mb-3">
+                    <div class="d-flex justify-content-between text-muted small mb-1">
+                        <span>Subtotal</span>
+                        <span>₹<span id="settleSubTotalText">0.00</span></span>
+                    </div>
+                    <div class="d-flex justify-content-between text-muted small mb-2">
+                        <span>Taxes (GST)</span>
+                        <span>₹<span id="settleTaxText">0.00</span></span>
+                    </div>
+                    <div class="d-flex justify-content-between fw-bold fs-4 border-top pt-2">
+                        <span>Total Payable</span>
+                        <span class="text-success">₹<span id="settleTotalText">0.00</span></span>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Payment Method</label>
+                    <select class="form-select form-select-lg" id="paymentMethodSelect">
+                        <option value="1">UPI (QR / PhonePe / GPay / Paytm)</option>
+                        <option value="0">Cash</option>
+                        <option value="2">Debit / Credit Card</option>
+                        <option value="3">Other</option>
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small text-muted">Transaction Reference / Note (Optional)</label>
+                    <input type="text" class="form-control" id="paymentReferenceInput" placeholder="e.g. UPI Ref # or Cash received" />
+                </div>
+            </div>
+            <div class="modal-footer bg-light">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success fw-bold px-4" id="btnConfirmSettlement" onclick="confirmPayment()">
+                    Confirm Payment & Generate Receipt
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
+    <script>
+        const restaurantId = "@restaurantId";
+        let currentModal;
+
+        function openSettleModal(orderId, orderNum, tableNum, subTotal, tax, total) {
+            document.getElementById('settleOrderId').value = orderId;
+            document.getElementById('settleOrderNumberText').innerText = orderNum;
+            document.getElementById('settleTableBadge').innerText = tableNum;
+            document.getElementById('settleSubTotalText').innerText = subTotal.toFixed(2);
+            document.getElementById('settleTaxText').innerText = tax.toFixed(2);
+            document.getElementById('settleTotalText').innerText = total.toFixed(2);
+
+            currentModal = new bootstrap.Modal(document.getElementById('settleModal'));
+            currentModal.show();
+        }
+
+        async function confirmPayment() {
+            const orderId = document.getElementById('settleOrderId').value;
+            const method = parseInt(document.getElementById('paymentMethodSelect').value);
+            const ref = document.getElementById('paymentReferenceInput').value;
+            const btn = document.getElementById('btnConfirmSettlement');
+
+            btn.disabled = true;
+            btn.innerText = "Processing...";
+
+            try {
+                const response = await fetch('/Billing/SettleBill', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        orderId: orderId,
+                        method: method,
+                        reference: ref
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    currentModal.hide();
+                    // Open print receipt in new window
+                    window.open(data.receiptUrl, '_blank');
+                    // Reload table
+                    window.location.reload();
+                } else {
+                    alert(data.message || "Failed to settle bill.");
+                    btn.disabled = false;
+                    btn.innerText = "Confirm Payment & Generate Receipt";
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Network error.");
+                btn.disabled = false;
+                btn.innerText = "Confirm Payment & Generate Receipt";
+            }
+        }
+
+        // SignalR Auto-refresh on new orders
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/hubs/order")
+            .withAutomaticReconnect()
+            .build();
+
+        connection.on("ReceiveNewOrder", (order) => {
+            console.log("New order notified to Cashier.");
+            // Soft alert on counter
+            const badge = document.querySelector('.badge.bg-primary');
+            if (badge) {
+                badge.classList.add('animate__animated', 'animate__pulse');
+            }
+        });
+
+        connection.start().then(() => {
+            connection.invoke("JoinRestaurantGroup", restaurantId);
+        });
+    </script>
+}

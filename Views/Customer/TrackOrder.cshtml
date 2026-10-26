@@ -1,0 +1,163 @@
+@model MenuScan.Models.ViewModels.OrderTrackingViewModel
+@{
+    ViewData["Title"] = $"Track Order #{Model.Order.OrderNumber}";
+    Layout = "_Layout";
+    var statusInt = (int)Model.Order.Status;
+}
+
+<div class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <!-- Header Card -->
+            <div class="card shadow-sm border-0 rounded-3 mb-4 text-center overflow-hidden">
+                <div class="bg-dark text-white py-4 px-3">
+                    <span class="badge bg-danger mb-2 px-3 py-1">@Model.Restaurant.Name</span>
+                    <h4 class="fw-bold mb-1">Order #@Model.Order.OrderNumber</h4>
+                    <p class="text-white-50 mb-0"><i class="bi bi-geo-alt"></i> @Model.Table.TableNumber | Placed at @Model.Order.CreatedAtUtc.ToLocalTime().ToString("hh:mm tt")</p>
+                </div>
+
+                <div class="card-body p-4">
+                    <h5 class="fw-bold mb-3">Live Order Status</h5>
+                    
+                    <!-- Progress Timeline -->
+                    <div class="position-relative m-4">
+                        <div class="progress" style="height: 4px;">
+                            @{
+                                var pct = statusInt switch
+                                {
+                                    0 => 10,
+                                    1 => 35,
+                                    2 => 65,
+                                    3 => 90,
+                                    4 or 6 => 100,
+                                    _ => 0
+                                };
+                            }
+                            <div id="statusProgressBar" class="progress-bar bg-success" role="progressbar" style="width: @pct%;" aria-valuenow="@pct" aria-valuemin="0" aria-valuemax="100"></div>
+                        </div>
+
+                        <div class="d-flex justify-content-between position-absolute top-0 start-0 w-100 translate-middle-y">
+                            <span class="badge rounded-pill @(statusInt >= 0 ? "bg-success" : "bg-secondary")" id="step-0" title="Placed">
+                                <i class="bi bi-check-lg"></i>
+                            </span>
+                            <span class="badge rounded-pill @(statusInt >= 1 ? "bg-success" : "bg-secondary")" id="step-1" title="Accepted">
+                                <i class="bi bi-person-check"></i>
+                            </span>
+                            <span class="badge rounded-pill @(statusInt >= 2 ? "bg-success" : "bg-secondary")" id="step-2" title="Preparing">
+                                <i class="bi bi-fire"></i>
+                            </span>
+                            <span class="badge rounded-pill @(statusInt >= 3 ? "bg-success" : "bg-secondary")" id="step-3" title="Ready">
+                                <i class="bi bi-bell"></i>
+                            </span>
+                            <span class="badge rounded-pill @(statusInt >= 4 ? "bg-success" : "bg-secondary")" id="step-4" title="Served">
+                                <i class="bi bi-cup-hot"></i>
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 p-3 rounded-3 bg-light text-center" id="statusMessageAlert">
+                        <h5 class="fw-bold text-success mb-1" id="currentStatusText">@Model.Order.Status</h5>
+                        <p class="text-muted small mb-0" id="currentStatusDesc">
+                            @switch (Model.Order.Status)
+                            {
+                                case MenuScan.Models.Entities.OrderStatus.New:
+                                    @:Order sent to the kitchen. Waiting for kitchen to accept.
+                                    break;
+                                case MenuScan.Models.Entities.OrderStatus.Accepted:
+                                    @:The kitchen has accepted your order!
+                                    break;
+                                case MenuScan.Models.Entities.OrderStatus.Preparing:
+                                    @:Our chef is currently preparing your meal fresh!
+                                    break;
+                                case MenuScan.Models.Entities.OrderStatus.Ready:
+                                    @:Your order is ready! A server will bring it to your table shortly.
+                                    break;
+                                case MenuScan.Models.Entities.OrderStatus.Served:
+                                    @:Bon Appetit! Your food has been served.
+                                    break;
+                                default:
+                                    @:Order status updated.
+                                    break;
+                            }
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Order Summary Card -->
+            <div class="card shadow-sm border-0 rounded-3 mb-4">
+                <div class="card-header bg-white py-3">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-receipt me-2"></i>Ordered Items</h6>
+                </div>
+                <div class="card-body p-3">
+                    @foreach (var item in Model.Order.OrderItems)
+                    {
+                        <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                            <div>
+                                <span class="fw-semibold">@item.Quantity x @item.ItemNameSnapshot</span>
+                                @if (!string.IsNullOrEmpty(item.CustomizationSummary))
+                                {
+                                    <div class="small text-muted">@item.CustomizationSummary</div>
+                                }
+                            </div>
+                            <span class="fw-semibold text-dark">₹@item.TotalPrice.ToString("0.00")</span>
+                        </div>
+                    }
+
+                    <div class="pt-3">
+                        <div class="d-flex justify-content-between text-muted small mb-1">
+                            <span>Subtotal</span>
+                            <span>₹@Model.Order.SubTotal.ToString("0.00")</span>
+                        </div>
+                        <div class="d-flex justify-content-between text-muted small mb-1">
+                            <span>Taxes (@Model.Order.TaxRate%)</span>
+                            <span>₹@Model.Order.TaxAmount.ToString("0.00")</span>
+                        </div>
+                        <div class="d-flex justify-content-between fw-bold fs-5 border-top pt-2">
+                            <span>Total</span>
+                            <span class="text-danger">₹@Model.Order.TotalAmount.ToString("0.00")</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-center">
+                <a href="/r/@Model.Restaurant.Slug/t/@Model.Table.Token" class="btn btn-outline-dark">
+                    <i class="bi bi-arrow-left me-1"></i> Order More Items
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <!-- SignalR client -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
+    <script>
+        const orderToken = "@Model.Order.OrderToken";
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/hubs/order")
+            .withAutomaticReconnect()
+            .build();
+
+        connection.on("ReceiveOrderStatusUpdate", (orderNumber, newStatus, tableNumber) => {
+            console.log("Status update received:", orderNumber, newStatus);
+            document.getElementById('currentStatusText').innerText = newStatus;
+            
+            // Adjust progress bar
+            let pct = 20;
+            if (newStatus === "Accepted") pct = 35;
+            else if (newStatus === "Preparing") pct = 65;
+            else if (newStatus === "Ready") pct = 90;
+            else if (newStatus === "Served" || newStatus === "Completed") pct = 100;
+
+            document.getElementById('statusProgressBar').style.width = pct + "%";
+            document.getElementById('currentStatusDesc').innerText = `Your order status changed to ${newStatus}.`;
+        });
+
+        connection.start().then(() => {
+            console.log("Connected to OrderHub for tracking.");
+            connection.invoke("JoinOrderGroup", orderToken);
+        }).catch(err => console.error("SignalR connection error:", err));
+    </script>
+}

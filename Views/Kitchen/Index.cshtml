@@ -1,0 +1,232 @@
+@model List<MenuScan.Models.Entities.Order>
+@{
+    ViewData["Title"] = "Kitchen Display System (KDS)";
+    Layout = "_Layout";
+    var restaurantId = (Guid)ViewBag.RestaurantId;
+}
+
+<div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h3 class="fw-bold mb-0 text-dark"><i class="bi bi-fire text-danger me-2"></i>Kitchen Display System</h3>
+            <small class="text-muted">Real-time incoming table orders</small>
+        </div>
+        <div class="d-flex align-items-center gap-3">
+            <span class="badge bg-success py-2 px-3 fs-6 d-flex align-items-center">
+                <span class="spinner-grow spinner-grow-sm me-2" role="status"></span> Live Connected
+            </span>
+            <button class="btn btn-outline-secondary btn-sm" onclick="window.location.reload()">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+        </div>
+    </div>
+
+    <!-- KDS Ticket Grid -->
+    <div class="row g-3" id="kdsTicketContainer">
+        @if (!Model.Any())
+        {
+            <div class="col-12 text-center py-5 text-muted" id="noOrdersMessage">
+                <i class="bi bi-check-circle display-3 text-success"></i>
+                <h4 class="mt-3">Kitchen is all caught up!</h4>
+                <p>New orders will appear here automatically in real time.</p>
+            </div>
+        }
+
+        @foreach (var order in Model)
+        {
+            <div class="col-12 col-md-6 col-lg-4 col-xl-3" id="order-card-@order.Id">
+                <div class="card h-100 shadow-sm border-2 @(order.Status == MenuScan.Models.Entities.OrderStatus.New ? "border-danger" : "border-primary") rounded-3">
+                    <div class="card-header @(order.Status == MenuScan.Models.Entities.OrderStatus.New ? "bg-danger text-white" : "bg-dark text-white") d-flex justify-content-between align-items-center py-2">
+                        <span class="fw-bold fs-5">@order.Table?.TableNumber</span>
+                        <span class="badge bg-light text-dark">#@order.OrderNumber.Substring(order.OrderNumber.Length - 4)</span>
+                    </div>
+                    <div class="card-body p-3">
+                        <div class="d-flex justify-content-between text-muted small mb-2">
+                            <span>Placed: @order.CreatedAtUtc.ToLocalTime().ToString("hh:mm:ss tt")</span>
+                            <span class="badge bg-secondary" id="badge-status-@order.Id">@order.Status</span>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(order.CustomerNotes))
+                        {
+                            <div class="alert alert-warning py-1 px-2 small mb-2">
+                                <i class="bi bi-info-circle me-1"></i><strong>Note:</strong> @order.CustomerNotes
+                            </div>
+                        }
+
+                        <ul class="list-group list-group-flush mb-3">
+                            @foreach (var item in order.OrderItems)
+                            {
+                                <li class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <span class="fw-bold fs-6">@item.Quantity x</span> @item.ItemNameSnapshot
+                                        @if (!string.IsNullOrEmpty(item.CustomizationSummary))
+                                        {
+                                            <div class="small text-muted">@item.CustomizationSummary</div>
+                                        }
+                                    </div>
+                                </li>
+                            }
+                        </ul>
+
+                        <div class="mt-auto" id="actions-@order.Id">
+                            @if (order.Status == MenuScan.Models.Entities.OrderStatus.New)
+                            {
+                                <button class="btn btn-warning w-100 fw-bold py-2 text-dark" onclick="updateOrderStatus('@order.Id', 2)">
+                                    <i class="bi bi-fire me-1"></i> Accept & Prepare
+                                </button>
+                            }
+                            else if (order.Status == MenuScan.Models.Entities.OrderStatus.Preparing)
+                            {
+                                <button class="btn btn-primary w-100 fw-bold py-2" onclick="updateOrderStatus('@order.Id', 3)">
+                                    <i class="bi bi-bell me-1"></i> Mark as Ready
+                                </button>
+                            }
+                            else if (order.Status == MenuScan.Models.Entities.OrderStatus.Ready)
+                            {
+                                <button class="btn btn-success w-100 fw-bold py-2" onclick="updateOrderStatus('@order.Id', 4)">
+                                    <i class="bi bi-check2-circle me-1"></i> Mark as Served
+                                </button>
+                            }
+                            else if (order.Status == MenuScan.Models.Entities.OrderStatus.Served)
+                            {
+                                <div class="text-center text-success small fw-bold py-2">
+                                    <i class="bi bi-check-all fs-5 me-1"></i> Food Served at Table
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
+    <script>
+        const restaurantId = "@restaurantId";
+
+        // Web Audio Chime synthesizer for instant zero-file sound alert
+        function playChime() {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const now = ctx.currentTime;
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = "sine";
+                osc.frequency.setValueAtTime(587.33, now); // D5
+                osc.frequency.setValueAtTime(880.00, now + 0.15); // A5
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.5);
+            } catch (e) {
+                console.log("Audio alert blocked by browser autoplay policy until user interacts.");
+            }
+        }
+
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/hubs/order")
+            .withAutomaticReconnect()
+            .build();
+
+        connection.on("ReceiveNewOrder", (order) => {
+            console.log("New order received in KDS:", order);
+            playChime();
+
+            const noOrders = document.getElementById('noOrdersMessage');
+            if (noOrders) noOrders.remove();
+
+            const container = document.getElementById('kdsTicketContainer');
+            let itemsHtml = '';
+            order.items.forEach(it => {
+                itemsHtml += `<li class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center">
+                    <div><span class="fw-bold fs-6">${it.qty} x</span> ${it.name}</div>
+                </li>`;
+            });
+
+            const cardHtml = `
+                <div class="col-12 col-md-6 col-lg-4 col-xl-3 animate__animated animate__fadeIn" id="order-card-${order.orderId}">
+                    <div class="card h-100 shadow-sm border-2 border-danger rounded-3">
+                        <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center py-2">
+                            <span class="fw-bold fs-5">${order.tableNumber}</span>
+                            <span class="badge bg-light text-dark">#${order.orderNumber.slice(-4)}</span>
+                        </div>
+                        <div class="card-body p-3">
+                            <div class="d-flex justify-content-between text-muted small mb-2">
+                                <span>Placed: ${order.createdAt}</span>
+                                <span class="badge bg-secondary" id="badge-status-${order.orderId}">New</span>
+                            </div>
+                            ${order.notes ? `<div class="alert alert-warning py-1 px-2 small mb-2"><strong>Note:</strong> ${order.notes}</div>` : ''}
+                            <ul class="list-group list-group-flush mb-3">${itemsHtml}</ul>
+                            <div class="mt-auto" id="actions-${order.orderId}">
+                                <button class="btn btn-warning w-100 fw-bold py-2 text-dark" onclick="updateOrderStatus('${order.orderId}', 2)">
+                                    <i class="bi bi-fire me-1"></i> Accept & Prepare
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            container.insertAdjacentHTML('afterbegin', cardHtml);
+        });
+
+        connection.on("ReceiveOrderStatusUpdate", (orderNumber, newStatus, tableNumber) => {
+            console.log("Order status update:", orderNumber, newStatus);
+            // Can update UI badge if card exists
+        });
+
+        connection.start().then(() => {
+            console.log("Connected to OrderHub for Kitchen.");
+            connection.invoke("JoinRestaurantGroup", restaurantId);
+        }).catch(err => console.error("SignalR connection error:", err));
+
+        async function updateOrderStatus(orderId, newStatus) {
+            try {
+                const response = await fetch('/Kitchen/UpdateStatus', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ orderId: orderId, newStatus: newStatus })
+                });
+
+                if (response.ok) {
+                    const badge = document.getElementById(`badge-status-${orderId}`);
+                    const actions = document.getElementById(`actions-${orderId}`);
+                    
+                    if (newStatus === 2) { // Preparing
+                        if (badge) badge.innerText = "Preparing";
+                        if (actions) {
+                            actions.innerHTML = `
+                                <button class="btn btn-primary w-100 fw-bold py-2" onclick="updateOrderStatus('${orderId}', 3)">
+                                    <i class="bi bi-bell me-1"></i> Mark as Ready
+                                </button>`;
+                        }
+                    } else if (newStatus === 3) { // Ready
+                        if (badge) badge.innerText = "Ready";
+                        if (actions) {
+                            actions.innerHTML = `
+                                <button class="btn btn-success w-100 fw-bold py-2" onclick="updateOrderStatus('${orderId}', 4)">
+                                    <i class="bi bi-check2-circle me-1"></i> Mark as Served
+                                </button>`;
+                        }
+                    } else if (newStatus === 4) { // Served
+                        if (badge) badge.innerText = "Served";
+                        if (actions) {
+                            actions.innerHTML = `
+                                <div class="text-center text-success small fw-bold py-2">
+                                    <i class="bi bi-check-all fs-5 me-1"></i> Food Served at Table
+                                </div>`;
+                        }
+                    }
+                } else {
+                    alert("Failed to update status.");
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Error updating status.");
+            }
+        }
+    </script>
+}

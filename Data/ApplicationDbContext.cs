@@ -1,0 +1,141 @@
+using MenuScan.Models.Entities;
+using MenuScan.Services;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
+
+namespace MenuScan.Data
+{
+    public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
+    {
+        private readonly ITenantService _tenantService;
+
+        public ApplicationDbContext(
+            DbContextOptions<ApplicationDbContext> options,
+            ITenantService tenantService) : base(options)
+        {
+            _tenantService = tenantService;
+        }
+
+        public DbSet<Restaurant> Restaurants => Set<Restaurant>();
+        public DbSet<DiningTable> DiningTables => Set<DiningTable>();
+        public DbSet<Category> Categories => Set<Category>();
+        public DbSet<MenuItem> MenuItems => Set<MenuItem>();
+        public DbSet<ItemCustomization> ItemCustomizations => Set<ItemCustomization>();
+        public DbSet<Order> Orders => Set<Order>();
+        public DbSet<OrderItem> OrderItems => Set<OrderItem>();
+        public DbSet<OrderStatusHistory> OrderStatusHistories => Set<OrderStatusHistory>();
+        public DbSet<Bill> Bills => Set<Bill>();
+        public DbSet<Payment> Payments => Set<Payment>();
+
+        protected override void OnModelCreating(ModelBuilder builder)
+        {
+            base.OnModelCreating(builder);
+
+            // Unique indexes
+            builder.Entity<Restaurant>()
+                .HasIndex(r => r.Slug)
+                .IsUnique();
+
+            builder.Entity<DiningTable>()
+                .HasIndex(t => t.Token)
+                .IsUnique();
+
+            builder.Entity<Order>()
+                .HasIndex(o => o.OrderNumber)
+                .IsUnique();
+
+            builder.Entity<Order>()
+                .HasIndex(o => o.OrderToken)
+                .IsUnique();
+
+            builder.Entity<Order>()
+                .HasIndex(o => o.IdempotencyKey);
+
+            builder.Entity<Bill>()
+                .HasIndex(b => b.BillNumber)
+                .IsUnique();
+
+            // Configure Delete Behaviors to avoid multiple cascade paths in SQL Server
+            builder.Entity<DiningTable>()
+                .HasOne(t => t.Restaurant)
+                .WithMany(r => r.Tables)
+                .HasForeignKey(t => t.RestaurantId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<Category>()
+                .HasOne(c => c.Restaurant)
+                .WithMany(r => r.Categories)
+                .HasForeignKey(c => c.RestaurantId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<MenuItem>()
+                .HasOne(m => m.Restaurant)
+                .WithMany(r => r.MenuItems)
+                .HasForeignKey(m => m.RestaurantId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<MenuItem>()
+                .HasOne(m => m.Category)
+                .WithMany(c => c.MenuItems)
+                .HasForeignKey(m => m.CategoryId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<Order>()
+                .HasOne(o => o.Restaurant)
+                .WithMany(r => r.Orders)
+                .HasForeignKey(o => o.RestaurantId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<Order>()
+                .HasOne(o => o.Table)
+                .WithMany(t => t.Orders)
+                .HasForeignKey(o => o.TableId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<Bill>()
+                .HasOne(b => b.Restaurant)
+                .WithMany()
+                .HasForeignKey(b => b.RestaurantId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<Bill>()
+                .HasOne(b => b.Order)
+                .WithOne(o => o.Bill)
+                .HasForeignKey<Bill>(b => b.OrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Multi-tenant Global Query Filters
+            builder.Entity<Category>()
+                .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.RestaurantId == _tenantService.CurrentRestaurantId);
+
+            builder.Entity<MenuItem>()
+                .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.RestaurantId == _tenantService.CurrentRestaurantId);
+
+            builder.Entity<DiningTable>()
+                .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.RestaurantId == _tenantService.CurrentRestaurantId);
+
+            builder.Entity<Order>()
+                .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.RestaurantId == _tenantService.CurrentRestaurantId);
+
+            builder.Entity<Bill>()
+                .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.RestaurantId == _tenantService.CurrentRestaurantId);
+        }
+
+        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            var tenantId = _tenantService.CurrentRestaurantId;
+            if (tenantId.HasValue)
+            {
+                foreach (var entry in ChangeTracker.Entries<ITenantEntity>())
+                {
+                    if (entry.State == EntityState.Added && entry.Entity.RestaurantId == Guid.Empty)
+                    {
+                        entry.Entity.RestaurantId = tenantId.Value;
+                    }
+                }
+            }
+
+            return base.SaveChangesAsync(cancellationToken);
+        }
+    }
+}

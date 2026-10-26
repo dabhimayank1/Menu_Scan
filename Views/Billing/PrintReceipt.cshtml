@@ -1,0 +1,118 @@
+@model MenuScan.Models.Entities.Order
+@{
+    Layout = null;
+    var restaurant = (MenuScan.Models.Entities.Restaurant)ViewBag.Restaurant;
+    var bill = Model.Bill;
+    var payment = bill?.Payments.FirstOrDefault();
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Receipt #@(bill?.BillNumber ?? Model.OrderNumber)</title>
+    <style>
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            width: 78mm;
+            margin: 0 auto;
+            padding: 8px;
+            color: #000;
+            background: #fff;
+            font-size: 13px;
+        }
+        .text-center { text-align: center; }
+        .text-right { text-align: right; }
+        .bold { font-weight: bold; }
+        .divider { border-top: 1px dashed #000; margin: 6px 0; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 3px 0; }
+        .no-print { margin-bottom: 12px; }
+        @@media print {
+            .no-print { display: none; }
+            body { margin: 0; padding: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print text-center">
+        <button onclick="window.print()" style="padding: 6px 14px; font-weight: bold; cursor: pointer;">
+            🖨️ Print Receipt
+        </button>
+    </div>
+
+    <div class="text-center">
+        <div class="bold" style="font-size: 16px;">@(restaurant?.Name ?? "RESTAURANT")</div>
+        <div>@(restaurant?.Address ?? "")</div>
+        <div>Tel: @(restaurant?.Phone ?? "")</div>
+        @if (!string.IsNullOrEmpty(restaurant?.TaxNumber))
+        {
+            <div>GSTIN: @restaurant.TaxNumber</div>
+        }
+    </div>
+
+    <div class="divider"></div>
+
+    <div>
+        <div><strong>Bill No:</strong> @(bill?.BillNumber ?? "N/A")</div>
+        <div><strong>Order No:</strong> @Model.OrderNumber</div>
+        <div><strong>Table:</strong> @Model.Table?.TableNumber</div>
+        <div><strong>Date:</strong> @((bill?.ClosedAtUtc ?? Model.CreatedAtUtc).ToLocalTime().ToString("dd/MM/yyyy hh:mm tt"))</div>
+        <div><strong>Payment:</strong> @(payment?.Method.ToString() ?? "Settled")</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <table>
+        <thead>
+            <tr>
+                <th style="text-align: left;">Item</th>
+                <th style="text-align: center;">Qty</th>
+                <th class="text-right">Price</th>
+                <th class="text-right">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in Model.OrderItems)
+            {
+                <tr>
+                    <td>@item.ItemNameSnapshot</td>
+                    <td style="text-align: center;">@item.Quantity</td>
+                    <td class="text-right">@item.UnitPriceSnapshot.ToString("0.00")</td>
+                    <td class="text-right">@item.TotalPrice.ToString("0.00")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <div class="divider"></div>
+
+    <table>
+        <tr>
+            <td>Subtotal:</td>
+            <td class="text-right">₹@Model.SubTotal.ToString("0.00")</td>
+        </tr>
+        <tr>
+            <td>GST / Tax (@Model.TaxRate%):</td>
+            <td class="text-right">₹@Model.TaxAmount.ToString("0.00")</td>
+        </tr>
+        <tr class="bold" style="font-size: 15px;">
+            <td>GRAND TOTAL:</td>
+            <td class="text-right">₹@Model.TotalAmount.ToString("0.00")</td>
+        </tr>
+    </table>
+
+    <div class="divider"></div>
+
+    <div class="text-center" style="margin-top: 10px;">
+        <div class="bold">THANK YOU FOR DINING WITH US!</div>
+        <div style="font-size: 11px; margin-top: 4px;">Powered by MenuScan</div>
+    </div>
+
+    <script>
+        window.addEventListener('load', () => {
+            // Uncomment below for instant auto-print dialog on open:
+            // window.print();
+        });
+    </script>
+</body>
+</html>

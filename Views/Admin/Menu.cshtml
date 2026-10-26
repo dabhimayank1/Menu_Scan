@@ -1,0 +1,200 @@
+@model List<MenuScan.Models.Entities.Category>
+@{
+    ViewData["Title"] = "Menu Management";
+    Layout = "_Layout";
+    var restaurant = (MenuScan.Models.Entities.Restaurant)ViewBag.Restaurant;
+}
+
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h3 class="fw-bold mb-0">Menu & Category Management</h3>
+            <p class="text-muted mb-0">@restaurant.Name - Menu Catalog</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-dark fw-semibold" data-bs-toggle="modal" data-bs-target="#addCategoryModal">
+                <i class="bi bi-folder-plus me-1"></i> Add Category
+            </button>
+            <button class="btn btn-danger fw-bold" data-bs-toggle="modal" data-bs-target="#addItemModal">
+                <i class="bi bi-plus-circle me-1"></i> Add Menu Item
+            </button>
+        </div>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="bi bi-check-circle me-1"></i> @TempData["Success"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <!-- Categories & Items Accordion -->
+    <div class="row g-4">
+        @foreach (var cat in Model)
+        {
+            <div class="col-12">
+                <div class="card shadow-sm border-0 rounded-3">
+                    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                        <h5 class="fw-bold mb-0 text-dark">
+                            <i class="bi bi-tag-fill text-danger me-2"></i>@cat.Name
+                        </h5>
+                        <span class="badge bg-secondary">@cat.MenuItems.Count Items</span>
+                    </div>
+                    <div class="card-body p-0">
+                        @if (!cat.MenuItems.Any())
+                        {
+                            <div class="text-center py-4 text-muted small">No items added to this category yet.</div>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Type</th>
+                                            <th>Item Name</th>
+                                            <th>Description</th>
+                                            <th>Price (₹)</th>
+                                            <th>Live Availability</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var item in cat.MenuItems)
+                                        {
+                                            <tr>
+                                                <td style="width: 50px;">
+                                                    @if (item.IsVeg)
+                                                    {
+                                                        <span class="badge bg-success-subtle text-success border border-success">VEG</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge bg-danger-subtle text-danger border border-danger">NON-VEG</span>
+                                                    }
+                                                </td>
+                                                <td>
+                                                    <span class="fw-bold">@item.Name</span>
+                                                </td>
+                                                <td class="text-muted small" style="max-width: 350px;">
+                                                    @item.Description
+                                                </td>
+                                                <td>
+                                                    <span class="fw-bold text-dark fs-6">₹@item.Price.ToString("0.00")</span>
+                                                </td>
+                                                <td>
+                                                    <div class="form-check form-switch">
+                                                        <input class="form-check-input" type="checkbox" role="switch" id="switch-@item.Id" @(item.IsAvailable ? "checked" : "") onchange="toggleAvailability('@item.Id')">
+                                                        <label class="form-check-label small fw-semibold" id="label-@item.Id" for="switch-@item.Id">
+                                                            @(item.IsAvailable ? "Available" : "Sold Out (86)")
+                                                        </label>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<!-- Add Category Modal -->
+<div class="modal fade" id="addCategoryModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content border-0 shadow">
+            <form asp-action="AddCategory" method="post">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title fw-bold">Create New Category</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Category Name</label>
+                        <input type="text" name="name" class="form-control" placeholder="e.g. Desserts or Pizzas" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Display Sort Order</label>
+                        <input type="number" name="displayOrder" class="form-control" value="1" min="1" required />
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary fw-bold">Save Category</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Add Menu Item Modal -->
+<div class="modal fade" id="addItemModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content border-0 shadow">
+            <form asp-action="AddMenuItem" method="post">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title fw-bold">Add Menu Item</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Category</label>
+                        <select name="categoryId" class="form-select" required>
+                            @foreach (var cat in Model)
+                            {
+                                <option value="@cat.Id">@cat.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Item Name</label>
+                        <input type="text" name="name" class="form-control" placeholder="e.g. Paneer Butter Masala" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Description</label>
+                        <textarea name="description" class="form-control" rows="2" placeholder="Ingredients, taste, cooking style..."></textarea>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label fw-semibold">Price (₹)</label>
+                            <input type="number" name="price" step="0.5" class="form-control" placeholder="250.00" required />
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label fw-semibold">Dietary Type</label>
+                            <select name="isVeg" class="form-select">
+                                <option value="true">Pure Vegetarian (Veg)</option>
+                                <option value="false">Non-Vegetarian</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger fw-bold">Add to Menu</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        async function toggleAvailability(itemId) {
+            try {
+                const response = await fetch(`/Admin/ToggleItemAvailability?id=${itemId}`, { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    const label = document.getElementById(`label-${itemId}`);
+                    label.innerText = data.isAvailable ? "Available" : "Sold Out (86)";
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Failed to update item availability.");
+            }
+        }
+    </script>
+}
