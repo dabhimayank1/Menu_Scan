@@ -1,74 +1,77 @@
 @{
-    ViewData["Title"] = "Welcome to MenuScan";
+    ViewData["Title"] = "Brew & Bliss Coffee House - Smart QR Ordering";
 }
 
 <div class="container py-5">
-    <div class="row align-items-center mb-5">
+    <div class="row align-items-center mb-5 g-5">
         <div class="col-lg-7">
-            <span class="badge bg-danger-subtle text-danger px-3 py-2 rounded-pill fw-semibold mb-3">
-                <i class="bi bi-stars me-1"></i> Multi-Restaurant SaaS • QR Table Ordering
+            <span class="badge rounded-pill px-3 py-2 fw-semibold mb-3" style="background-color: var(--cafe-primary-light); color: var(--cafe-primary);">
+                ☕ Artisan Coffee &amp; Kitchen Management System
             </span>
-            <h1 class="display-4 fw-bold text-dark lh-sm mb-3">
-                Smart Restaurant Ordering & Kitchen Management
+            <h1 class="display-4 fw-bold lh-sm mb-3" style="letter-spacing: -1px;">
+                Good Coffee.<br />Good Vibes.<br />Smart Table Ordering.
             </h1>
-            <p class="lead text-muted mb-4">
-                Customers scan table QR codes, order in mobile browser with zero app downloads, while kitchen chefs and cashier counters manage tickets in real time.
+            <p class="lead text-muted mb-4" style="font-size: 17px; line-height: 1.6;">
+                Customers scan a table QR code and browse our artisan coffee, breakfast, and snack catalog in mobile or desktop view. Orders instantly chime on the barista & kitchen screen and sync to billing!
             </p>
             <div class="d-flex flex-wrap gap-3">
-                <a href="/r/spice-symphony/t/TAB-01" target="_blank" class="btn btn-danger btn-lg px-4 fw-bold shadow-sm">
-                    <i class="bi bi-phone me-2"></i> Launch Customer Table 1 Menu
+                <a href="/r/spice-symphony/t/TAB-01" class="btn btn-cafe-primary btn-lg px-4 fw-bold">
+                    <i class="bi bi-cup-hot me-2"></i> Launch Customer Menu (Table 1)
                 </a>
-                <a asp-controller="Account" asp-action="Login" class="btn btn-outline-dark btn-lg px-4 fw-bold">
-                    <i class="bi bi-shield-lock me-2"></i> Open Staff Portal
+                <a asp-controller="Account" asp-action="Login" class="btn btn-cafe-outline btn-lg px-4 fw-bold">
+                    <i class="bi bi-shield-lock me-2"></i> Staff Portal Login
                 </a>
             </div>
         </div>
-        <div class="col-lg-5 text-center mt-4 mt-lg-0">
-            <div class="card shadow border-0 rounded-4 p-4 bg-white d-inline-block">
-                <h6 class="text-uppercase text-muted fw-bold mb-2">Simulate Customer Scan</h6>
-                <div class="p-2 border rounded-3 bg-light d-inline-block mb-3">
-                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=http://localhost:5000/r/spice-symphony/t/TAB-01" 
-                         alt="Sample QR Code" class="img-fluid" style="width: 170px; height: 170px;" />
+        
+        <div class="col-lg-5 text-center">
+            <div class="card shadow-lg border-0 rounded-4 p-4 bg-white d-inline-block w-100" style="border: 1.5px solid var(--cafe-border) !important;">
+                <span class="badge bg-dark rounded-pill px-3 py-1 mb-3">TABLE QR STAND</span>
+                <div class="p-3 border rounded-4 bg-light d-inline-block mb-3">
+                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=http://localhost:5073/r/spice-symphony/t/TAB-01" 
+                         alt="Sample QR Code" class="img-fluid" style="width: 180px; height: 180px;" />
                 </div>
-                <div class="fw-bold fs-5 text-dark">Spice Symphony Cafe</div>
-                <div class="badge bg-success mb-2">Table 1 (Active)</div>
-                <p class="small text-muted mb-0">Scan with your phone or click the button on the left to test live ordering!</p>
+                <h5 class="fw-bold text-dark mb-1">Brew &amp; Bliss Coffee House</h5>
+                <span class="badge bg-success-subtle text-success border border-success rounded-pill px-3 py-1 mb-2">
+                    Table 1 (Active)
+                </span>
+                <p class="small text-muted mb-0">Scan with your smartphone camera or click above to experience the new UI!</p>
             </div>
         </div>
     </div>
 
-    <!-- Feature Pillars -->
+    <!-- 3 Pillars -->
     <div class="row g-4 pt-3">
         <div class="col-md-4">
-            <div class="card h-100 border-0 shadow-sm rounded-3 p-4 bg-white">
-                <div class="text-danger mb-3">
-                    <i class="bi bi-qr-code-scan display-5"></i>
+            <div class="cafe-product-card p-4">
+                <div class="mb-3 text-warning">
+                    <i class="bi bi-phone display-5" style="color: var(--cafe-primary);"></i>
                 </div>
-                <h5 class="fw-bold">1. Scan & Order</h5>
-                <p class="text-muted small">
-                    Customers view an interactive digital menu with dietary tags (Veg/Non-Veg), customize items, and place orders directly to the kitchen.
+                <h5 class="fw-bold">1. Digital Menu & Cart</h5>
+                <p class="text-muted small mb-0">
+                    Dual-responsive design: sleek mobile experience with promo carousel and circular categories, or expansive tablet/desktop layout with live cart summary.
                 </p>
             </div>
         </div>
         <div class="col-md-4">
-            <div class="card h-100 border-0 shadow-sm rounded-3 p-4 bg-white">
-                <div class="text-warning mb-3">
-                    <i class="bi bi-fire display-5"></i>
+            <div class="cafe-product-card p-4">
+                <div class="mb-3">
+                    <i class="bi bi-fire display-5 text-danger"></i>
                 </div>
-                <h5 class="fw-bold">2. Real-Time KDS</h5>
-                <p class="text-muted small">
-                    Kitchen screens chime and display new orders instantly via SignalR WebSockets. Chefs transition items (*New $\rightarrow$ Preparing $\rightarrow$ Ready*).
+                <h5 class="fw-bold">2. Kitchen & Barista KDS</h5>
+                <p class="text-muted small mb-0">
+                    Real-time WebSocket notifications with synthesized chime alerts. Chefs and baristas transition tickets seamlessly without screen refreshes.
                 </p>
             </div>
         </div>
         <div class="col-md-4">
-            <div class="card h-100 border-0 shadow-sm rounded-3 p-4 bg-white">
-                <div class="text-success mb-3">
-                    <i class="bi bi-receipt-cutoff display-5"></i>
+            <div class="cafe-product-card p-4">
+                <div class="mb-3">
+                    <i class="bi bi-receipt-cutoff display-5 text-success"></i>
                 </div>
-                <h5 class="fw-bold">3. Billing & Receipts</h5>
-                <p class="text-muted small">
-                    Cashiers reconcile table orders, compute taxes automatically, record payments (Cash/UPI/Card), and print 80mm thermal receipts.
+                <h5 class="fw-bold">3. Cashier & Receipts</h5>
+                <p class="text-muted small mb-0">
+                    Reconcile table bills, compute taxes automatically, record payments (Cash/UPI/Card), and print 80mm thermal receipts.
                 </p>
             </div>
         </div>

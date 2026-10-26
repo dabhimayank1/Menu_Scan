@@ -51,15 +51,22 @@ namespace MenuScan.Data
             {
                 restaurant = new Restaurant
                 {
-                    Name = "Spice Symphony Cafe",
+                    Name = "Brew & Bliss Coffee House",
                     Slug = "spice-symphony",
                     Address = "104 MG Road, Indiranagar, Bengaluru",
                     Phone = "+91 98765 43210",
                     TaxNumber = "29ABCDE1234F1Z5",
                     DefaultTaxRate = 5.0m,
+                    LogoUrl = "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=150&q=80",
                     IsActive = true
                 };
                 context.Restaurants.Add(restaurant);
+                await context.SaveChangesAsync();
+            }
+            else if (restaurant.Name != "Brew & Bliss Coffee House")
+            {
+                restaurant.Name = "Brew & Bliss Coffee House";
+                restaurant.LogoUrl = "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=150&q=80";
                 await context.SaveChangesAsync();
             }
 
@@ -108,105 +115,119 @@ namespace MenuScan.Data
                 await context.SaveChangesAsync();
             }
 
-            // 6. Seed Categories & Menu Items
-            var existingCategories = await context.Categories.IgnoreQueryFilters()
+            // 6. Seed Categories & Rich Coffeehouse Menu Items
+            var categories = await context.Categories.IgnoreQueryFilters()
                 .Where(c => c.RestaurantId == restaurant.Id)
                 .ToListAsync();
 
-            if (!existingCategories.Any())
+            var catCoffee = categories.FirstOrDefault(c => c.Name == "Coffee");
+            if (catCoffee == null)
             {
-                var catStarters = new Category { RestaurantId = restaurant.Id, Name = "Starters & Appetizers", DisplayOrder = 1 };
-                var catMains = new Category { RestaurantId = restaurant.Id, Name = "Main Course", DisplayOrder = 2 };
-                var catBeverages = new Category { RestaurantId = restaurant.Id, Name = "Beverages & Shakes", DisplayOrder = 3 };
-                var catDesserts = new Category { RestaurantId = restaurant.Id, Name = "Desserts", DisplayOrder = 4 };
-
-                context.Categories.AddRange(catStarters, catMains, catBeverages, catDesserts);
-                await context.SaveChangesAsync();
-
-                var items = new List<MenuItem>
-                {
-                    new()
-                    {
-                        RestaurantId = restaurant.Id,
-                        CategoryId = catStarters.Id,
-                        Name = "Crispy Paneer Tikka",
-                        Description = "Cottage cheese marinated in tandoori spices and charred in clay oven",
-                        Price = 240.00m,
-                        IsVeg = true,
-                        IsAvailable = true,
-                        DisplayOrder = 1
-                    },
-                    new()
-                    {
-                        RestaurantId = restaurant.Id,
-                        CategoryId = catStarters.Id,
-                        Name = "Loaded Cheesy Nachos",
-                        Description = "Tortilla chips topped with jalapenos, salsa, beans, and melted cheddar sauce",
-                        Price = 210.00m,
-                        IsVeg = true,
-                        IsAvailable = true,
-                        DisplayOrder = 2
-                    },
-                    new()
-                    {
-                        RestaurantId = restaurant.Id,
-                        CategoryId = catMains.Id,
-                        Name = "Butter Paneer Masala & Naan Combo",
-                        Description = "Rich tomato cashew gravy paneer served with 2 butter garlic naans",
-                        Price = 320.00m,
-                        IsVeg = true,
-                        IsAvailable = true,
-                        DisplayOrder = 1
-                    },
-                    new()
-                    {
-                        RestaurantId = restaurant.Id,
-                        CategoryId = catMains.Id,
-                        Name = "Woodfired Margherita Pizza (10\")",
-                        Description = "San Marzano tomatoes, fresh mozzarella, basil, and extra virgin olive oil",
-                        Price = 290.00m,
-                        IsVeg = true,
-                        IsAvailable = true,
-                        DisplayOrder = 2
-                    },
-                    new()
-                    {
-                        RestaurantId = restaurant.Id,
-                        CategoryId = catBeverages.Id,
-                        Name = "Cold Brew Iced Coffee",
-                        Description = "Slow-steeped Arabica coffee served chilled over ice with vanilla cream",
-                        Price = 140.00m,
-                        IsVeg = true,
-                        IsAvailable = true,
-                        DisplayOrder = 1
-                    },
-                    new()
-                    {
-                        RestaurantId = restaurant.Id,
-                        CategoryId = catBeverages.Id,
-                        Name = "Fresh Mint Lemonade",
-                        Description = "Freshly squeezed lemon juice, crushed mint, rock salt, and soda",
-                        Price = 90.00m,
-                        IsVeg = true,
-                        IsAvailable = true,
-                        DisplayOrder = 2
-                    },
-                    new()
-                    {
-                        RestaurantId = restaurant.Id,
-                        CategoryId = catDesserts.Id,
-                        Name = "Sizzling Chocolate Brownie with Ice Cream",
-                        Description = "Warm fudge brownie served on a hot skillet with vanilla bean ice cream and melted chocolate",
-                        Price = 180.00m,
-                        IsVeg = true,
-                        IsAvailable = true,
-                        DisplayOrder = 1
-                    }
-                };
-
-                context.MenuItems.AddRange(items);
-                await context.SaveChangesAsync();
+                catCoffee = new Category { RestaurantId = restaurant.Id, Name = "Coffee", DisplayOrder = 1 };
+                context.Categories.Add(catCoffee);
             }
+
+            var catFood = categories.FirstOrDefault(c => c.Name == "Food & Sandwiches");
+            if (catFood == null)
+            {
+                catFood = new Category { RestaurantId = restaurant.Id, Name = "Food & Sandwiches", DisplayOrder = 2 };
+                context.Categories.Add(catFood);
+            }
+
+            var catPastry = categories.FirstOrDefault(c => c.Name == "Pastries & Desserts");
+            if (catPastry == null)
+            {
+                catPastry = new Category { RestaurantId = restaurant.Id, Name = "Pastries & Desserts", DisplayOrder = 3 };
+                context.Categories.Add(catPastry);
+            }
+
+            var catDrinks = categories.FirstOrDefault(c => c.Name == "Cold Drinks & Shakes");
+            if (catDrinks == null)
+            {
+                catDrinks = new Category { RestaurantId = restaurant.Id, Name = "Cold Drinks & Shakes", DisplayOrder = 4 };
+                context.Categories.Add(catDrinks);
+            }
+
+            await context.SaveChangesAsync();
+
+            var existingItems = await context.MenuItems.IgnoreQueryFilters()
+                .Where(m => m.RestaurantId == restaurant.Id)
+                .ToListAsync();
+
+            var targetItems = new List<(string Name, Guid CatId, string Desc, decimal Price, bool IsVeg, string Img, int Order)>
+            {
+                // Coffee
+                ("Cappuccino", catCoffee.Id, "Smooth espresso with perfectly frothed steamed milk and delicate foam art", 150.00m, true,
+                 "https://images.unsplash.com/photo-1572442388796-11668a67e53d?auto=format&fit=crop&w=600&q=80", 1),
+
+                ("Coffee Latte", catCoffee.Id, "Rich espresso poured over silky steamed milk with subtle caramel notes", 160.00m, true,
+                 "https://images.unsplash.com/photo-1517701604599-bb29b565090c?auto=format&fit=crop&w=600&q=80", 2),
+
+                ("Americano", catCoffee.Id, "Bold espresso shots lengthened with pure hot water for a clean, rich taste", 130.00m, true,
+                 "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=600&q=80", 3),
+
+                ("V60 Artisan Pour Over", catCoffee.Id, "Single origin Arabica coffee hand-dripped over ice with bright fruity notes", 190.00m, true,
+                 "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=600&q=80", 4),
+
+                // Food
+                ("Grilled Chicken Club Sandwich", catFood.Id, "Grilled chicken breast, crispy bacon, farm egg, lettuce and herb mayo", 240.00m, false,
+                 "https://images.unsplash.com/photo-1528735602780-2552fd46c7af?auto=format&fit=crop&w=600&q=80", 1),
+
+                ("Loaded Cheesy Nachos", catFood.Id, "Crisp corn tortilla chips topped with melted cheddar, jalapenos, and salsa", 210.00m, true,
+                 "https://images.unsplash.com/photo-1513456852971-30c0b8199d4d?auto=format&fit=crop&w=600&q=80", 2),
+
+                ("Woodfired Margherita Pizza", catFood.Id, "San Marzano tomato sauce, fresh buffalo mozzarella, and fragrant basil", 290.00m, true,
+                 "https://images.unsplash.com/photo-1574071318508-1cdbab80d002?auto=format&fit=crop&w=600&q=80", 3),
+
+                ("Crispy Paneer Tikka", catFood.Id, "Tandoori charred paneer cubes with mint coriander chutney", 230.00m, true,
+                 "https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?auto=format&fit=crop&w=600&q=80", 4),
+
+                // Pastries
+                ("Chocolate Muffin", catPastry.Id, "Rich, moist and perfectly baked chocolate chip muffin with dark cocoa", 120.00m, true,
+                 "https://images.unsplash.com/photo-1607958996333-41aef7caefaa?auto=format&fit=crop&w=600&q=80", 1),
+
+                ("Butter Croissant", catPastry.Id, "Flaky golden French pastry layered with rich Normandy butter", 110.00m, true,
+                 "https://images.unsplash.com/photo-1555507036-ab1f4038808a?auto=format&fit=crop&w=600&q=80", 2),
+
+                ("Sizzling Chocolate Brownie", catPastry.Id, "Warm walnut fudge brownie served with vanilla ice cream and chocolate drizzle", 180.00m, true,
+                 "https://images.unsplash.com/photo-1564355808539-22fda35bed7e?auto=format&fit=crop&w=600&q=80", 3),
+
+                // Cold Drinks
+                ("Cold Brew Iced Coffee", catDrinks.Id, "Slow-steeped Arabica coffee served chilled over ice with fresh cream", 140.00m, true,
+                 "https://images.unsplash.com/photo-1517701604599-bb29b565090c?auto=format&fit=crop&w=600&q=80", 1),
+
+                ("Fresh Mint Lemonade", catDrinks.Id, "Fresh lemon juice, crushed spearmint, rock salt, and sparkling soda", 90.00m, true,
+                 "https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?auto=format&fit=crop&w=600&q=80", 2)
+            };
+
+            foreach (var t in targetItems)
+            {
+                var existing = existingItems.FirstOrDefault(i => i.Name == t.Name);
+                if (existing != null)
+                {
+                    existing.ImageUrl = t.Img;
+                    existing.Description = t.Desc;
+                    existing.Price = t.Price;
+                    existing.IsVeg = t.IsVeg;
+                }
+                else
+                {
+                    context.MenuItems.Add(new MenuItem
+                    {
+                        RestaurantId = restaurant.Id,
+                        CategoryId = t.CatId,
+                        Name = t.Name,
+                        Description = t.Desc,
+                        Price = t.Price,
+                        IsVeg = t.IsVeg,
+                        ImageUrl = t.Img,
+                        IsAvailable = true,
+                        DisplayOrder = t.Order
+                    });
+                }
+            }
+
+            await context.SaveChangesAsync();
         }
     }
 }

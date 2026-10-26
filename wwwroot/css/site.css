@@ -1,31 +1,379 @@
-html {
-  font-size: 14px;
-}
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
 
-@media (min-width: 768px) {
-  html {
-    font-size: 16px;
-  }
-}
-
-.btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
-  box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
-}
-
-html {
-  position: relative;
-  min-height: 100%;
+:root {
+    --cafe-bg: #FAF5F0;
+    --cafe-surface: #FFFFFF;
+    --cafe-sidebar-bg: #F4EBE2;
+    --cafe-primary: #B3683C;
+    --cafe-primary-hover: #98542D;
+    --cafe-primary-light: #FBEFE7;
+    --cafe-primary-subtle: #F6E2D5;
+    --cafe-dark: #2A1D17;
+    --cafe-text: #3D2D24;
+    --cafe-muted: #8E7C73;
+    --cafe-border: #EFE4D8;
+    --cafe-card-border: #F0E6DC;
+    --cafe-pill-active: #B3683C;
+    --cafe-pill-bg: #FFFFFF;
+    --cafe-bestseller: #DF6C28;
+    --cafe-chef-pick: #4A6B56;
+    --cafe-shadow-sm: 0 4px 12px rgba(100, 60, 30, 0.04);
+    --cafe-shadow: 0 10px 28px rgba(100, 60, 30, 0.08);
+    --cafe-shadow-lg: 0 16px 40px rgba(70, 40, 20, 0.12);
 }
 
 body {
-  margin-bottom: 60px;
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: var(--cafe-bg);
+    color: var(--cafe-text);
+    -webkit-font-smoothing: antialiased;
 }
 
-.form-floating > .form-control-plaintext::placeholder, .form-floating > .form-control::placeholder {
-  color: var(--bs-secondary-color);
-  text-align: end;
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: #DFCFC3;
+    border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #C4AF9F;
 }
 
-.form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
-  text-align: start;
+/* Typography & Links */
+h1, h2, h3, h4, h5, h6 {
+    color: var(--cafe-dark);
+    font-weight: 700;
+}
+
+a {
+    color: var(--cafe-primary);
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+a:hover {
+    color: var(--cafe-primary-hover);
+}
+
+/* Primary Button Styling */
+.btn-cafe-primary {
+    background-color: var(--cafe-primary);
+    color: #FFFFFF;
+    border: none;
+    border-radius: 50px;
+    font-weight: 600;
+    padding: 10px 24px;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 4px 14px rgba(179, 104, 60, 0.25);
+}
+.btn-cafe-primary:hover, .btn-cafe-primary:focus {
+    background-color: var(--cafe-primary-hover);
+    color: #FFFFFF;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(179, 104, 60, 0.35);
+}
+
+.btn-cafe-outline {
+    background-color: transparent;
+    color: var(--cafe-primary);
+    border: 1.5px solid var(--cafe-border);
+    border-radius: 50px;
+    font-weight: 600;
+    padding: 8px 20px;
+    transition: all 0.2s ease;
+}
+.btn-cafe-outline:hover {
+    background-color: var(--cafe-primary-light);
+    border-color: var(--cafe-primary);
+    color: var(--cafe-primary);
+}
+
+/* Cafe Search Input */
+.cafe-search-box {
+    background-color: #FFFFFF;
+    border: 1.5px solid var(--cafe-border);
+    border-radius: 50px;
+    padding: 12px 24px 12px 48px;
+    color: var(--cafe-dark);
+    font-size: 15px;
+    box-shadow: var(--cafe-shadow-sm);
+    transition: all 0.25s ease;
+}
+.cafe-search-box:focus {
+    border-color: var(--cafe-primary);
+    box-shadow: 0 0 0 4px rgba(179, 104, 60, 0.12);
+    outline: none;
+}
+.cafe-search-icon {
+    position: absolute;
+    left: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--cafe-muted);
+    font-size: 16px;
+}
+
+/* Category Filter Pills */
+.cafe-cat-pill {
+    background: #FFFFFF;
+    color: var(--cafe-text);
+    border: 1.5px solid var(--cafe-border);
+    padding: 9px 24px;
+    border-radius: 50px;
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: var(--cafe-shadow-sm);
+}
+.cafe-cat-pill:hover {
+    border-color: var(--cafe-primary-subtle);
+    background: var(--cafe-primary-light);
+    color: var(--cafe-primary);
+}
+.cafe-cat-pill.active {
+    background: var(--cafe-primary);
+    color: #FFFFFF !important;
+    border-color: var(--cafe-primary);
+    box-shadow: 0 4px 14px rgba(179, 104, 60, 0.3);
+}
+
+/* Circular Category Icons (Mobile / Top Bar) */
+.cafe-circle-icon {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #FFFFFF;
+    border: 1.5px solid var(--cafe-border);
+    box-shadow: var(--cafe-shadow-sm);
+    color: var(--cafe-text);
+    font-size: 22px;
+    margin: 0 auto 8px auto;
+    cursor: pointer;
+    transition: all 0.25s ease;
+}
+.cafe-circle-icon:hover, .cafe-circle-item.active .cafe-circle-icon {
+    background: var(--cafe-primary);
+    color: #FFFFFF;
+    border-color: var(--cafe-primary);
+    transform: scale(1.06);
+    box-shadow: 0 6px 16px rgba(179, 104, 60, 0.28);
+}
+.cafe-circle-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--cafe-text);
+    text-align: center;
+}
+.cafe-circle-item.active .cafe-circle-label {
+    color: var(--cafe-primary);
+    font-weight: 700;
+}
+
+/* Menu Product Card */
+.cafe-product-card {
+    background: #FFFFFF;
+    border-radius: 24px;
+    border: 1.5px solid var(--cafe-card-border);
+    padding: 16px;
+    box-shadow: var(--cafe-shadow);
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    overflow: hidden;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+.cafe-product-card:hover {
+    transform: translateY(-5px);
+    box-shadow: var(--cafe-shadow-hover);
+    border-color: var(--cafe-primary-subtle);
+}
+
+/* Image container */
+.cafe-card-img-wrap {
+    width: 100%;
+    height: 180px;
+    border-radius: 18px;
+    overflow: hidden;
+    position: relative;
+    background: #F3EAE1;
+}
+.cafe-card-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.4s ease;
+}
+.cafe-product-card:hover .cafe-card-img {
+    transform: scale(1.05);
+}
+
+/* Card Badges */
+.cafe-badge {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    padding: 4px 10px;
+    border-radius: 50px;
+    text-transform: uppercase;
+}
+.cafe-badge-bestseller {
+    background: #DF6C28;
+    color: #FFFFFF;
+}
+.cafe-badge-chef {
+    background: #2D6049;
+    color: #FFFFFF;
+}
+.cafe-badge-popular {
+    background: #B3683C;
+    color: #FFFFFF;
+}
+
+/* Size Pills inside Card */
+.cafe-size-pill {
+    padding: 4px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 50px;
+    border: 1px solid var(--cafe-border);
+    background: #FFFFFF;
+    color: var(--cafe-muted);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.cafe-size-pill.active {
+    background: var(--cafe-primary-light);
+    color: var(--cafe-primary);
+    border-color: var(--cafe-primary);
+}
+
+/* Stepper Controls [- 1 +] */
+.cafe-stepper {
+    display: inline-flex;
+    align-items: center;
+    background: var(--cafe-primary-light);
+    border: 1px solid var(--cafe-primary-subtle);
+    border-radius: 50px;
+    padding: 2px 4px;
+}
+.cafe-stepper-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--cafe-primary);
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.cafe-stepper-btn:hover {
+    background: #FFFFFF;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+.cafe-stepper-val {
+    min-width: 24px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--cafe-dark);
+}
+
+/* Right Side Cart Summary Panel (Desktop) */
+.cafe-cart-panel {
+    background: #FFFFFF;
+    border-radius: 28px;
+    border: 1.5px solid var(--cafe-card-border);
+    padding: 24px;
+    box-shadow: var(--cafe-shadow);
+    position: sticky;
+    top: 24px;
+}
+
+/* Service Type Selector (Delivery / Dine in / Take away) */
+.cafe-service-pill {
+    padding: 8px 12px;
+    border-radius: 50px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid var(--cafe-border);
+    background: #FFFFFF;
+    color: var(--cafe-muted);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex: 1;
+    text-align: center;
+}
+.cafe-service-pill.active {
+    background: var(--cafe-primary-light);
+    color: var(--cafe-primary);
+    border-color: var(--cafe-primary);
+    font-weight: 700;
+}
+
+/* Promo Banner (Mobile / Hero) */
+.cafe-promo-banner {
+    background: linear-gradient(135deg, #241812 0%, #3D291F 100%);
+    color: #FFFFFF;
+    border-radius: 24px;
+    padding: 28px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 12px 32px rgba(42, 29, 23, 0.25);
+}
+.cafe-promo-banner h3 {
+    color: #FFFFFF;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+}
+.cafe-promo-banner p {
+    color: #D6C2B4;
+    font-size: 14px;
+    max-width: 260px;
+}
+
+/* Navbar & Sidebar */
+.cafe-sidebar {
+    background: var(--cafe-sidebar-bg);
+    border-radius: 28px;
+    padding: 24px;
+    min-height: 85vh;
+}
+.cafe-sidebar-nav-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 18px;
+    border-radius: 50px;
+    color: var(--cafe-text);
+    font-weight: 600;
+    font-size: 15px;
+    margin-bottom: 6px;
+    transition: all 0.2s ease;
+}
+.cafe-sidebar-nav-item:hover {
+    background: rgba(255, 255, 255, 0.6);
+    color: var(--cafe-primary);
+}
+.cafe-sidebar-nav-item.active {
+    background: #FFFFFF;
+    color: var(--cafe-primary);
+    box-shadow: var(--cafe-shadow-sm);
+    font-weight: 700;
 }

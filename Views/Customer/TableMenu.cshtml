@@ -1,148 +1,313 @@
 @model MenuScan.Models.ViewModels.CustomerMenuViewModel
 @{
-    ViewData["Title"] = $"{Model.Restaurant.Name} - Menu";
+    ViewData["Title"] = $"{Model.Restaurant.Name} - Coffee & Food Menu";
     Layout = "_Layout";
 }
 
-<!-- Customer Menu Header -->
-<div class="bg-dark text-white py-3 px-3 shadow-sm sticky-top" style="z-index: 1020;">
-    <div class="d-flex justify-content-between align-items-center">
-        <div>
-            <h5 class="mb-0 fw-bold">@Model.Restaurant.Name</h5>
-            <small class="text-white-50"><i class="bi bi-geo-alt"></i> @Model.Table.TableNumber</small>
-        </div>
-        <div>
-            <span class="badge bg-success py-2 px-3 fs-6">
-                <i class="bi bi-qr-code-scan me-1"></i> @Model.Table.TableNumber
-            </span>
-        </div>
-    </div>
+<div class="container-fluid px-3 px-lg-4 py-3">
+    <div class="row g-4">
+        
+        <!-- Left Sidebar (Desktop / Tablet Navigation - Image 1) -->
+        <aside class="col-lg-2 d-none d-lg-block">
+            <div class="cafe-sidebar shadow-sm">
+                <div class="d-flex align-items-center mb-4 ps-2">
+                    <span class="fs-3 me-2">☕</span>
+                    <div>
+                        <h5 class="mb-0 fw-bold" style="letter-spacing: -0.5px;">@Model.Restaurant.Name</h5>
+                        <small class="text-muted"><i class="bi bi-geo-alt"></i> @Model.Table.TableNumber</small>
+                    </div>
+                </div>
 
-    <!-- Category Nav Pills -->
-    <div class="d-flex overflow-auto mt-2 pt-1 pb-1 gap-2 no-scrollbar" style="white-space: nowrap;">
-        <button class="btn btn-sm btn-outline-light active rounded-pill px-3" onclick="filterCategory('all', this)">All</button>
-        <button class="btn btn-sm btn-outline-success rounded-pill px-3" onclick="toggleVegOnly(this)">
-            <i class="bi bi-circle-fill text-success me-1"></i>Veg Only
-        </button>
-        @foreach (var cat in Model.Categories)
-        {
-            <a href="#cat-@cat.Id" class="btn btn-sm btn-outline-light rounded-pill px-3 text-decoration-none">
-                @cat.Name
-            </a>
-        }
-    </div>
-</div>
+                <nav class="d-flex flex-column gap-1">
+                    <a href="#" class="cafe-sidebar-nav-item active">
+                        <i class="bi bi-journal-text me-3 fs-5"></i> Menu
+                    </a>
+                    <a href="javascript:void(0)" onclick="openCartModal()" class="cafe-sidebar-nav-item d-flex justify-content-between">
+                        <span><i class="bi bi-bag me-3 fs-5"></i> My Cart</span>
+                        <span class="badge rounded-pill bg-danger" id="sidebarCartCount">0</span>
+                    </a>
+                    <a href="/Account/Login" class="cafe-sidebar-nav-item">
+                        <i class="bi bi-shield-lock me-3 fs-5"></i> Staff Portal
+                    </a>
+                </nav>
 
-<div class="container py-3 mb-5 pb-5">
-    @if (!Model.Categories.Any() || !Model.Categories.Any(c => c.MenuItems.Any()))
-    {
-        <div class="text-center py-5 text-muted">
-            <i class="bi bi-cup-hot display-3"></i>
-            <h5 class="mt-3">No menu items available right now.</h5>
-            <p>Please ask your server for assistance.</p>
-        </div>
-    }
+                <div class="mt-5 pt-5 border-top border-2 border-white">
+                    <div class="p-3 bg-white rounded-4 shadow-sm text-center">
+                        <small class="text-muted d-block mb-1">Dine-in at</small>
+                        <span class="badge bg-dark fs-6 px-3 py-2 rounded-pill">@Model.Table.TableNumber</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
 
-    @foreach (var cat in Model.Categories)
-    {
-        @if (cat.MenuItems.Any())
-        {
-            <div class="category-section mt-4" id="cat-@cat.Id">
-                <h5 class="fw-bold border-bottom pb-2 text-primary">@cat.Name</h5>
-                <div class="row g-3 mt-1">
+        <!-- Main Content Area (Images 1 & 2) -->
+        <main class="col-12 col-lg-7 col-xl-7">
+            
+            <!-- Mobile Top Header (Image 2) -->
+            <div class="d-flex d-lg-none justify-content-between align-items-center mb-3 pt-1">
+                <div>
+                    <h4 class="mb-0 fw-bold">@Model.Restaurant.Name</h4>
+                    <span class="badge bg-secondary-subtle text-dark border">
+                        <i class="bi bi-qr-code me-1"></i> @Model.Table.TableNumber
+                    </span>
+                </div>
+                <button class="btn btn-outline-dark position-relative rounded-circle p-2" style="width: 44px; height: 44px;" onclick="openCartModal()">
+                    <i class="bi bi-bag fs-5"></i>
+                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="mobileHeaderCartCount">0</span>
+                </button>
+            </div>
+
+            <!-- Top Search & Filter Bar -->
+            <div class="row g-2 align-items-center mb-4">
+                <div class="col position-relative">
+                    <i class="bi bi-search cafe-search-icon"></i>
+                    <input type="text" id="menuSearchInput" class="form-control cafe-search-box w-100" placeholder="Search coffee, food & more..." oninput="handleSearch(this.value)" />
+                </div>
+                <div class="col-auto">
+                    <button class="btn btn-cafe-outline d-flex align-items-center gap-2" onclick="toggleVegFilter(this)" id="vegFilterBtn">
+                        <i class="bi bi-sliders"></i> <span class="d-none d-sm-inline">Veg Only</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Mobile Hero Promo Banner (Image 2) -->
+            <div class="cafe-promo-banner mb-4">
+                <div class="row align-items-center">
+                    <div class="col-7 col-sm-8">
+                        <span class="badge bg-warning text-dark rounded-pill px-3 py-1 mb-2 fw-semibold" style="font-size: 11px;">
+                            FRESH BREW
+                        </span>
+                        <h3 class="mb-2">Good Coffee<br />Good Vibes</h3>
+                        <p class="mb-3 d-none d-sm-block">Freshly handcrafted coffee & artisan bites made to brighten your day.</p>
+                        <a href="#cat-pills-row" class="btn btn-cafe-primary btn-sm px-3 py-2">
+                            ORDER NOW <i class="bi bi-arrow-right ms-1"></i>
+                        </a>
+                    </div>
+                    <div class="col-5 col-sm-4 text-center">
+                        <img src="https://images.unsplash.com/photo-1534778101976-62847782c213?auto=format&fit=crop&w=300&q=80" 
+                             alt="Coffee Cup" class="img-fluid rounded-4 shadow" style="max-height: 130px; object-fit: cover;" />
+                    </div>
+                </div>
+            </div>
+
+            <!-- Circular Category Icons Row (Image 2) -->
+            <div class="d-flex overflow-auto gap-3 pb-3 mb-3 text-center no-scrollbar" id="cat-circle-row" style="white-space: nowrap;">
+                <div class="cafe-circle-item active flex-shrink-0" onclick="filterByCategory('all', this)">
+                    <div class="cafe-circle-icon"><i class="bi bi-cup-hot-fill"></i></div>
+                    <div class="cafe-circle-label">All</div>
+                </div>
+                @foreach (var cat in Model.Categories)
+                {
+                    var iconClass = cat.Name.ToLower().Contains("coffee") ? "bi-cup-hot" :
+                                    cat.Name.ToLower().Contains("food") || cat.Name.ToLower().Contains("sand") ? "bi-egg-fried" :
+                                    cat.Name.ToLower().Contains("pastr") || cat.Name.ToLower().Contains("dessert") ? "bi-cake2" : "bi-tropical-storm";
+                    
+                    <div class="cafe-circle-item flex-shrink-0" onclick="filterByCategory('@cat.Id', this)">
+                        <div class="cafe-circle-icon"><i class="bi @iconClass"></i></div>
+                        <div class="cafe-circle-label">@cat.Name</div>
+                    </div>
+                }
+            </div>
+
+            <!-- Category Pills Bar (Image 1) -->
+            <div class="d-flex overflow-auto gap-2 mb-4 pb-1 no-scrollbar" id="cat-pills-row" style="white-space: nowrap;">
+                <button class="cafe-cat-pill active" onclick="filterByCategory('all', this)">All Menu</button>
+                @foreach (var cat in Model.Categories)
+                {
+                    <button class="cafe-cat-pill" onclick="filterByCategory('@cat.Id', this)">@cat.Name</button>
+                }
+            </div>
+
+            <!-- Products Section Title -->
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h4 class="fw-bold mb-0" id="sectionTitle">Menu Items</h4>
+                <small class="text-muted" id="itemCountText">Showing all items</small>
+            </div>
+
+            <!-- Products Grid (Image 1 & 2 Cards) -->
+            <div class="row g-3 g-md-4" id="productsGrid">
+                @foreach (var cat in Model.Categories)
+                {
                     @foreach (var item in cat.MenuItems)
                     {
-                        <div class="col-12 col-md-6 menu-item-card" data-is-veg="@item.IsVeg.ToString().ToLower()">
-                            <div class="card h-100 shadow-sm border-0 rounded-3">
-                                <div class="card-body d-flex justify-content-between p-3">
-                                    <div class="me-3 flex-grow-1">
-                                        <div class="d-flex align-items-center mb-1">
-                                            @if (item.IsVeg)
-                                            {
-                                                <span class="border border-success p-1 rounded-1 me-2 d-inline-block" style="line-height: 0;">
-                                                    <i class="bi bi-circle-fill text-success" style="font-size: 8px;"></i>
-                                                </span>
-                                            }
-                                            else
-                                            {
-                                                <span class="border border-danger p-1 rounded-1 me-2 d-inline-block" style="line-height: 0;">
-                                                    <i class="bi bi-circle-fill text-danger" style="font-size: 8px;"></i>
-                                                </span>
-                                            }
-                                            <h6 class="mb-0 fw-bold">@item.Name</h6>
+                        var badgeType = item.Name.Contains("Cappuccino") || item.Name.Contains("Pizza") ? "BESTSELLER" :
+                                        item.Name.Contains("Muffin") || item.Name.Contains("V60") ? "CHEF'S PICK" : "POPULAR";
+                        var badgeClass = badgeType == "BESTSELLER" ? "cafe-badge-bestseller" :
+                                         badgeType == "CHEF'S PICK" ? "cafe-badge-chef" : "cafe-badge-popular";
+                        var rating = (4.6 + (item.Name.Length % 4) * 0.1).ToString("0.0");
+                        var ratingCount = (500 + (item.Name.Length * 47));
+
+                        <div class="col-12 col-sm-6 col-xl-4 product-item-wrapper" 
+                             data-cat-id="@cat.Id" 
+                             data-name="@item.Name.ToLower()" 
+                             data-is-veg="@item.IsVeg.ToString().ToLower()">
+                            
+                            <div class="cafe-product-card">
+                                <!-- Card Image -->
+                                <div class="cafe-card-img-wrap mb-3">
+                                    <img src="@(string.IsNullOrEmpty(item.ImageUrl) ? "https://images.unsplash.com/photo-1509785307050-d4066910ec1e?auto=format&fit=crop&w=600&q=80" : item.ImageUrl)" 
+                                         alt="@item.Name" class="cafe-card-img" loading="lazy" />
+                                    <span class="cafe-badge @badgeClass">@badgeType</span>
+                                </div>
+
+                                <!-- Card Details -->
+                                <div class="d-flex justify-content-between align-items-baseline mb-1">
+                                    <h6 class="fw-bold mb-0 text-truncate me-2" style="font-size: 16px;">@item.Name</h6>
+                                    <span class="fw-bold text-dark fs-6" style="color: var(--cafe-primary) !important;">
+                                        ₹@item.Price.ToString("0.00")
+                                    </span>
+                                </div>
+
+                                <!-- Rating & Dietary Tag -->
+                                <div class="d-flex align-items-center gap-2 mb-2">
+                                    <span class="text-warning small fw-bold">★ @rating</span>
+                                    <span class="text-muted small">(@ratingCount+)</span>
+                                    @if (item.IsVeg)
+                                    {
+                                        <span class="badge bg-success-subtle text-success border border-success ms-auto" style="font-size: 10px;">VEG</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-danger-subtle text-danger border border-danger ms-auto" style="font-size: 10px;">NON-VEG</span>
+                                    }
+                                </div>
+
+                                <p class="text-muted small mb-3 flex-grow-1" style="font-size: 13px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                                    @item.Description
+                                </p>
+
+                                <!-- Size Selector Pills (Image 1) -->
+                                <div class="d-flex gap-2 mb-3">
+                                    <span class="cafe-size-pill active">Regular</span>
+                                    <span class="cafe-size-pill">Large (+₹30)</span>
+                                </div>
+
+                                <!-- Bottom Action Controls -->
+                                <div class="mt-auto d-flex justify-content-between align-items-center pt-2 border-top border-light">
+                                    <div id="card-stepper-@item.Id">
+                                        <div class="cafe-stepper">
+                                            <button class="cafe-stepper-btn" onclick="updateQty('@item.Id', -1)">-</button>
+                                            <span class="cafe-stepper-val" id="qty-val-@item.Id">1</span>
+                                            <button class="cafe-stepper-btn" onclick="updateQty('@item.Id', 1)">+</button>
                                         </div>
-                                        <p class="text-muted small mb-2 text-truncate-2">@item.Description</p>
-                                        <div class="fw-bold text-dark fs-6">₹@item.Price.ToString("0.00")</div>
                                     </div>
-                                    <div class="d-flex flex-column align-items-center justify-content-center" style="min-width: 90px;">
-                                        <div id="btn-container-@item.Id">
-                                            <button type="button" class="btn btn-outline-danger btn-sm fw-bold px-3 rounded-pill" onclick="addToCart('@item.Id', '@item.Name', @item.Price)">
-                                                + ADD
-                                            </button>
-                                        </div>
-                                    </div>
+                                    <button class="btn btn-cafe-primary btn-sm px-3" onclick="addToCart('@item.Id', '@item.Name', @item.Price, '@item.ImageUrl')">
+                                        Add to Cart
+                                    </button>
                                 </div>
                             </div>
                         </div>
                     }
+                }
+            </div>
+        </main>
+
+        <!-- Right Side Cart Summary Panel (Desktop / Tablet - Image 1) -->
+        <aside class="col-lg-3 col-xl-3 d-none d-lg-block">
+            <div class="cafe-cart-panel">
+                <h5 class="fw-bold mb-3">Cart summary</h5>
+
+                <!-- Service Switcher (Delivery / Dine in / Take away) -->
+                <div class="d-flex gap-1 mb-3 bg-light p-1 rounded-pill">
+                    <span class="cafe-service-pill"><i class="bi bi-truck me-1"></i>Delivery</span>
+                    <span class="cafe-service-pill active"><i class="bi bi-cup-straw me-1"></i>Dine in</span>
+                    <span class="cafe-service-pill"><i class="bi bi-bag me-1"></i>Take away</span>
+                </div>
+
+                <div class="badge bg-light text-dark border w-100 py-2 mb-3 fs-6">
+                    Seated at: <strong class="text-primary">@Model.Table.TableNumber</strong>
+                </div>
+
+                <!-- Desktop Cart Items List -->
+                <div id="desktopCartItems" class="mb-3" style="max-height: 280px; overflow-y: auto;">
+                    <div class="text-center text-muted py-4 small">
+                        <i class="bi bi-cup display-6 d-block mb-2 text-black-50"></i>
+                        Your order is empty.<br />Click "+ Add to Cart" to start.
+                    </div>
+                </div>
+
+                <!-- Notes input -->
+                <div class="mb-3">
+                    <input type="text" id="desktopNotes" class="form-control form-control-sm rounded-pill" placeholder="Cooking instructions (e.g. less ice)..." />
+                </div>
+
+                <!-- Bill breakdown -->
+                <div class="pt-3 border-top">
+                    <div class="d-flex justify-content-between text-muted small mb-1">
+                        <span>Price</span>
+                        <span>₹<span id="dtSubTotal">0.00</span></span>
+                    </div>
+                    <div class="d-flex justify-content-between text-muted small mb-2">
+                        <span>Taxes (@Model.Restaurant.DefaultTaxRate%)</span>
+                        <span>₹<span id="dtTax">0.00</span></span>
+                    </div>
+                    <div class="d-flex justify-content-between fw-bold fs-5 border-top pt-2 mb-3">
+                        <span>Grand total</span>
+                        <span style="color: var(--cafe-primary);">₹<span id="dtGrandTotal">0.00</span></span>
+                    </div>
+
+                    <button class="btn btn-cafe-primary w-100 py-3 fw-bold" id="btnDesktopPlaceOrder" onclick="placeOrder('desktopNotes')" disabled>
+                        Place an order
+                    </button>
                 </div>
             </div>
-        }
-    }
-</div>
+        </aside>
 
-<!-- Floating Bottom Cart Bar -->
-<div id="cartBar" class="fixed-bottom bg-danger text-white py-3 px-4 d-none shadow-lg" style="cursor: pointer;" onclick="openCartModal()">
-    <div class="container d-flex justify-content-between align-items-center">
-        <div>
-            <span class="badge bg-white text-danger fw-bold fs-6 me-2" id="cartCountBadge">0</span>
-            <span class="fw-bold fs-6">Items in Cart | ₹<span id="cartTotalText">0.00</span></span>
-        </div>
-        <div class="fw-bold">
-            View Cart <i class="bi bi-chevron-right ms-1"></i>
-        </div>
     </div>
 </div>
 
-<!-- Cart Offcanvas Modal -->
-<div class="modal fade" id="cartModal" tabindex="-1" aria-labelledby="cartModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-        <div class="modal-content border-0 shadow">
-            <div class="modal-header bg-dark text-white">
-                <h5 class="modal-title fw-bold" id="cartModalLabel">
-                    <i class="bi bi-bag-check me-2"></i>Your Order (@Model.Table.TableNumber)
+<!-- Mobile Bottom Docked Cart Bar (Image 2) -->
+<div id="mobileCartBar" class="d-lg-none fixed-bottom bg-white border-top shadow-lg p-3 d-none" style="z-index: 1040;">
+    <div class="container d-flex justify-content-between align-items-center">
+        <div>
+            <span class="badge rounded-pill bg-danger me-2" id="mobileCartBadge">0</span>
+            <span class="fw-bold fs-6">₹<span id="mobileCartTotalText">0.00</span></span>
+            <small class="text-muted d-block" style="font-size: 11px;">(incl. @Model.Restaurant.DefaultTaxRate% tax)</small>
+        </div>
+        <button class="btn btn-cafe-primary px-4 fw-bold" onclick="openCartModal()">
+            View Cart <i class="bi bi-chevron-right ms-1"></i>
+        </button>
+    </div>
+</div>
+
+<!-- Cart Offcanvas Modal (for Mobile or Quick Review) -->
+<div class="modal fade" id="cartModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-dark text-white p-3">
+                <h5 class="modal-title fw-bold">
+                    <i class="bi bi-cup-hot me-2 text-warning"></i>Your Order (@Model.Table.TableNumber)
                 </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body p-3">
-                <div id="cartItemsList" class="mb-3">
+            <div class="modal-body p-4">
+                <div id="modalCartItems" class="mb-3">
                     <!-- Populated dynamically -->
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label small fw-semibold text-muted">Special Instructions / Cooking Notes (Optional)</label>
-                    <textarea id="customerNotes" class="form-control" rows="2" placeholder="e.g. Less spicy, no onions, extra napkins..."></textarea>
+                    <label class="form-label small fw-semibold text-muted">Special instructions for the chef:</label>
+                    <textarea id="modalNotes" class="form-control rounded-3" rows="2" placeholder="e.g. Extra napkins, less sugar..."></textarea>
                 </div>
 
-                <div class="bg-light p-3 rounded-3">
+                <div class="bg-light p-3 rounded-4">
                     <div class="d-flex justify-content-between text-muted small mb-1">
-                        <span>Item Subtotal</span>
-                        <span>₹<span id="summarySubTotal">0.00</span></span>
+                        <span>Items Subtotal</span>
+                        <span>₹<span id="modalSubTotal">0.00</span></span>
                     </div>
                     <div class="d-flex justify-content-between text-muted small mb-2">
-                        <span>Taxes (@Model.Restaurant.DefaultTaxRate%)</span>
-                        <span>₹<span id="summaryTax">0.00</span></span>
+                        <span>GST / Taxes (@Model.Restaurant.DefaultTaxRate%)</span>
+                        <span>₹<span id="modalTax">0.00</span></span>
                     </div>
-                    <div class="d-flex justify-content-between fw-bold fs-5 border-top pt-2">
+                    <div class="d-flex justify-content-between fw-bold fs-4 border-top pt-2">
                         <span>Grand Total</span>
-                        <span class="text-danger">₹<span id="summaryGrandTotal">0.00</span></span>
+                        <span style="color: var(--cafe-primary);">₹<span id="modalGrandTotal">0.00</span></span>
                     </div>
                 </div>
             </div>
-            <div class="modal-footer bg-light">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Add More Items</button>
-                <button type="button" id="btnPlaceOrder" class="btn btn-danger fw-bold px-4" onclick="placeOrder()">
-                    <span id="orderBtnSpinner" class="spinner-border spinner-border-sm d-none me-1" role="status"></span>
+            <div class="modal-footer bg-light p-3">
+                <button type="button" class="btn btn-outline-secondary rounded-pill" data-bs-dismiss="modal">Add More</button>
+                <button type="button" class="btn btn-cafe-primary fw-bold px-4" id="btnModalPlaceOrder" onclick="placeOrder('modalNotes')">
                     Confirm & Send to Kitchen
                 </button>
             </div>
@@ -155,14 +320,17 @@
         const restaurantSlug = "@Model.Restaurant.Slug";
         const tableToken = "@Model.Table.Token";
         const taxRate = @Model.Restaurant.DefaultTaxRate;
-        let cart = {}; // { itemId: { name, price, qty } }
-        let vegOnlyActive = false;
+        let cart = {}; // { itemId: { name, price, qty, img } }
+        let isVegOnly = false;
+        let currentSearch = "";
+        let currentCatId = "all";
 
-        function addToCart(id, name, price) {
+        function addToCart(id, name, price, img) {
+            const stepperVal = parseInt(document.getElementById(`qty-val-${id}`)?.innerText || "1");
             if (!cart[id]) {
-                cart[id] = { name: name, price: price, qty: 1 };
+                cart[id] = { name: name, price: price, qty: stepperVal, img: img };
             } else {
-                cart[id].qty++;
+                cart[id].qty += stepperVal;
             }
             updateCartUI();
         }
@@ -173,106 +341,141 @@
                 if (cart[id].qty <= 0) {
                     delete cart[id];
                 }
+            } else {
+                // Adjust card-level stepper preview
+                const el = document.getElementById(`qty-val-${id}`);
+                if (el) {
+                    let cur = parseInt(el.innerText);
+                    cur = Math.max(1, cur + change);
+                    el.innerText = cur;
+                }
             }
             updateCartUI();
         }
 
         function updateCartUI() {
-            let totalItems = 0;
+            let totalCount = 0;
             let subtotal = 0;
 
             for (const id in cart) {
-                totalItems += cart[id].qty;
+                totalCount += cart[id].qty;
                 subtotal += cart[id].price * cart[id].qty;
             }
 
-            // Update item card buttons
-            document.querySelectorAll('[id^="btn-container-"]').forEach(el => {
-                const id = el.id.replace('btn-container-', '');
-                if (cart[id] && cart[id].qty > 0) {
-                    el.innerHTML = `
-                        <div class="btn-group btn-group-sm rounded-pill border border-danger">
-                            <button type="button" class="btn btn-danger btn-sm px-2" onclick="updateQty('${id}', -1)">-</button>
-                            <span class="px-2 py-1 fw-bold text-danger bg-white">${cart[id].qty}</span>
-                            <button type="button" class="btn btn-danger btn-sm px-2" onclick="updateQty('${id}', 1)">+</button>
-                        </div>
-                    `;
-                } else {
-                    const card = el.closest('.menu-item-card');
-                    const name = card.querySelector('h6').innerText;
-                    const price = parseFloat(card.querySelector('.fs-6').innerText.replace('₹', ''));
-                    el.innerHTML = `
-                        <button type="button" class="btn btn-outline-danger btn-sm fw-bold px-3 rounded-pill" onclick="addToCart('${id}', '${name}', ${price})">
-                            + ADD
-                        </button>
-                    `;
-                }
-            });
+            const tax = subtotal * (taxRate / 100);
+            const grandTotal = subtotal + tax;
 
-            // Update floating bar
-            const cartBar = document.getElementById('cartBar');
-            if (totalItems > 0) {
-                cartBar.classList.remove('d-none');
-                document.getElementById('cartCountBadge').innerText = totalItems;
-                document.getElementById('cartTotalText').innerText = subtotal.toFixed(2);
+            // Badges
+            document.getElementById('sidebarCartCount').innerText = totalCount;
+            document.getElementById('mobileHeaderCartCount').innerText = totalCount;
+            document.getElementById('mobileCartBadge').innerText = totalCount;
+            document.getElementById('mobileCartTotalText').innerText = grandTotal.toFixed(2);
+
+            // Floating bottom bar toggle
+            const mobileBar = document.getElementById('mobileCartBar');
+            if (totalCount > 0) {
+                mobileBar.classList.remove('d-none');
             } else {
-                cartBar.classList.add('d-none');
+                mobileBar.classList.add('d-none');
             }
 
-            // Update summary
-            const tax = (subtotal * (taxRate / 100));
-            const grandTotal = subtotal + tax;
-            document.getElementById('summarySubTotal').innerText = subtotal.toFixed(2);
-            document.getElementById('summaryTax').innerText = tax.toFixed(2);
-            document.getElementById('summaryGrandTotal').innerText = grandTotal.toFixed(2);
+            // Summaries
+            document.getElementById('dtSubTotal').innerText = subtotal.toFixed(2);
+            document.getElementById('dtTax').innerText = tax.toFixed(2);
+            document.getElementById('dtGrandTotal').innerText = grandTotal.toFixed(2);
+            document.getElementById('btnDesktopPlaceOrder').disabled = totalCount === 0;
 
-            // Update modal items
-            const listEl = document.getElementById('cartItemsList');
-            if (totalItems === 0) {
-                listEl.innerHTML = '<div class="text-center text-muted py-3">Your cart is empty.</div>';
+            document.getElementById('modalSubTotal').innerText = subtotal.toFixed(2);
+            document.getElementById('modalTax').innerText = tax.toFixed(2);
+            document.getElementById('modalGrandTotal').innerText = grandTotal.toFixed(2);
+
+            // Render Items HTML for Desktop Panel & Modal
+            const desktopContainer = document.getElementById('desktopCartItems');
+            const modalContainer = document.getElementById('modalCartItems');
+
+            if (totalCount === 0) {
+                desktopContainer.innerHTML = `
+                    <div class="text-center text-muted py-4 small">
+                        <i class="bi bi-cup display-6 d-block mb-2 text-black-50"></i>
+                        Your order is empty.<br />Click "+ Add to Cart" to start.
+                    </div>`;
+                modalContainer.innerHTML = '<div class="text-center text-muted py-3">Your cart is empty.</div>';
             } else {
                 let html = '';
                 for (const id in cart) {
-                    const item = cart[id];
+                    const it = cart[id];
                     html += `
-                        <div class="d-flex justify-content-between align-items-center border-bottom py-2">
-                            <div>
-                                <h6 class="mb-0 fw-semibold">${item.name}</h6>
-                                <small class="text-muted">₹${item.price.toFixed(2)} each</small>
-                            </div>
-                            <div class="d-flex align-items-center">
-                                <span class="fw-bold me-3">₹${(item.price * item.qty).toFixed(2)}</span>
-                                <div class="btn-group btn-group-sm">
-                                    <button class="btn btn-outline-secondary btn-sm" onclick="updateQty('${id}', -1)">-</button>
-                                    <span class="btn btn-light btn-sm fw-bold disabled">${item.qty}</span>
-                                    <button class="btn btn-outline-secondary btn-sm" onclick="updateQty('${id}', 1)">+</button>
+                        <div class="d-flex align-items-center justify-content-between py-2 border-bottom">
+                            <div class="d-flex align-items-center me-2 text-truncate">
+                                <img src="${it.img || 'https://images.unsplash.com/photo-1509785307050-d4066910ec1e?auto=format&fit=crop&w=100&q=80'}" 
+                                     class="rounded-3 me-2" style="width: 44px; height: 44px; object-fit: cover;" />
+                                <div class="text-truncate">
+                                    <h6 class="mb-0 fw-bold small text-truncate">${it.name}</h6>
+                                    <span class="small fw-semibold" style="color: var(--cafe-primary);">₹${it.price.toFixed(2)}</span>
                                 </div>
+                            </div>
+                            <div class="cafe-stepper">
+                                <button class="cafe-stepper-btn" onclick="updateQty('${id}', -1)">-</button>
+                                <span class="cafe-stepper-val">${it.qty}</span>
+                                <button class="cafe-stepper-btn" onclick="updateQty('${id}', 1)">+</button>
                             </div>
                         </div>
                     `;
                 }
-                listEl.innerHTML = html;
+                desktopContainer.innerHTML = html;
+                modalContainer.innerHTML = html;
             }
         }
 
-        function openCartModal() {
-            const modal = new bootstrap.Modal(document.getElementById('cartModal'));
-            modal.show();
+        function filterByCategory(catId, element) {
+            currentCatId = catId;
+            document.querySelectorAll('.cafe-cat-pill, .cafe-circle-item').forEach(el => el.classList.remove('active'));
+            element.classList.add('active');
+
+            applyFilters();
         }
 
-        function toggleVegOnly(btn) {
-            vegOnlyActive = !vegOnlyActive;
-            btn.classList.toggle('active', vegOnlyActive);
-            document.querySelectorAll('.menu-item-card').forEach(card => {
-                if (vegOnlyActive && card.getAttribute('data-is-veg') !== 'true') {
-                    card.classList.add('d-none');
-                } else {
+        function handleSearch(val) {
+            currentSearch = val.toLowerCase().trim();
+            applyFilters();
+        }
+
+        function toggleVegFilter(btn) {
+            isVegOnly = !isVegOnly;
+            btn.classList.toggle('active', isVegOnly);
+            btn.classList.toggle('btn-success', isVegOnly);
+            btn.classList.toggle('btn-cafe-outline', !isVegOnly);
+            applyFilters();
+        }
+
+        function applyFilters() {
+            let visibleCount = 0;
+            document.querySelectorAll('.product-item-wrapper').forEach(card => {
+                const itemCat = card.getAttribute('data-cat-id');
+                const itemName = card.getAttribute('data-name');
+                const isVeg = card.getAttribute('data-is-veg') === 'true';
+
+                const matchesCat = currentCatId === 'all' || itemCat === currentCatId;
+                const matchesSearch = !currentSearch || itemName.includes(currentSearch);
+                const matchesVeg = !isVegOnly || isVeg;
+
+                if (matchesCat && matchesSearch && matchesVeg) {
                     card.classList.remove('d-none');
+                    visibleCount++;
+                } else {
+                    card.classList.add('d-none');
                 }
             });
+
+            document.getElementById('itemCountText').innerText = `Showing ${visibleCount} items`;
         }
 
-        async function placeOrder() {
+        function openCartModal() {
+            const m = new bootstrap.Modal(document.getElementById('cartModal'));
+            m.show();
+        }
+
+        async function placeOrder(notesInputId) {
             const items = [];
             for (const id in cart) {
                 items.push({ menuItemId: id, quantity: cart[id].qty });
@@ -283,14 +486,14 @@
                 return;
             }
 
-            const btn = document.getElementById('btnPlaceOrder');
-            const spinner = document.getElementById('orderBtnSpinner');
-            btn.disabled = true;
-            spinner.classList.remove('d-none');
+            const notes = document.getElementById(notesInputId)?.value || "";
+            const btn = document.getElementById('btnDesktopPlaceOrder');
+            const modalBtn = document.getElementById('btnModalPlaceOrder');
 
-            // Generate UUID idempotency key
+            if (btn) btn.disabled = true;
+            if (modalBtn) modalBtn.disabled = true;
+
             const idempotencyKey = crypto.randomUUID();
-            const notes = document.getElementById('customerNotes').value;
 
             try {
                 const response = await fetch('/api/orders/submit', {
@@ -307,18 +510,17 @@
 
                 const result = await response.json();
                 if (response.ok && result.success) {
-                    // Redirect to tracking page
                     window.location.href = result.redirectUrl;
                 } else {
-                    alert(result.message || "Failed to submit order. Please try again.");
-                    btn.disabled = false;
-                    spinner.classList.add('d-none');
+                    alert(result.message || "Failed to place order.");
+                    if (btn) btn.disabled = false;
+                    if (modalBtn) modalBtn.disabled = false;
                 }
-            } catch (err) {
-                console.error(err);
-                alert("Network error. Please check your connection and try again.");
-                btn.disabled = false;
-                spinner.classList.add('d-none');
+            } catch (e) {
+                console.error(e);
+                alert("Network error.");
+                if (btn) btn.disabled = false;
+                if (modalBtn) modalBtn.disabled = false;
             }
         }
     </script>
