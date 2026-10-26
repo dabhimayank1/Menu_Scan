@@ -61,6 +61,18 @@ namespace MenuScan.Controllers
                 .Take(10)
                 .ToList();
 
+            // Hourly trend calculation (8 AM to 11 PM)
+            var hourlyLabels = new List<string>();
+            var hourlyData = new List<decimal>();
+            for (int h = 8; h <= 23; h++)
+            {
+                hourlyLabels.Add(DateTime.Today.AddHours(h).ToString("h tt"));
+                var hourSales = bills
+                    .Where(b => b.CreatedAtUtc.ToLocalTime().Hour == h)
+                    .Sum(b => b.GrandTotal);
+                hourlyData.Add(hourSales);
+            }
+
             ViewBag.Restaurant = restaurant;
             ViewBag.TotalSales = totalSales;
             ViewBag.TotalTax = totalTax;
@@ -70,6 +82,8 @@ namespace MenuScan.Controllers
             ViewBag.CashTotal = cashTotal;
             ViewBag.CardTotal = cardTotal;
             ViewBag.ItemPopularity = itemPopularity;
+            ViewBag.HourlyLabels = hourlyLabels;
+            ViewBag.HourlyData = hourlyData;
 
             return View(bills);
         }

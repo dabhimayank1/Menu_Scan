@@ -219,7 +219,7 @@
                                             <span class="cafe-stepper-val" id="qty-val-@item.Id">1</span>
                                             <button class="cafe-stepper-btn" onclick="updateQty('@item.Id', 1)">+</button>
                                         </div>
-                                        <button class="btn btn-cafe-primary btn-sm px-3" onclick="addDirectToCart('@item.Id', '@item.Name', @item.Price, '@item.ImageUrl')">
+                                        <button class="btn btn-cafe-primary btn-sm px-3" onclick="addDirectToCart('@item.Id')">
                                             Add to Cart
                                         </button>
                                     }
@@ -452,51 +452,54 @@
 </div>
 
 @section Scripts {
+    @{
+        var catalogData = Model.Categories
+            .SelectMany(c => c.MenuItems)
+            .GroupBy(i => i.Id)
+            .Select(g => g.First())
+            .ToDictionary(
+                item => item.Id.ToString(),
+                item => new {
+                    id = item.Id.ToString(),
+                    name = item.Name,
+                    price = item.Price,
+                    img = string.IsNullOrEmpty(item.ImageUrl) ? "https://images.unsplash.com/photo-1509785307050-d4066910ec1e?auto=format&fit=crop&w=600&q=80" : item.ImageUrl,
+                    customizations = item.Customizations.Select(c => new {
+                        id = c.Id.ToString(),
+                        name = c.Name,
+                        price = c.Price
+                    }).ToList()
+                }
+            );
+        var catalogJson = System.Text.Json.JsonSerializer.Serialize(catalogData);
+    }
     <script>
         const restaurantSlug = "@Model.Restaurant.Slug";
         const tableToken = "@Model.Table.Token";
         const taxRate = @Model.Restaurant.DefaultTaxRate;
         
-        // Build items data catalog with customizations in JS
-        const menuCatalog = {
-            @foreach (var cat in Model.Categories)
-            {
-                foreach (var item in cat.MenuItems)
-                {
-                    <text>
-                    "@item.Id": {
-                        name: "@Html.Raw(item.Name)",
-                        price: @item.Price,
-                        img: "@(string.IsNullOrEmpty(item.ImageUrl) ? "https://images.unsplash.com/photo-1509785307050-d4066910ec1e?auto=format&fit=crop&w=600&q=80" : item.ImageUrl)",
-                        customizations: [
-                            @foreach (var c in item.Customizations)
-                            {
-                                <text>{ id: "@c.Id", name: "@Html.Raw(c.Name)", price: @c.Price },</text>
-                            }
-                        ]
-                    },
-                    </text>
-                }
-            }
-        };
+        // Build items data catalog safely serialized without quote/escaping vulnerabilities
+        const menuCatalog = @Html.Raw(catalogJson);
 
         let cart = {}; // key -> { menuItemId, name, price, qty, img, customizationIds, customizationSummary }
         let isVegOnly = false;
         let currentSearch = "";
         let currentCatId = "all";
         let activeCustomItemId = null;
-        let customModalInstance = null;
 
-        function addDirectToCart(id, name, price, img) {
+        function addDirectToCart(id) {
+            const item = menuCatalog[id];
+            if (!item) return;
+
             const stepperVal = parseInt(document.getElementById(`qty-val-${id}`)?.innerText || "1");
             const key = id;
             if (!cart[key]) {
                 cart[key] = {
                     menuItemId: id,
-                    name: name,
-                    price: price,
+                    name: item.name,
+                    price: item.price,
                     qty: stepperVal,
-                    img: img,
+                    img: item.img,
                     customizationIds: [],
                     customizationSummary: ""
                 };
@@ -511,17 +514,22 @@
             const item = menuCatalog[itemId];
             if (!item) return;
 
-            document.getElementById('customModalItemName').innerText = item.name;
-            document.getElementById('customModalBasePrice').innerText = item.price.toFixed(2);
-            document.getElementById('customModalImg').src = item.img;
-            document.getElementById('customModalCalculatedPrice').innerText = item.price.toFixed(2);
+            const nameEl = document.getElementById('customModalItemName');
+            if (nameEl) nameEl.innerText = item.name;
+            const basePriceEl = document.getElementById('customModalBasePrice');
+            if (basePriceEl) basePriceEl.innerText = item.price.toFixed(2);
+            const imgEl = document.getElementById('customModalImg');
+            if (imgEl) imgEl.src = item.img;
+            const calcPriceEl = document.getElementById('customModalCalculatedPrice');
+            if (calcPriceEl) calcPriceEl.innerText = item.price.toFixed(2);
 
             let optionsHtml = '';
-            item.customizations.forEach((c, idx) => {
+            (item.customizations || []).forEach((c) => {
+                const safeName = (c.name || '').replace(/"/g, '&quot;');
                 optionsHtml += `
                     <div class="form-check p-3 mb-2 border rounded-3 d-flex align-items-center justify-content-between" style="background: #FAFAFA;">
                         <div>
-                            <input class="form-check-input me-2 custom-check-opt" type="checkbox" id="opt_${c.id}" value="${c.id}" data-price="${c.price}" data-name="${c.name}" onchange="recalcCustomModal()">
+                            <input class="form-check-input me-2 custom-check-opt" type="checkbox" id="opt_${c.id}" value="${c.id}" data-price="${c.price}" data-name="${safeName}" onchange="recalcCustomModal()">
                             <label class="form-check-label fw-semibold" for="opt_${c.id}" style="cursor: pointer;">
                                 ${c.name}
                             </label>
@@ -531,24 +539,32 @@
                 `;
             });
 
-            document.getElementById('customModalOptionsList').innerHTML = optionsHtml;
-            customModalInstance = new bootstrap.Modal(document.getElementById('customizationModal'));
-            customModalInstance.show();
+            const optContainer = document.getElementById('customModalOptionsList');
+            if (optContainer) optContainer.innerHTML = optionsHtml;
+
+            const modalEl = document.getElementById('customizationModal');
+            if (modalEl && typeof bootstrap !== 'undefined') {
+                const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+                modal.show();
+            }
         }
 
         function recalcCustomModal() {
             if (!activeCustomItemId) return;
             const item = menuCatalog[activeCustomItemId];
+            if (!item) return;
             let total = item.price;
             document.querySelectorAll('.custom-check-opt:checked').forEach(cb => {
                 total += parseFloat(cb.getAttribute('data-price') || "0");
             });
-            document.getElementById('customModalCalculatedPrice').innerText = total.toFixed(2);
+            const calcPriceEl = document.getElementById('customModalCalculatedPrice');
+            if (calcPriceEl) calcPriceEl.innerText = total.toFixed(2);
         }
 
         function confirmCustomizationAndAdd() {
             if (!activeCustomItemId) return;
             const item = menuCatalog[activeCustomItemId];
+            if (!item) return;
             let lineUnitPrice = item.price;
             const selectedIds = [];
             const selectedNames = [];
@@ -556,11 +572,11 @@
             document.querySelectorAll('.custom-check-opt:checked').forEach(cb => {
                 lineUnitPrice += parseFloat(cb.getAttribute('data-price') || "0");
                 selectedIds.push(cb.value);
-                selectedNames.Add ? selectedNames.Add(cb.getAttribute('data-name')) : selectedNames.push(cb.getAttribute('data-name'));
+                selectedNames.push(cb.getAttribute('data-name') || "");
             });
 
             selectedIds.sort();
-            const key = activeCustomItemId + "_" + selectedIds.join("_");
+            const key = activeCustomItemId + (selectedIds.length > 0 ? ("_" + selectedIds.join("_")) : "");
             const summaryText = selectedNames.join(", ");
 
             if (!cart[key]) {
@@ -577,7 +593,11 @@
                 cart[key].qty++;
             }
 
-            if (customModalInstance) customModalInstance.hide();
+            const modalEl = document.getElementById('customizationModal');
+            if (modalEl && typeof bootstrap !== 'undefined') {
+                const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+                modal.hide();
+            }
             updateCartUI();
         }
 
@@ -612,41 +632,49 @@
             const tax = subtotal * (taxRate / 100);
             const grandTotal = subtotal + tax;
 
-            // Badges
-            document.getElementById('sidebarCartCount').innerText = totalCount;
-            document.getElementById('mobileHeaderCartCount').innerText = totalCount;
-            document.getElementById('mobileCartBadge').innerText = totalCount;
-            document.getElementById('mobileCartTotalText').innerText = grandTotal.toFixed(2);
+            // Badges (with defensive null checks)
+            const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
+            setTxt('sidebarCartCount', totalCount);
+            setTxt('mobileHeaderCartCount', totalCount);
+            setTxt('mobileCartBadge', totalCount);
+            setTxt('mobileCartTotalText', grandTotal.toFixed(2));
 
             // Floating bottom bar toggle
             const mobileBar = document.getElementById('mobileCartBar');
-            if (totalCount > 0) {
-                mobileBar.classList.remove('d-none');
-            } else {
-                mobileBar.classList.add('d-none');
+            if (mobileBar) {
+                if (totalCount > 0) {
+                    mobileBar.classList.remove('d-none');
+                } else {
+                    mobileBar.classList.add('d-none');
+                }
             }
 
             // Summaries
-            document.getElementById('dtSubTotal').innerText = subtotal.toFixed(2);
-            document.getElementById('dtTax').innerText = tax.toFixed(2);
-            document.getElementById('dtGrandTotal').innerText = grandTotal.toFixed(2);
-            document.getElementById('btnDesktopPlaceOrder').disabled = totalCount === 0;
+            setTxt('dtSubTotal', subtotal.toFixed(2));
+            setTxt('dtTax', tax.toFixed(2));
+            setTxt('dtGrandTotal', grandTotal.toFixed(2));
+            const btnDt = document.getElementById('btnDesktopPlaceOrder');
+            if (btnDt) btnDt.disabled = totalCount === 0;
 
-            document.getElementById('modalSubTotal').innerText = subtotal.toFixed(2);
-            document.getElementById('modalTax').innerText = tax.toFixed(2);
-            document.getElementById('modalGrandTotal').innerText = grandTotal.toFixed(2);
+            setTxt('modalSubTotal', subtotal.toFixed(2));
+            setTxt('modalTax', tax.toFixed(2));
+            setTxt('modalGrandTotal', grandTotal.toFixed(2));
 
             // Render Items HTML for Desktop Panel & Modal
             const desktopContainer = document.getElementById('desktopCartItems');
             const modalContainer = document.getElementById('modalCartItems');
 
             if (totalCount === 0) {
-                desktopContainer.innerHTML = `
-                    <div class="text-center text-muted py-4 small">
-                        <i class="bi bi-cup display-6 d-block mb-2 text-black-50"></i>
-                        Your order is empty.<br />Click "+ Add to Cart" to start.
-                    </div>`;
-                modalContainer.innerHTML = '<div class="text-center text-muted py-3">Your cart is empty.</div>';
+                if (desktopContainer) {
+                    desktopContainer.innerHTML = `
+                        <div class="text-center text-muted py-4 small">
+                            <i class="bi bi-cup display-6 d-block mb-2 text-black-50"></i>
+                            Your order is empty.<br />Click "+ Add to Cart" to start.
+                        </div>`;
+                }
+                if (modalContainer) {
+                    modalContainer.innerHTML = '<div class="text-center text-muted py-3">Your cart is empty.</div>';
+                }
             } else {
                 let html = '';
                 for (const key in cart) {
@@ -669,8 +697,8 @@
                         </div>
                     `;
                 }
-                desktopContainer.innerHTML = html;
-                modalContainer.innerHTML = html;
+                if (desktopContainer) desktopContainer.innerHTML = html;
+                if (modalContainer) modalContainer.innerHTML = html;
             }
         }
 
@@ -713,12 +741,16 @@
                 }
             });
 
-            document.getElementById('itemCountText').innerText = `Showing ${visibleCount} items`;
+            const cntEl = document.getElementById('itemCountText');
+            if (cntEl) cntEl.innerText = `Showing ${visibleCount} items`;
         }
 
         function openCartModal() {
-            const m = new bootstrap.Modal(document.getElementById('cartModal'));
-            m.show();
+            const modalEl = document.getElementById('cartModal');
+            if (modalEl && typeof bootstrap !== 'undefined') {
+                const m = bootstrap.Modal.getOrCreateInstance(modalEl);
+                m.show();
+            }
         }
 
         async function placeOrder(notesInputId) {
@@ -744,7 +776,9 @@
             if (btn) btn.disabled = true;
             if (modalBtn) modalBtn.disabled = true;
 
-            const idempotencyKey = crypto.randomUUID();
+            const idempotencyKey = (window.crypto && crypto.randomUUID) 
+                ? crypto.randomUUID() 
+                : ('idemp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 11));
 
             try {
                 const response = await fetch('/api/orders/submit', {
@@ -776,15 +810,17 @@
         }
 
         let selectedServiceType = "Assistance";
-        let callWaiterModalInstance = null;
 
         function openCallWaiterModal() {
-            if (!callWaiterModalInstance) {
-                callWaiterModalInstance = new bootstrap.Modal(document.getElementById('callWaiterModal'));
+            const modalEl = document.getElementById('callWaiterModal');
+            if (modalEl && typeof bootstrap !== 'undefined') {
+                const alertEl = document.getElementById('serviceCallAlert');
+                if (alertEl) alertEl.classList.add('d-none');
+                const btnSend = document.getElementById('btnSendServiceCall');
+                if (btnSend) btnSend.disabled = false;
+                const m = bootstrap.Modal.getOrCreateInstance(modalEl);
+                m.show();
             }
-            document.getElementById('serviceCallAlert').classList.add('d-none');
-            document.getElementById('btnSendServiceCall').disabled = false;
-            callWaiterModalInstance.show();
         }
 
         function selectServiceType(type, btnElement) {
@@ -800,7 +836,7 @@
             const alertBox = document.getElementById('serviceCallAlert');
             const notes = document.getElementById('serviceRequestNotes')?.value || "";
 
-            btn.disabled = true;
+            if (btn) btn.disabled = true;
             try {
                 const response = await fetch('/api/table/call-waiter', {
                     method: 'POST',
@@ -815,18 +851,21 @@
 
                 const data = await response.json();
                 if (response.ok && data.success) {
-                    alertBox.classList.remove('d-none');
+                    if (alertBox) alertBox.classList.remove('d-none');
                     setTimeout(() => {
-                        if (callWaiterModalInstance) callWaiterModalInstance.hide();
+                        const modalEl = document.getElementById('callWaiterModal');
+                        if (modalEl && typeof bootstrap !== 'undefined') {
+                            bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+                        }
                     }, 2000);
                 } else {
                     alert(data.message || "Failed to notify staff.");
-                    btn.disabled = false;
+                    if (btn) btn.disabled = false;
                 }
             } catch (err) {
                 console.error(err);
                 alert("Network error.");
-                btn.disabled = false;
+                if (btn) btn.disabled = false;
             }
         }
     </script>

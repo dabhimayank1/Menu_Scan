@@ -235,5 +235,40 @@ namespace MenuScan.Controllers
 
             return RedirectToAction(nameof(Menu));
         }
+
+        [HttpGet]
+        public async Task<IActionResult> PrintTableStands()
+        {
+            var restaurant = await GetCurrentRestaurantAsync();
+            if (restaurant == null) return NotFound();
+
+            var tables = await _context.DiningTables
+                .IgnoreQueryFilters()
+                .Where(t => t.RestaurantId == restaurant.Id && t.IsActive)
+                .OrderBy(t => t.TableNumber)
+                .ToListAsync();
+
+            var request = HttpContext.Request;
+            var host = request.Host.Host == "localhost" ? "192.168.1.8:5073" : request.Host.Value;
+
+            var stands = tables.Select(t => new TableStandItemDto
+            {
+                TableNumber = t.TableNumber,
+                Capacity = t.Capacity,
+                CustomerUrl = $"http://{host}/r/{restaurant.Slug}/t/{t.Token}",
+                QrDataUri = _qrService.GenerateQrCodeDataUri($"http://{host}/r/{restaurant.Slug}/t/{t.Token}")
+            }).ToList();
+
+            ViewBag.Restaurant = restaurant;
+            return View(stands);
+        }
+    }
+
+    public class TableStandItemDto
+    {
+        public string TableNumber { get; set; } = string.Empty;
+        public int Capacity { get; set; }
+        public string CustomerUrl { get; set; } = string.Empty;
+        public string QrDataUri { get; set; } = string.Empty;
     }
 }
