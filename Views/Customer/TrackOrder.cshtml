@@ -691,26 +691,32 @@
                         return;
                     }
 
-                    document.getElementById('upiQrImage').src = data.upiQrDataUri;
-                    document.getElementById('upiAmountText').innerText = data.grandTotal.toFixed(2);
-                    document.getElementById('upiIdText').innerText = data.upiId;
-                    if (document.getElementById('upiPhoneText') && data.phoneNumber) {
-                        document.getElementById('upiPhoneText').innerText = data.phoneNumber;
+                    const qrImage = document.getElementById('upiQrImage');
+                    if (qrImage) qrImage.src = data.upiQrDataUri;
+
+                    const amtText = document.getElementById('upiAmountText');
+                    if (amtText) amtText.innerText = data.grandTotal.toFixed(2);
+
+                    const idText = document.getElementById('upiIdText');
+                    if (idText) idText.innerText = data.upiId;
+
+                    const phoneText = document.getElementById('upiPhoneText');
+                    if (phoneText && data.phoneNumber) {
+                        phoneText.innerText = data.phoneNumber;
                     }
 
                     // Direct App links
-                    if (document.getElementById('btnDirectUpiIntent')) {
-                        document.getElementById('btnDirectUpiIntent').href = data.upiUri;
-                    }
-                    if (document.getElementById('btnDirectGPay')) {
-                        document.getElementById('btnDirectGPay').href = data.appUris?.gpay || data.upiUri;
-                    }
-                    if (document.getElementById('btnDirectPhonePe')) {
-                        document.getElementById('btnDirectPhonePe').href = data.appUris?.phonepe || data.upiUri;
-                    }
-                    if (document.getElementById('btnDirectPaytm')) {
-                        document.getElementById('btnDirectPaytm').href = data.appUris?.paytm || data.upiUri;
-                    }
+                    const btnGeneric = document.getElementById('btnDirectUpiIntent');
+                    if (btnGeneric) btnGeneric.href = data.upiUri;
+
+                    const btnGPay = document.getElementById('btnDirectGPay');
+                    if (btnGPay) btnGPay.href = data.appUris?.gpay || data.upiUri;
+
+                    const btnPhonePe = document.getElementById('btnDirectPhonePe');
+                    if (btnPhonePe) btnPhonePe.href = data.appUris?.phonepe || data.upiUri;
+
+                    const btnPaytm = document.getElementById('btnDirectPaytm');
+                    if (btnPaytm) btnPaytm.href = data.appUris?.paytm || data.upiUri;
 
                     // Update handle buttons active styling
                     const buttons = document.querySelectorAll('.upi-handle-btn');
@@ -729,8 +735,8 @@
                     if (upiModalInstance) upiModalInstance.hide();
                 }
             } catch (err) {
-                console.error(err);
-                alert("Network error loading UPI checkout.");
+                console.error("UPI Checkout fetch error:", err);
+                alert("Failed to load payment details: " + (err.message || "Network error"));
                 if (upiModalInstance) upiModalInstance.hide();
             }
         }
