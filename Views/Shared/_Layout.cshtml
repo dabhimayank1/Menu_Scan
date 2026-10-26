@@ -97,6 +97,23 @@
                     <ul class="navbar-nav ms-auto align-items-center">
                         @if (User.Identity?.IsAuthenticated == true)
                         {
+                            <!-- Soundbox Quick Controls -->
+                            <li class="nav-item me-3 d-none d-md-flex align-items-center">
+                                <div class="d-flex align-items-center gap-1 bg-white bg-opacity-10 border border-secondary rounded-pill px-2 py-1 shadow-sm">
+                                    <button type="button" class="btn btn-link text-white p-0 text-decoration-none d-flex align-items-center" onclick="MenuScanSoundbox.toggle()" title="Toggle Voice Soundbox">
+                                        <i class="bi bi-volume-up-fill text-success fs-6 soundbox-status-icon"></i>
+                                        <span class="small ms-1 soundbox-status-text text-white-50" style="font-size: 0.75rem;">Soundbox: ON</span>
+                                    </button>
+                                    <span class="text-white-50">|</span>
+                                    <select class="form-select form-select-sm bg-transparent text-white border-0 py-0 px-1 soundbox-lang-select" style="width: auto; font-size: 0.75rem; cursor: pointer;" onchange="MenuScanSoundbox.setLanguage(this.value)">
+                                        <option value="hi" class="text-dark">🇮🇳 हिन्दी</option>
+                                        <option value="en" class="text-dark">🇬🇧 English</option>
+                                    </select>
+                                    <button type="button" class="btn btn-outline-warning btn-sm rounded-pill py-0 px-2 text-warning border-0" style="font-size: 0.7rem;" onclick="MenuScanSoundbox.testSoundbox()" title="Test Voice Output">
+                                        <i class="bi bi-play-fill"></i> Test
+                                    </button>
+                                </div>
+                            </li>
                             <li class="nav-item me-3 text-white small">
                                 <i class="bi bi-person-circle me-1" style="color: var(--cafe-primary);"></i> @User.Identity.Name
                             </li>
@@ -133,6 +150,7 @@
     </footer>
 
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="~/js/soundbox.js" asp-append-version="true"></script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

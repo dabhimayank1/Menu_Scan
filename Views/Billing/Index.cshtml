@@ -13,7 +13,22 @@
             <h3 class="fw-bold mb-0 text-dark"><i class="bi bi-cash-stack text-success me-2"></i>Cashier &amp; Billing Dashboard</h3>
             <small class="text-muted">Manage table bills, counter settlements, and receipts</small>
         </div>
-        <div class="d-flex gap-2">
+        <div class="d-flex align-items-center gap-2">
+            <!-- Soundbox Controls Pill -->
+            <div class="d-flex align-items-center gap-1 bg-dark text-white rounded-pill px-3 py-1 shadow-sm">
+                <button type="button" class="btn btn-link text-white p-0 text-decoration-none d-flex align-items-center" onclick="MenuScanSoundbox.toggle()" title="Toggle Voice Soundbox">
+                    <i class="bi bi-volume-up-fill text-success fs-6 soundbox-status-icon"></i>
+                    <span class="small ms-1 soundbox-status-text fw-bold" style="font-size: 0.8rem;">Soundbox: ON</span>
+                </button>
+                <span class="text-white-50 mx-1">|</span>
+                <select class="form-select form-select-sm bg-dark text-white border-0 py-0 px-1 soundbox-lang-select" style="width: auto; font-size: 0.8rem; cursor: pointer;" onchange="MenuScanSoundbox.setLanguage(this.value)">
+                    <option value="hi">🇮🇳 हिन्दी</option>
+                    <option value="en">🇬🇧 English</option>
+                </select>
+                <button type="button" class="btn btn-outline-warning btn-sm rounded-pill py-0 px-2 text-warning border-0" style="font-size: 0.75rem;" onclick="MenuScanSoundbox.testSoundbox()" title="Test Soundbox Voice Output">
+                    <i class="bi bi-play-fill"></i> Test
+                </button>
+            </div>
             <span class="badge bg-success py-2 px-3 fs-6 d-flex align-items-center">
                 <span class="spinner-grow spinner-grow-sm me-2" role="status"></span> Live Billing Hub
             </span>
@@ -356,17 +371,24 @@
             .build();
 
         connection.on("ReceiveNewOrder", (order) => {
-            console.log("New order notified to Cashier.");
-            playCashierChime();
+            console.log("New order notified to Cashier:", order);
+            MenuScanSoundbox.announceNewOrder(order.tableNumber, order.totalAmount, order.itemCount);
             const badge = document.querySelector('.badge.bg-primary');
             if (badge) {
                 badge.classList.add('animate__animated', 'animate__pulse');
             }
+            setTimeout(() => window.location.reload(), 1500);
+        });
+
+        connection.on("ReceivePaymentSettled", (data) => {
+            console.log("Payment settled notification received in Cashier:", data);
+            MenuScanSoundbox.announcePayment(data.tableNumber, data.amount, data.method);
+            setTimeout(() => window.location.reload(), 1500);
         });
 
         connection.on("ReceiveWaiterCall", (data) => {
             console.log("Waiter call received in Cashier:", data);
-            playCashierChime();
+            MenuScanSoundbox.announceServiceCall(data.tableNumber, data.requestType);
 
             const container = document.getElementById('cashierWaiterAlertContainer');
             let list = document.getElementById('pendingRequestList');

@@ -21,9 +21,21 @@
                     <i class="bi bi-clock me-1 text-primary"></i> <span id="liveClock">--:--:--</span>
                 </span>
             </div>
-            <button class="btn btn-outline-secondary rounded-pill px-3 btn-sm" onclick="toggleAudio()" id="btnAudioToggle">
-                <i class="bi bi-volume-up-fill me-1" id="audioIcon"></i> Sound Alerts: ON
-            </button>
+            <!-- Soundbox Controls Pill -->
+            <div class="d-flex align-items-center gap-1 bg-dark text-white rounded-pill px-3 py-1 shadow-sm">
+                <button type="button" class="btn btn-link text-white p-0 text-decoration-none d-flex align-items-center" onclick="MenuScanSoundbox.toggle()" title="Toggle Voice Soundbox">
+                    <i class="bi bi-volume-up-fill text-success fs-6 soundbox-status-icon"></i>
+                    <span class="small ms-1 soundbox-status-text fw-bold" style="font-size: 0.8rem;">Soundbox: ON</span>
+                </button>
+                <span class="text-white-50 mx-1">|</span>
+                <select class="form-select form-select-sm bg-dark text-white border-0 py-0 px-1 soundbox-lang-select" style="width: auto; font-size: 0.8rem; cursor: pointer;" onchange="MenuScanSoundbox.setLanguage(this.value)">
+                    <option value="hi">🇮🇳 हिन्दी</option>
+                    <option value="en">🇬🇧 English</option>
+                </select>
+                <button type="button" class="btn btn-outline-warning btn-sm rounded-pill py-0 px-2 text-warning border-0" style="font-size: 0.75rem;" onclick="MenuScanSoundbox.testSoundbox()" title="Test Soundbox Voice Output">
+                    <i class="bi bi-play-fill"></i> Test
+                </button>
+            </div>
             <button class="btn btn-cafe-primary rounded-pill px-3 btn-sm" onclick="window.location.reload()">
                 <i class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
@@ -652,23 +664,37 @@
 
         connection.on("ReceiveNewOrder", (order) => {
             console.log("Floor Plan: New order received:", order);
-            playChime(659.25, 880.00); // E5 -> A5
+            if (window.MenuScanSoundbox) {
+                MenuScanSoundbox.announceNewOrder(order.tableNumber, order.totalAmount, order.itemCount);
+            }
             // Refresh to update table card state seamlessly
-            setTimeout(() => window.location.reload(), 1000);
+            setTimeout(() => window.location.reload(), 1400);
         });
 
         connection.on("ReceiveOrderStatusUpdate", (orderNumber, newStatus, tableNumber) => {
             console.log("Floor Plan: Order status update:", orderNumber, newStatus, tableNumber);
             if (newStatus === "Ready") {
-                playChime(880.00, 1174.66); // Food ready chime (A5 -> D6)
+                if (window.MenuScanSoundbox) {
+                    MenuScanSoundbox.announceFoodReady(tableNumber);
+                }
             }
-            setTimeout(() => window.location.reload(), 1000);
+            setTimeout(() => window.location.reload(), 1400);
+        });
+
+        connection.on("ReceivePaymentSettled", (data) => {
+            console.log("Floor Plan: Payment settled:", data);
+            if (window.MenuScanSoundbox) {
+                MenuScanSoundbox.announcePayment(data.tableNumber, data.amount, data.method);
+            }
+            setTimeout(() => window.location.reload(), 1400);
         });
 
         connection.on("ReceiveWaiterCall", (data) => {
             console.log("Floor Plan: Waiter call received:", data);
-            playChime(440.00, 587.33); // Chime alert
-            setTimeout(() => window.location.reload(), 1000);
+            if (window.MenuScanSoundbox) {
+                MenuScanSoundbox.announceServiceCall(data.tableNumber, data.requestType);
+            }
+            setTimeout(() => window.location.reload(), 1400);
         });
 
         connection.on("ReceiveWaiterCallHandled", (data) => {

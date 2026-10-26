@@ -545,6 +545,16 @@ namespace MenuScan.Controllers
                 await _hubContext.Clients.Group($"Restaurant_{order.RestaurantId}")
                     .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Completed", order.Table?.TableNumber ?? "Unknown");
 
+                await _hubContext.Clients.Group($"Restaurant_{order.RestaurantId}")
+                    .SendAsync("ReceivePaymentSettled", new
+                    {
+                        orderNumber = order.OrderNumber,
+                        tableNumber = order.Table?.TableNumber ?? "Table",
+                        amount = bill.GrandTotal,
+                        method = "UPI",
+                        billNumber = bill.BillNumber
+                    });
+
                 await _hubContext.Clients.Group($"Order_{order.OrderToken}")
                     .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Completed", order.Table?.TableNumber ?? "Unknown");
 
