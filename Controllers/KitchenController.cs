@@ -69,7 +69,7 @@ namespace MenuScan.Controllers
             var oldStatus = order.Status;
             order.Status = dto.NewStatus;
 
-            order.StatusHistory.Add(new OrderStatusHistory
+            _context.OrderStatusHistories.Add(new OrderStatusHistory
             {
                 OrderId = order.Id,
                 OldStatus = oldStatus,

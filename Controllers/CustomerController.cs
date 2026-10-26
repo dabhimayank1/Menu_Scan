@@ -257,5 +257,63 @@ namespace MenuScan.Controllers
 
             return View(viewModel);
         }
+
+        [HttpPost("api/table/call-waiter")]
+        [IgnoreAntiforgeryToken]
+        public async Task<IActionResult> CallWaiter([FromBody] CallWaiterDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.TableToken) || string.IsNullOrWhiteSpace(dto.RestaurantSlug))
+            {
+                return BadRequest(new { message = "Invalid request details." });
+            }
+
+            var restaurant = await _context.Restaurants.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(r => r.Slug == dto.RestaurantSlug && r.IsActive);
+            if (restaurant == null) return BadRequest(new { message = "Restaurant not found." });
+
+            var table = await _context.DiningTables.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(t => t.RestaurantId == restaurant.Id && t.Token == dto.TableToken && t.IsActive);
+            if (table == null) return BadRequest(new { message = "Table verification failed." });
+
+            var serviceReq = new ServiceRequest
+            {
+                RestaurantId = restaurant.Id,
+                TableId = table.Id,
+                RequestType = string.IsNullOrWhiteSpace(dto.RequestType) ? "Assistance" : dto.RequestType,
+                Note = dto.Notes,
+                CreatedAtUtc = DateTime.UtcNow
+            };
+
+            _context.ServiceRequests.Add(serviceReq);
+            await _context.SaveChangesAsync();
+
+            // Real-time broadcast to Cashier and Kitchen dashboards
+            await _hubContext.Clients.Group($"Restaurant_{restaurant.Id}")
+                .SendAsync("ReceiveWaiterCall", new
+                {
+                    requestId = serviceReq.Id,
+                    tableNumber = table.TableNumber,
+                    requestType = serviceReq.RequestType,
+                    notes = serviceReq.Note,
+                    createdAt = serviceReq.CreatedAtUtc.ToLocalTime().ToString("hh:mm tt")
+                });
+
+            _logger.LogInformation("Service request '{Type}' logged for {TableNumber} at {Restaurant}",
+                serviceReq.RequestType, table.TableNumber, restaurant.Name);
+
+            return Ok(new
+            {
+                success = true,
+                message = $"Request sent! Staff at {restaurant.Name} has been notified."
+            });
+        }
+    }
+
+    public class CallWaiterDto
+    {
+        public string RestaurantSlug { get; set; } = string.Empty;
+        public string TableToken { get; set; } = string.Empty;
+        public string RequestType { get; set; } = "Assistance";
+        public string? Notes { get; set; }
     }
 }

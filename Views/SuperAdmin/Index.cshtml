@@ -1,0 +1,184 @@
+@model List<MenuScan.Models.Entities.Restaurant>
+@{
+    ViewData["Title"] = "Platform Super Admin - SaaS Directory";
+    Layout = "_Layout";
+}
+
+<div class="container-fluid px-3 px-lg-4 py-4">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <span class="badge bg-dark rounded-pill px-3 py-1 mb-1">PLATFORM OWNER</span>
+            <h2 class="fw-bold mb-0">Multi-Restaurant SaaS Management</h2>
+            <p class="text-muted mb-0">Provision and oversee restaurants, tables, menus, and platform revenue</p>
+        </div>
+        <a asp-action="CreateRestaurant" class="btn btn-cafe-primary fw-bold px-4">
+            <i class="bi bi-plus-circle me-1"></i> Provision New Restaurant
+        </a>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show rounded-4 shadow-sm" role="alert">
+            <i class="bi bi-check-circle-fill me-2"></i> @TempData["Success"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <!-- Platform KPI Cards -->
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="cafe-product-card p-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted text-uppercase fw-semibold">Onboarded Cafes</small>
+                        <h3 class="fw-bold mb-0 mt-1">@ViewBag.TotalRestaurants</h3>
+                        <small class="text-success"><i class="bi bi-check-circle me-1"></i>@ViewBag.ActiveRestaurants Active</small>
+                    </div>
+                    <div class="p-3 rounded-circle" style="background-color: var(--cafe-primary-light); color: var(--cafe-primary);">
+                        <i class="bi bi-shop fs-3"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="cafe-product-card p-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted text-uppercase fw-semibold">Platform Orders</small>
+                        <h3 class="fw-bold text-primary mb-0 mt-1">@ViewBag.TotalOrders</h3>
+                        <small class="text-muted">Lifetime transactions</small>
+                    </div>
+                    <div class="bg-primary-subtle text-primary p-3 rounded-circle">
+                        <i class="bi bi-bag-check fs-3"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="cafe-product-card p-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted text-uppercase fw-semibold">Today's Platform Sales</small>
+                        <h3 class="fw-bold text-success mb-0 mt-1">₹@(((decimal)ViewBag.TodayRevenue).ToString("0.00"))</h3>
+                        <small class="text-muted">All active stores</small>
+                    </div>
+                    <div class="bg-success-subtle text-success p-3 rounded-circle">
+                        <i class="bi bi-calendar-check fs-3"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="cafe-product-card p-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted text-uppercase fw-semibold">Gross Lifetime GMV</small>
+                        <h3 class="fw-bold mb-0 mt-1" style="color: var(--cafe-primary);">₹@(((decimal)ViewBag.TotalRevenue).ToString("0.00"))</h3>
+                        <small class="text-muted">Platform transaction total</small>
+                    </div>
+                    <div class="p-3 rounded-circle" style="background-color: var(--cafe-primary-light); color: var(--cafe-primary);">
+                        <i class="bi bi-cash-stack fs-3"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Restaurants Directory Table -->
+    <div class="card shadow-sm border-0 rounded-4 overflow-hidden bg-white" style="border: 1.5px solid var(--cafe-card-border) !important;">
+        <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+            <h5 class="fw-bold mb-0"><i class="bi bi-building me-2" style="color: var(--cafe-primary);"></i>Onboarded Restaurants</h5>
+            <span class="badge bg-light text-dark border">@Model.Count Stores</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Restaurant</th>
+                            <th>URL Slug</th>
+                            <th>Tables</th>
+                            <th>Catalog</th>
+                            <th>Orders</th>
+                            <th>Status</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var rest in Model)
+                        {
+                            var firstTable = rest.Tables.FirstOrDefault();
+                            var testUrl = firstTable != null ? $"/r/{rest.Slug}/t/{firstTable.Token}" : "#";
+
+                            <tr>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <img src="@(string.IsNullOrEmpty(rest.LogoUrl) ? "https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&w=100&q=80" : rest.LogoUrl)" 
+                                             class="rounded-3 me-3" style="width: 44px; height: 44px; object-fit: cover;" />
+                                        <div>
+                                            <h6 class="mb-0 fw-bold">@rest.Name</h6>
+                                            <small class="text-muted"><i class="bi bi-telephone"></i> @(rest.Phone ?? "N/A") | Tax: @rest.DefaultTaxRate%</small>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <code>/r/@rest.Slug/t/...</code>
+                                </td>
+                                <td>
+                                    <span class="badge bg-light text-dark border">@rest.Tables.Count Tables</span>
+                                </td>
+                                <td>
+                                    <span class="badge bg-light text-dark border">@rest.MenuItems.Count Items</span>
+                                </td>
+                                <td>
+                                    <span class="fw-bold">@rest.Orders.Count</span>
+                                </td>
+                                <td>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="status-@rest.Id" 
+                                               @(rest.IsActive ? "checked" : "") onchange="toggleStatus('@rest.Id')">
+                                        <label class="form-check-label small fw-semibold" id="label-@rest.Id" for="status-@rest.Id">
+                                            @(rest.IsActive ? "Active" : "Suspended")
+                                        </label>
+                                    </div>
+                                </td>
+                                <td class="text-end">
+                                    <div class="btn-group btn-group-sm">
+                                        @if (firstTable != null)
+                                        {
+                                            <a href="@testUrl" target="_blank" class="btn btn-outline-dark" title="Test Customer QR Menu">
+                                                <i class="bi bi-qr-code me-1"></i> QR Menu
+                                            </a>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        async function toggleStatus(restaurantId) {
+            try {
+                const response = await fetch(`/SuperAdmin/ToggleRestaurantStatus?id=${restaurantId}`, { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    const label = document.getElementById(`label-${restaurantId}`);
+                    label.innerText = data.isActive ? "Active" : "Suspended";
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Failed to update status.");
+            }
+        }
+    </script>
+}

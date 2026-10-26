@@ -21,6 +21,28 @@
         </div>
     </div>
 
+    <!-- Live Waiter Calls Alert Container -->
+    <div id="kitchenWaiterAlertContainer" class="mb-3"></div>
+
+    <!-- KDS Filter Row -->
+    <div class="d-flex gap-2 overflow-auto pb-2 mb-3 no-scrollbar" id="kdsFilterRow">
+        <button class="btn btn-dark btn-sm rounded-pill px-3 active kds-filter" onclick="filterKds('all', this)">
+            All Tickets (<span id="countAll">@Model.Count</span>)
+        </button>
+        <button class="btn btn-outline-danger btn-sm rounded-pill px-3 kds-filter" onclick="filterKds('New', this)">
+            New (<span id="countNew">@Model.Count(o => o.Status == MenuScan.Models.Entities.OrderStatus.New)</span>)
+        </button>
+        <button class="btn btn-outline-warning text-dark btn-sm rounded-pill px-3 kds-filter" onclick="filterKds('Preparing', this)">
+            Preparing (<span id="countPrep">@Model.Count(o => o.Status == MenuScan.Models.Entities.OrderStatus.Preparing)</span>)
+        </button>
+        <button class="btn btn-outline-primary btn-sm rounded-pill px-3 kds-filter" onclick="filterKds('Ready', this)">
+            Ready (<span id="countReady">@Model.Count(o => o.Status == MenuScan.Models.Entities.OrderStatus.Ready)</span>)
+        </button>
+        <button class="btn btn-outline-success btn-sm rounded-pill px-3 kds-filter" onclick="filterKds('Served', this)">
+            Served (<span id="countServed">@Model.Count(o => o.Status == MenuScan.Models.Entities.OrderStatus.Served)</span>)
+        </button>
+    </div>
+
     <!-- KDS Ticket Grid -->
     <div class="row g-3" id="kdsTicketContainer">
         @if (!Model.Any())
@@ -34,15 +56,17 @@
 
         @foreach (var order in Model)
         {
-            <div class="col-12 col-md-6 col-lg-4 col-xl-3" id="order-card-@order.Id">
+            <div class="col-12 col-md-6 col-lg-4 col-xl-3 kds-ticket-col" id="order-card-@order.Id" data-status="@order.Status">
                 <div class="card h-100 shadow-sm border-2 @(order.Status == MenuScan.Models.Entities.OrderStatus.New ? "border-danger" : "border-primary") rounded-3">
                     <div class="card-header @(order.Status == MenuScan.Models.Entities.OrderStatus.New ? "bg-danger text-white" : "bg-dark text-white") d-flex justify-content-between align-items-center py-2">
                         <span class="fw-bold fs-5">@order.Table?.TableNumber</span>
                         <span class="badge bg-light text-dark">#@order.OrderNumber.Substring(order.OrderNumber.Length - 4)</span>
                     </div>
                     <div class="card-body p-3">
-                        <div class="d-flex justify-content-between text-muted small mb-2">
-                            <span>Placed: @order.CreatedAtUtc.ToLocalTime().ToString("hh:mm:ss tt")</span>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="badge sla-timer-badge bg-light text-dark border" data-created="@order.CreatedAtUtc.ToString("o")">
+                                <i class="bi bi-clock me-1"></i>Calculating...
+                            </span>
                             <span class="badge bg-secondary" id="badge-status-@order.Id">@order.Status</span>
                         </div>
 
@@ -171,11 +195,38 @@
                 </div>
             `;
             container.insertAdjacentHTML('afterbegin', cardHtml);
+            updateSlaBadges();
+            refreshFilterCounts();
+        });
+
+        connection.on("ReceiveWaiterCall", (data) => {
+            console.log("Waiter call received in KDS:", data);
+            playChime();
+
+            const alertContainer = document.getElementById('kitchenWaiterAlertContainer');
+            const alertId = `waiter-call-${Date.now()}`;
+            const alertHtml = `
+                <div class="alert alert-warning alert-dismissible fade show rounded-3 shadow-sm d-flex align-items-center justify-content-between p-3" id="${alertId}">
+                    <div class="d-flex align-items-center gap-3">
+                        <span class="fs-3">🛎️</span>
+                        <div>
+                            <span class="badge bg-dark fs-6">${data.tableNumber}</span>
+                            <strong class="ms-2">Request: ${data.requestType}</strong>
+                            ${data.notes ? `<span class="text-muted small ms-2">(${data.notes})</span>` : ''}
+                            <div class="text-muted small mt-1"><i class="bi bi-clock me-1"></i>${data.createdAt}</div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-outline-dark btn-sm rounded-pill px-3" onclick="document.getElementById('${alertId}').remove()">
+                        <i class="bi bi-check-lg me-1"></i> Acknowledge
+                    </button>
+                </div>
+            `;
+            alertContainer.insertAdjacentHTML('afterbegin', alertHtml);
         });
 
         connection.on("ReceiveOrderStatusUpdate", (orderNumber, newStatus, tableNumber) => {
             console.log("Order status update:", orderNumber, newStatus);
-            // Can update UI badge if card exists
+            refreshFilterCounts();
         });
 
         connection.start().then(() => {
@@ -192,11 +243,13 @@
                 });
 
                 if (response.ok) {
+                    const card = document.getElementById(`order-card-${orderId}`);
                     const badge = document.getElementById(`badge-status-${orderId}`);
                     const actions = document.getElementById(`actions-${orderId}`);
                     
                     if (newStatus === 2) { // Preparing
                         if (badge) badge.innerText = "Preparing";
+                        if (card) card.setAttribute('data-status', 'Preparing');
                         if (actions) {
                             actions.innerHTML = `
                                 <button class="btn btn-primary w-100 fw-bold py-2" onclick="updateOrderStatus('${orderId}', 3)">
@@ -205,6 +258,7 @@
                         }
                     } else if (newStatus === 3) { // Ready
                         if (badge) badge.innerText = "Ready";
+                        if (card) card.setAttribute('data-status', 'Ready');
                         if (actions) {
                             actions.innerHTML = `
                                 <button class="btn btn-success w-100 fw-bold py-2" onclick="updateOrderStatus('${orderId}', 4)">
@@ -213,6 +267,7 @@
                         }
                     } else if (newStatus === 4) { // Served
                         if (badge) badge.innerText = "Served";
+                        if (card) card.setAttribute('data-status', 'Served');
                         if (actions) {
                             actions.innerHTML = `
                                 <div class="text-center text-success small fw-bold py-2">
@@ -220,6 +275,7 @@
                                 </div>`;
                         }
                     }
+                    refreshFilterCounts();
                 } else {
                     alert("Failed to update status.");
                 }
@@ -227,6 +283,67 @@
                 console.error(err);
                 alert("Error updating status.");
             }
+        }
+
+        function updateSlaBadges() {
+            const now = new Date();
+            document.querySelectorAll('.sla-timer-badge').forEach(badge => {
+                const createdStr = badge.getAttribute('data-created');
+                if (!createdStr) return;
+                const created = new Date(createdStr);
+                const diffMin = Math.max(0, Math.floor((now - created) / 60000));
+
+                if (diffMin < 10) {
+                    badge.className = "badge sla-timer-badge bg-success-subtle text-success border border-success-subtle";
+                    badge.innerHTML = `<i class="bi bi-clock me-1"></i>${diffMin}m (Normal)`;
+                } else if (diffMin < 20) {
+                    badge.className = "badge sla-timer-badge bg-warning-subtle text-dark border border-warning";
+                    badge.innerHTML = `<i class="bi bi-exclamation-triangle me-1"></i>${diffMin}m (Attn)`;
+                } else {
+                    badge.className = "badge sla-timer-badge bg-danger text-white";
+                    badge.innerHTML = `<i class="bi bi-fire me-1"></i>${diffMin}m (DELAYED)`;
+                }
+            });
+        }
+        setInterval(updateSlaBadges, 10000);
+        updateSlaBadges();
+
+        let currentKdsFilter = 'all';
+        function filterKds(status, btn) {
+            currentKdsFilter = status;
+            document.querySelectorAll('.kds-filter').forEach(b => {
+                b.classList.remove('active', 'btn-dark');
+                if (!b.classList.contains('btn-outline-danger') && !b.classList.contains('btn-outline-warning') && !b.classList.contains('btn-outline-primary') && !b.classList.contains('btn-outline-success')) {
+                    b.classList.add('btn-outline-dark');
+                }
+            });
+            btn.classList.add('active', 'btn-dark');
+
+            document.querySelectorAll('.kds-ticket-col').forEach(card => {
+                const cardStatus = card.getAttribute('data-status');
+                if (status === 'all' || cardStatus === status) {
+                    card.classList.remove('d-none');
+                } else {
+                    card.classList.add('d-none');
+                }
+            });
+        }
+
+        function refreshFilterCounts() {
+            const cards = document.querySelectorAll('.kds-ticket-col');
+            let countNew = 0, countPrep = 0, countReady = 0, countServed = 0;
+            cards.forEach(c => {
+                const s = c.getAttribute('data-status');
+                if (s === 'New') countNew++;
+                else if (s === 'Preparing') countPrep++;
+                else if (s === 'Ready') countReady++;
+                else if (s === 'Served') countServed++;
+            });
+            document.getElementById('countAll').innerText = cards.length;
+            document.getElementById('countNew').innerText = countNew;
+            document.getElementById('countPrep').innerText = countPrep;
+            document.getElementById('countReady').innerText = countReady;
+            document.getElementById('countServed').innerText = countServed;
         }
     </script>
 }

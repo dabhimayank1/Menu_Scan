@@ -26,6 +26,7 @@ namespace MenuScan.Data
         public DbSet<OrderStatusHistory> OrderStatusHistories => Set<OrderStatusHistory>();
         public DbSet<Bill> Bills => Set<Bill>();
         public DbSet<Payment> Payments => Set<Payment>();
+        public DbSet<ServiceRequest> ServiceRequests => Set<ServiceRequest>();
 
         protected override void OnModelCreating(ModelBuilder builder)
         {
@@ -118,6 +119,21 @@ namespace MenuScan.Data
                 .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.RestaurantId == _tenantService.CurrentRestaurantId);
 
             builder.Entity<Bill>()
+                .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.RestaurantId == _tenantService.CurrentRestaurantId);
+
+            builder.Entity<ServiceRequest>()
+                .HasOne(s => s.Restaurant)
+                .WithMany()
+                .HasForeignKey(s => s.RestaurantId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<ServiceRequest>()
+                .HasOne(s => s.Table)
+                .WithMany()
+                .HasForeignKey(s => s.TableId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<ServiceRequest>()
                 .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.RestaurantId == _tenantService.CurrentRestaurantId);
         }
 

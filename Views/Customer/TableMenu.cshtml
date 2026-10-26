@@ -26,6 +26,9 @@
                         <span><i class="bi bi-bag me-3 fs-5"></i> My Cart</span>
                         <span class="badge rounded-pill bg-danger" id="sidebarCartCount">0</span>
                     </a>
+                    <a href="javascript:void(0)" onclick="openCallWaiterModal()" class="cafe-sidebar-nav-item">
+                        <i class="bi bi-bell-fill me-3 fs-5 text-warning"></i> Call Waiter
+                    </a>
                     <a href="/Account/Login" class="cafe-sidebar-nav-item">
                         <i class="bi bi-shield-lock me-3 fs-5"></i> Staff Portal
                     </a>
@@ -51,10 +54,15 @@
                         <i class="bi bi-qr-code me-1"></i> @Model.Table.TableNumber
                     </span>
                 </div>
-                <button class="btn btn-outline-dark position-relative rounded-circle p-2" style="width: 44px; height: 44px;" onclick="openCartModal()">
-                    <i class="bi bi-bag fs-5"></i>
-                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="mobileHeaderCartCount">0</span>
-                </button>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-warning text-dark position-relative rounded-circle p-2" style="width: 44px; height: 44px;" onclick="openCallWaiterModal()" title="Call Waiter / Assistance">
+                        <i class="bi bi-bell-fill text-warning fs-5"></i>
+                    </button>
+                    <button class="btn btn-outline-dark position-relative rounded-circle p-2" style="width: 44px; height: 44px;" onclick="openCartModal()">
+                        <i class="bi bi-bag fs-5"></i>
+                        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="mobileHeaderCartCount">0</span>
+                    </button>
+                </div>
             </div>
 
             <!-- Top Search & Filter Bar -->
@@ -63,7 +71,10 @@
                     <i class="bi bi-search cafe-search-icon"></i>
                     <input type="text" id="menuSearchInput" class="form-control cafe-search-box w-100" placeholder="Search coffee, food & more..." oninput="handleSearch(this.value)" />
                 </div>
-                <div class="col-auto">
+                <div class="col-auto d-flex gap-2">
+                    <button class="btn btn-outline-warning text-dark d-flex align-items-center gap-1 rounded-pill px-3 fw-semibold" onclick="openCallWaiterModal()">
+                        <i class="bi bi-bell-fill text-warning"></i> <span class="d-none d-sm-inline">Call Waiter</span>
+                    </button>
                     <button class="btn btn-cafe-outline d-flex align-items-center gap-2" onclick="toggleVegFilter(this)" id="vegFilterBtn">
                         <i class="bi bi-sliders"></i> <span class="d-none d-sm-inline">Veg Only</span>
                     </button>
@@ -366,6 +377,74 @@
                 <button type="button" class="btn btn-outline-secondary rounded-pill" data-bs-dismiss="modal">Add More</button>
                 <button type="button" class="btn btn-cafe-primary fw-bold px-4" id="btnModalPlaceOrder" onclick="placeOrder('modalNotes')">
                     Confirm & Send to Kitchen
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Call Waiter Modal -->
+<div class="modal fade" id="callWaiterModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content rounded-4 border-0 shadow">
+            <div class="modal-header border-bottom py-3">
+                <h5 class="modal-title fw-bold">
+                    <i class="bi bi-bell-fill text-warning me-2"></i>Call Waiter / Assistance
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <p class="text-muted small mb-3">Table <strong>@Model.Table.TableNumber</strong> &mdash; How can our team assist you?</p>
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <button type="button" class="btn btn-outline-dark w-100 py-3 rounded-3 text-start d-flex align-items-center gap-2 service-opt active" onclick="selectServiceType('Assistance', this)">
+                            <span class="fs-4">🛎️</span>
+                            <div>
+                                <div class="fw-bold small">Call Waiter</div>
+                                <small class="text-muted" style="font-size: 11px;">General help</small>
+                            </div>
+                        </button>
+                    </div>
+                    <div class="col-6">
+                        <button type="button" class="btn btn-outline-dark w-100 py-3 rounded-3 text-start d-flex align-items-center gap-2 service-opt" onclick="selectServiceType('Water', this)">
+                            <span class="fs-4">💧</span>
+                            <div>
+                                <div class="fw-bold small">Drinking Water</div>
+                                <small class="text-muted" style="font-size: 11px;">Refill glasses</small>
+                            </div>
+                        </button>
+                    </div>
+                    <div class="col-6">
+                        <button type="button" class="btn btn-outline-dark w-100 py-3 rounded-3 text-start d-flex align-items-center gap-2 service-opt" onclick="selectServiceType('Cutlery', this)">
+                            <span class="fs-4">🍴</span>
+                            <div>
+                                <div class="fw-bold small">Cutlery &amp; Napkins</div>
+                                <small class="text-muted" style="font-size: 11px;">Spoons / tissues</small>
+                            </div>
+                        </button>
+                    </div>
+                    <div class="col-6">
+                        <button type="button" class="btn btn-outline-dark w-100 py-3 rounded-3 text-start d-flex align-items-center gap-2 service-opt" onclick="selectServiceType('Bill', this)">
+                            <span class="fs-4">💳</span>
+                            <div>
+                                <div class="fw-bold small">Request Bill</div>
+                                <small class="text-muted" style="font-size: 11px;">Get total check</small>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold text-muted">Special Request (Optional)</label>
+                    <input type="text" id="serviceRequestNotes" class="form-control rounded-3" placeholder="e.g. Extra sugar, clean table..." />
+                </div>
+                <div id="serviceCallAlert" class="alert alert-success d-none rounded-3 py-2 px-3 small">
+                    <i class="bi bi-check-circle me-1"></i> Waiter has been notified! A staff member is on the way.
+                </div>
+            </div>
+            <div class="modal-footer bg-light border-0 py-3">
+                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-cafe-primary rounded-pill px-4" id="btnSendServiceCall" onclick="submitServiceCall()">
+                    <i class="bi bi-send me-1"></i> Send Request
                 </button>
             </div>
         </div>
@@ -693,6 +772,61 @@
                 alert("Network error.");
                 if (btn) btn.disabled = false;
                 if (modalBtn) modalBtn.disabled = false;
+            }
+        }
+
+        let selectedServiceType = "Assistance";
+        let callWaiterModalInstance = null;
+
+        function openCallWaiterModal() {
+            if (!callWaiterModalInstance) {
+                callWaiterModalInstance = new bootstrap.Modal(document.getElementById('callWaiterModal'));
+            }
+            document.getElementById('serviceCallAlert').classList.add('d-none');
+            document.getElementById('btnSendServiceCall').disabled = false;
+            callWaiterModalInstance.show();
+        }
+
+        function selectServiceType(type, btnElement) {
+            selectedServiceType = type;
+            document.querySelectorAll('.service-opt').forEach(b => {
+                b.classList.remove('active', 'border-warning', 'bg-warning-subtle');
+            });
+            btnElement.classList.add('active', 'border-warning', 'bg-warning-subtle');
+        }
+
+        async function submitServiceCall() {
+            const btn = document.getElementById('btnSendServiceCall');
+            const alertBox = document.getElementById('serviceCallAlert');
+            const notes = document.getElementById('serviceRequestNotes')?.value || "";
+
+            btn.disabled = true;
+            try {
+                const response = await fetch('/api/table/call-waiter', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        restaurantSlug: restaurantSlug,
+                        tableToken: tableToken,
+                        requestType: selectedServiceType,
+                        notes: notes
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    alertBox.classList.remove('d-none');
+                    setTimeout(() => {
+                        if (callWaiterModalInstance) callWaiterModalInstance.hide();
+                    }, 2000);
+                } else {
+                    alert(data.message || "Failed to notify staff.");
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Network error.");
+                btn.disabled = false;
             }
         }
     </script>

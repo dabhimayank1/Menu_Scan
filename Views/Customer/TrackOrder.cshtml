@@ -126,10 +126,62 @@
                 </div>
             </div>
 
-            <div class="text-center">
-                <a href="/r/@Model.Restaurant.Slug/t/@Model.Table.Token" class="btn btn-cafe-outline">
-                    <i class="bi bi-arrow-left me-1"></i> Order More Items
+            <div class="d-flex justify-content-center gap-2 mb-4">
+                <a href="/r/@Model.Restaurant.Slug/t/@Model.Table.Token" class="btn btn-cafe-outline rounded-pill px-4">
+                    <i class="bi bi-arrow-left me-1"></i> Add More Items
                 </a>
+                <button type="button" class="btn btn-outline-warning text-dark rounded-pill px-4 fw-semibold" onclick="openTrackWaiterModal()">
+                    <i class="bi bi-bell-fill text-warning me-1"></i> Call Waiter / Bill
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Call Waiter Modal in Tracking -->
+<div class="modal fade" id="trackWaiterModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content rounded-4 border-0 shadow">
+            <div class="modal-header border-bottom py-3">
+                <h5 class="modal-title fw-bold">
+                    <i class="bi bi-bell-fill text-warning me-2"></i>Table Assistance &amp; Bill
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <p class="text-muted small mb-3">Table <strong>@Model.Table.TableNumber</strong> (Order #@Model.Order.OrderNumber)</p>
+                <div class="d-grid gap-2 mb-3">
+                    <button type="button" class="btn btn-outline-dark py-2 text-start d-flex align-items-center gap-2 track-opt active" onclick="setTrackServiceType('Assistance', this)">
+                        <span class="fs-4">🛎️</span>
+                        <div>
+                            <div class="fw-bold small">Call Server to Table</div>
+                            <small class="text-muted">General service or inquiry</small>
+                        </div>
+                    </button>
+                    <button type="button" class="btn btn-outline-dark py-2 text-start d-flex align-items-center gap-2 track-opt" onclick="setTrackServiceType('Water', this)">
+                        <span class="fs-4">💧</span>
+                        <div>
+                            <div class="fw-bold small">Drinking Water</div>
+                            <small class="text-muted">Glass refills</small>
+                        </div>
+                    </button>
+                    <button type="button" class="btn btn-outline-dark py-2 text-start d-flex align-items-center gap-2 track-opt" onclick="setTrackServiceType('Bill', this)">
+                        <span class="fs-4">💳</span>
+                        <div>
+                            <div class="fw-bold small">Request Final Bill</div>
+                            <small class="text-muted">Prepare check for payment</small>
+                        </div>
+                    </button>
+                </div>
+                <div id="trackCallAlert" class="alert alert-success d-none rounded-3 py-2 px-3 small">
+                    <i class="bi bi-check-circle me-1"></i> Waiter notified! A server will attend to your table shortly.
+                </div>
+            </div>
+            <div class="modal-footer bg-light border-0 py-3">
+                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-cafe-primary rounded-pill px-4" id="btnSendTrackService" onclick="sendTrackServiceCall()">
+                    <i class="bi bi-send me-1"></i> Request Now
+                </button>
             </div>
         </div>
     </div>
@@ -161,5 +213,57 @@
         connection.start().then(() => {
             connection.invoke("JoinOrderGroup", orderToken);
         }).catch(err => console.error("SignalR connection error:", err));
+
+        let trackServiceType = "Assistance";
+        let trackModalInstance = null;
+
+        function openTrackWaiterModal() {
+            if (!trackModalInstance) {
+                trackModalInstance = new bootstrap.Modal(document.getElementById('trackWaiterModal'));
+            }
+            document.getElementById('trackCallAlert').classList.add('d-none');
+            document.getElementById('btnSendTrackService').disabled = false;
+            trackModalInstance.show();
+        }
+
+        function setTrackServiceType(type, el) {
+            trackServiceType = type;
+            document.querySelectorAll('.track-opt').forEach(b => b.classList.remove('active', 'border-warning', 'bg-warning-subtle'));
+            el.classList.add('active', 'border-warning', 'bg-warning-subtle');
+        }
+
+        async function sendTrackServiceCall() {
+            const btn = document.getElementById('btnSendTrackService');
+            const alertBox = document.getElementById('trackCallAlert');
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/api/table/call-waiter', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        restaurantSlug: "@Model.Restaurant.Slug",
+                        tableToken: "@Model.Table.Token",
+                        requestType: trackServiceType,
+                        notes: `Order #${"@Model.Order.OrderNumber"}`
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    alertBox.classList.remove('d-none');
+                    setTimeout(() => {
+                        if (trackModalInstance) trackModalInstance.hide();
+                    }, 2000);
+                } else {
+                    alert(data.message || "Failed to notify staff.");
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Network error.");
+                btn.disabled = false;
+            }
+        }
     </script>
 }

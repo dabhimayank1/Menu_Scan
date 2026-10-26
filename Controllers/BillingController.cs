@@ -63,8 +63,17 @@ namespace MenuScan.Controllers
                 .Take(20)
                 .ToListAsync();
 
+            // Fetch unhandled service requests
+            var pendingRequests = await _context.ServiceRequests
+                .IgnoreQueryFilters()
+                .Where(s => s.RestaurantId == restaurantId.Value && !s.IsHandled)
+                .Include(s => s.Table)
+                .OrderByDescending(s => s.CreatedAtUtc)
+                .ToListAsync();
+
             ViewBag.RestaurantId = restaurantId.Value;
             ViewBag.SettledBills = settledBills;
+            ViewBag.PendingRequests = pendingRequests;
             return View(activeOrders);
         }
 
@@ -129,7 +138,7 @@ namespace MenuScan.Controllers
                 var oldStatus = order.Status;
                 order.Status = OrderStatus.Completed;
 
-                order.StatusHistory.Add(new OrderStatusHistory
+                _context.OrderStatusHistories.Add(new OrderStatusHistory
                 {
                     OrderId = order.Id,
                     OldStatus = oldStatus,
@@ -185,6 +194,20 @@ namespace MenuScan.Controllers
 
             ViewBag.Restaurant = restaurant;
             return View(order);
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> AcknowledgeServiceRequest([FromBody] Guid id)
+        {
+            var req = await _context.ServiceRequests.IgnoreQueryFilters().FirstOrDefaultAsync(s => s.Id == id);
+            if (req == null) return NotFound(new { message = "Service request not found." });
+
+            req.IsHandled = true;
+            req.HandledAtUtc = DateTime.UtcNow;
+            req.HandledBy = User.Identity?.Name ?? "Cashier";
+            await _context.SaveChangesAsync();
+
+            return Ok(new { success = true });
         }
     }
 }

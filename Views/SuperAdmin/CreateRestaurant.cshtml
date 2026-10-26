@@ -1,0 +1,121 @@
+@model MenuScan.Controllers.CreateRestaurantDto
+@{
+    ViewData["Title"] = "Provision New Restaurant";
+    Layout = "_Layout";
+}
+
+<div class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card shadow-sm border-0 rounded-4 overflow-hidden bg-white" style="border: 1.5px solid var(--cafe-card-border) !important;">
+                <div class="card-header bg-dark text-white p-4">
+                    <span class="badge bg-warning text-dark mb-2 px-3 py-1 rounded-pill fw-bold">SAAS ONBOARDING</span>
+                    <h3 class="fw-bold mb-1">Provision New Restaurant</h3>
+                    <p class="text-white-50 mb-0 small">Create a new tenant store, configure branding &amp; tax, and issue admin credentials.</p>
+                </div>
+
+                <div class="card-body p-4 p-md-5">
+                    <form asp-action="CreateRestaurant" method="post">
+                        <div asp-validation-summary="ModelOnly" class="alert alert-danger mb-4 rounded-3"></div>
+
+                        <!-- 1. Store Details -->
+                        <h5 class="fw-bold mb-3" style="color: var(--cafe-primary);">
+                            <i class="bi bi-shop me-2"></i>1. Restaurant Profile
+                        </h5>
+
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-6">
+                                <label asp-for="Name" class="form-label fw-semibold">Restaurant Name *</label>
+                                <input asp-for="Name" class="form-control rounded-3" placeholder="e.g. Sunset Artisan Bistro" id="restNameInput" required oninput="autoSlug(this.value)" />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label asp-for="Slug" class="form-label fw-semibold">URL Slug *</label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light small">/r/</span>
+                                    <input asp-for="Slug" class="form-control rounded-end-3" placeholder="sunset-bistro" id="slugInput" required />
+                                </div>
+                                <span asp-validation-for="Slug" class="text-danger small"></span>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label asp-for="Phone" class="form-label fw-semibold">Contact Phone</label>
+                                <input asp-for="Phone" class="form-control rounded-3" placeholder="+91 98765 00000" />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label asp-for="DefaultTaxRate" class="form-label fw-semibold">Default GST / Tax Rate (%)</label>
+                                <input asp-for="DefaultTaxRate" type="number" step="0.5" class="form-control rounded-3" value="5.0" required />
+                            </div>
+
+                            <div class="col-12">
+                                <label asp-for="Address" class="form-label fw-semibold">Store Address</label>
+                                <input asp-for="Address" class="form-control rounded-3" placeholder="e.g. 12 High Street, Downtown" />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label asp-for="TaxNumber" class="form-label fw-semibold">GSTIN / Tax ID</label>
+                                <input asp-for="TaxNumber" class="form-control rounded-3" placeholder="e.g. 29ABCDE1234F1Z5" />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label asp-for="LogoUrl" class="form-label fw-semibold">Logo Image URL</label>
+                                <input asp-for="LogoUrl" class="form-control rounded-3" placeholder="https://... logo.jpg" />
+                            </div>
+                        </div>
+
+                        <hr class="my-4" />
+
+                        <!-- 2. Store Admin Account -->
+                        <h5 class="fw-bold mb-3" style="color: var(--cafe-primary);">
+                            <i class="bi bi-person-badge me-2"></i>2. Primary Restaurant Admin Account
+                        </h5>
+
+                        <div class="row g-3 mb-4">
+                            <div class="col-md-12">
+                                <label asp-for="AdminFullName" class="form-label fw-semibold">Manager Full Name *</label>
+                                <input asp-for="AdminFullName" class="form-control rounded-3" placeholder="e.g. Alex Mercer" required />
+                            </div>
+
+                            <div class="col-md-6">
+                                <label asp-for="AdminEmail" class="form-label fw-semibold">Admin Login Email *</label>
+                                <input asp-for="AdminEmail" type="email" class="form-control rounded-3" placeholder="manager@sunsetbistro.com" required />
+                                <span asp-validation-for="AdminEmail" class="text-danger small"></span>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label asp-for="AdminPassword" class="form-label fw-semibold">Initial Password *</label>
+                                <input asp-for="AdminPassword" type="password" class="form-control rounded-3" placeholder="Minimum 6 characters" required />
+                            </div>
+                        </div>
+
+                        <div class="p-3 bg-light rounded-4 mb-4 small text-muted">
+                            <i class="bi bi-info-circle me-1 text-primary"></i>
+                            <strong>Automatic Setup:</strong> Provisioning will automatically configure 4 initial Dining Tables with unique QR tokens and an initial menu category ready for setup.
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center">
+                            <a asp-action="Index" class="btn btn-outline-secondary rounded-pill px-4">Cancel</a>
+                            <button type="submit" class="btn btn-cafe-primary fw-bold px-5 py-2">
+                                Provision Store &amp; Deploy
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        function autoSlug(name) {
+            const slug = name.toLowerCase()
+                .replace(/[^a-z0-9 -]/g, '')
+                .replace(/\s+/g, '-')
+                .replace(/-+/g, '-');
+            document.getElementById('slugInput').value = slug;
+        }
+    </script>
+}

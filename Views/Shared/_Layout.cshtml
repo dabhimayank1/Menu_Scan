@@ -1,9 +1,24 @@
+@inject MenuScan.Services.ITenantService TenantService
+@inject MenuScan.Data.ApplicationDbContext AppDb
+@using Microsoft.EntityFrameworkCore
+@{
+    var tenantId = TenantService.CurrentRestaurantId;
+    var currentRestaurant = tenantId.HasValue 
+        ? AppDb.Restaurants.IgnoreQueryFilters().FirstOrDefault(r => r.Id == tenantId.Value) 
+        : null;
+    var brandName = currentRestaurant?.Name ?? "Brew & Bliss";
+    var primaryTableToken = currentRestaurant != null
+        ? AppDb.DiningTables.IgnoreQueryFilters().Where(t => t.RestaurantId == currentRestaurant.Id).Select(t => t.Token).FirstOrDefault() ?? "TAB-01"
+        : "TAB-01";
+    var primarySlug = currentRestaurant?.Slug ?? "spice-symphony";
+    var customerMenuUrl = $"/r/{primarySlug}/t/{primaryTableToken}";
+}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>@ViewData["Title"] - Brew & Bliss</title>
+    <title>@ViewData["Title"] - @brandName</title>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
@@ -14,7 +29,7 @@
             <div class="container-fluid px-3 px-lg-4">
                 <a class="navbar-brand fw-bold d-flex align-items-center" asp-controller="Home" asp-action="Index">
                     <span class="fs-4 me-2">☕</span>
-                    <span style="letter-spacing: -0.5px;">Brew &amp; <span style="color: var(--cafe-primary);">Bliss</span></span>
+                    <span style="letter-spacing: -0.5px;">@brandName</span>
                 </a>
                 <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent">
                     <span class="navbar-toggler-icon"></span>
@@ -22,10 +37,18 @@
                 <div class="collapse navbar-collapse" id="navbarContent">
                     <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                         <li class="nav-item">
-                            <a class="nav-link" href="/r/spice-symphony/t/TAB-01"><i class="bi bi-phone me-1"></i>Customer QR Menu</a>
+                            <a class="nav-link" href="@customerMenuUrl"><i class="bi bi-phone me-1"></i>Customer QR Menu</a>
                         </li>
                         @if (User.Identity?.IsAuthenticated == true)
                         {
+                            @if (User.IsInRole("SuperAdmin"))
+                            {
+                                <li class="nav-item">
+                                    <a class="nav-link text-warning fw-bold" asp-controller="SuperAdmin" asp-action="Index">
+                                        <i class="bi bi-buildings me-1"></i>Platform SaaS
+                                    </a>
+                                </li>
+                            }
                             @if (User.IsInRole("RestaurantAdmin") || User.IsInRole("SuperAdmin"))
                             {
                                 <li class="nav-item">
