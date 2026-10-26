@@ -1,0 +1,687 @@
+@model MenuScan.Models.ViewModels.FloorPlanViewModel
+@{
+    ViewData["Title"] = "Live Floor Plan & Table Matrix";
+    Layout = "_Layout";
+}
+
+<div class="container-fluid py-4 px-3 px-lg-4">
+    <!-- Header & Live Clock -->
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="fs-4">🗺️</span>
+                <h3 class="fw-bold mb-0" style="letter-spacing: -0.5px;">Live Floor Plan &amp; Table Matrix</h3>
+                <span class="badge bg-dark rounded-pill px-3 py-1">@Model.Restaurant.Name</span>
+            </div>
+            <p class="text-muted small mb-0">Real-time table turnover, runner dispatch, and customer service call matrix</p>
+        </div>
+        <div class="d-flex align-items-center gap-3 mt-3 mt-md-0">
+            <div class="text-end d-none d-sm-block">
+                <span class="badge bg-light text-dark border px-3 py-2 fw-semibold">
+                    <i class="bi bi-clock me-1 text-primary"></i> <span id="liveClock">--:--:--</span>
+                </span>
+            </div>
+            <button class="btn btn-outline-secondary rounded-pill px-3 btn-sm" onclick="toggleAudio()" id="btnAudioToggle">
+                <i class="bi bi-volume-up-fill me-1" id="audioIcon"></i> Sound Alerts: ON
+            </button>
+            <button class="btn btn-cafe-primary rounded-pill px-3 btn-sm" onclick="window.location.reload()">
+                <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+            </button>
+        </div>
+    </div>
+
+    <!-- KPI Summary Cards -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="text-muted small fw-semibold text-uppercase">Total Tables</div>
+                        <h2 class="fw-bold mb-0 text-dark" id="kpiTotalTables">@Model.TotalTables</h2>
+                    </div>
+                    <span class="badge rounded-circle p-3 bg-light text-dark fs-5">
+                        <i class="bi bi-grid-3x3-gap"></i>
+                    </span>
+                </div>
+                <small class="text-muted mt-2 d-block">Configured in restaurant</small>
+            </div>
+        </div>
+
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="text-muted small fw-semibold text-uppercase">Occupancy Rate</div>
+                        <h2 class="fw-bold mb-0 text-primary" id="kpiOccupancyRate">@Model.OccupancyRate%</h2>
+                    </div>
+                    <span class="badge rounded-circle p-3 bg-primary-subtle text-primary fs-5">
+                        <i class="bi bi-pie-chart-fill"></i>
+                    </span>
+                </div>
+                <div class="progress mt-2" style="height: 5px;">
+                    <div class="progress-bar bg-primary" id="kpiOccupancyBar" style="width: @Model.OccupancyRate%"></div>
+                </div>
+                <small class="text-muted mt-1 d-block"><span id="kpiOccupiedCount">@Model.OccupiedCount</span> active / <span id="kpiAvailableCount">@Model.AvailableCount</span> vacant</small>
+            </div>
+        </div>
+
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="text-muted small fw-semibold text-uppercase">Food Ready for Pickup</div>
+                        <h2 class="fw-bold mb-0 text-purple" style="color: #6f42c1;" id="kpiFoodReadyCount">@Model.FoodReadyCount</h2>
+                    </div>
+                    <span class="badge rounded-circle p-3 fs-5" style="background-color: #f3e8ff; color: #6f42c1;">
+                        <i class="bi bi-bell-fill"></i>
+                    </span>
+                </div>
+                <small class="text-muted mt-2 d-block">Kitchen ready • Needs runner</small>
+            </div>
+        </div>
+
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="text-muted small fw-semibold text-uppercase">Service &amp; Bills</div>
+                        <h2 class="fw-bold mb-0 text-warning" id="kpiAssistanceCount">@Model.AssistanceCount</h2>
+                    </div>
+                    <span class="badge rounded-circle p-3 bg-warning-subtle text-warning fs-5">
+                        <i class="bi bi-exclamation-octagon-fill"></i>
+                    </span>
+                </div>
+                <small class="text-muted mt-2 d-block">Pending staff assistance</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filter Pills & Search -->
+    <div class="card border-0 shadow-sm rounded-4 mb-4 p-3 bg-white">
+        <div class="row g-2 align-items-center">
+            <div class="col-12 col-md-auto">
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-sm btn-cafe-primary rounded-pill px-3 filter-pill active" onclick="filterTables('all', this)">
+                        All Tables (@Model.TotalTables)
+                    </button>
+                    <button class="btn btn-sm btn-outline-success rounded-pill px-3 filter-pill" onclick="filterTables('available', this)">
+                        🟢 Available (<span id="pillCountAvailable">@Model.AvailableCount</span>)
+                    </button>
+                    <button class="btn btn-sm btn-outline-warning text-dark rounded-pill px-3 filter-pill" onclick="filterTables('occupied', this)">
+                        🟠 Occupied (<span id="pillCountOccupied">@Model.OccupiedCount</span>)
+                    </button>
+                    <button class="btn btn-sm btn-outline-purple rounded-pill px-3 filter-pill" style="border-color: #6f42c1; color: #6f42c1;" onclick="filterTables('ready', this)">
+                        🟣 Food Ready (<span id="pillCountReady">@Model.FoodReadyCount</span>)
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger rounded-pill px-3 filter-pill" onclick="filterTables('service', this)">
+                        🔔 Assistance &amp; Bills (<span id="pillCountService">@Model.AssistanceCount</span>)
+                    </button>
+                </div>
+            </div>
+            <div class="col-12 col-md-auto ms-md-auto">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text bg-light border-end-0 rounded-start-pill"><i class="bi bi-search text-muted"></i></span>
+                    <input type="text" id="tableSearchInput" class="form-control bg-light border-start-0 rounded-end-pill" placeholder="Search table #..." oninput="searchTables(this.value)">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Real-time Active Service Call Banner (if any) -->
+    <div id="serviceAlertsBanner">
+        @foreach (var table in Model.Tables.Where(t => t.PendingRequests.Any()))
+        {
+            foreach (var req in table.PendingRequests)
+            {
+                var isBill = req.RequestType.Equals("Bill", StringComparison.OrdinalIgnoreCase);
+                <div class="alert @(isBill ? "alert-info" : "alert-warning") border-0 shadow-sm rounded-4 p-3 mb-3 d-flex align-items-center justify-content-between" id="service-req-alert-@req.RequestId">
+                    <div class="d-flex align-items-center gap-3">
+                        <span class="fs-3">@(isBill ? "💳" : "🛎️")</span>
+                        <div>
+                            <span class="badge bg-dark fs-6 px-3 py-1 rounded-pill">@table.TableNumber</span>
+                            <strong class="ms-2">@req.RequestType Request</strong>
+                            @if (!string.IsNullOrEmpty(req.Notes))
+                            {
+                                <span class="text-muted small ms-2">("&lrm;@req.Notes")</span>
+                            }
+                            <div class="text-muted small mt-1">
+                                <i class="bi bi-clock me-1"></i> @req.TimeAgo • Needs attention
+                            </div>
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        @if (isBill)
+                        {
+                            <a href="/Billing?table=@table.TableNumber" class="btn btn-primary btn-sm rounded-pill px-3">
+                                <i class="bi bi-cash-stack me-1"></i> Open Bill
+                            </a>
+                        }
+                        <button class="btn btn-outline-dark btn-sm rounded-pill px-3" onclick="acknowledgeService('@req.RequestId', '@table.TableNumber')">
+                            <i class="bi bi-check-lg me-1"></i> Acknowledge
+                        </button>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+
+    <!-- Table Grid Matrix -->
+    <div class="row g-3" id="tableGridMatrix">
+        @foreach (var table in Model.Tables)
+        {
+            var isAvailable = table.FloorStatus == MenuScan.Models.ViewModels.FloorTableStatus.Available;
+            var isFoodReady = table.HasFoodReady;
+            var hasCalls = table.HasAssistanceCall || table.HasBillCall;
+
+            var borderClass = isFoodReady ? "border-purple pulse-purple"
+                            : hasCalls ? "border-warning pulse-warning"
+                            : isAvailable ? "border-success-subtle"
+                            : "border-primary-subtle";
+
+            <div class="col-12 col-sm-6 col-md-4 col-lg-3 col-xl-2-4 table-card-col" 
+                 id="card-table-@table.TableNumber"
+                 data-table-number="@table.TableNumber.ToLower()"
+                 data-status="@table.FloorStatus.ToString().ToLower()"
+                 data-is-available="@isAvailable.ToString().ToLower()"
+                 data-is-ready="@isFoodReady.ToString().ToLower()"
+                 data-has-service="@hasCalls.ToString().ToLower()">
+                 
+                <div class="card h-100 shadow-sm rounded-4 border-2 @borderClass bg-white overflow-hidden transition-all position-relative">
+                    
+                    <!-- Top Status Strip -->
+                    <div class="card-header bg-transparent border-0 d-flex justify-content-between align-items-center pt-3 pb-2 px-3">
+                        <div class="d-flex align-items-center gap-2">
+                            <h5 class="fw-bold mb-0 text-dark">@table.TableNumber</h5>
+                            <span class="badge bg-light text-muted border rounded-pill px-2 py-1 small">
+                                <i class="bi bi-people-fill me-1"></i>@table.Capacity
+                            </span>
+                        </div>
+                        
+                        <!-- Status Badge -->
+                        @if (table.HasBillCall)
+                        {
+                            <span class="badge bg-info text-dark rounded-pill px-2 py-1 small">
+                                <i class="bi bi-credit-card me-1"></i>Bill Req
+                            </span>
+                        }
+                        else if (table.HasAssistanceCall)
+                        {
+                            <span class="badge bg-warning text-dark rounded-pill px-2 py-1 small">
+                                <i class="bi bi-bell-fill me-1"></i>Assistance
+                            </span>
+                        }
+                        else if (table.HasFoodReady)
+                        {
+                            <span class="badge rounded-pill px-2 py-1 small" style="background-color: #6f42c1; color: #fff;">
+                                <i class="bi bi-bell-fill me-1"></i>Food Ready
+                            </span>
+                        }
+                        else if (table.FloorStatus == MenuScan.Models.ViewModels.FloorTableStatus.OccupiedNew)
+                        {
+                            <span class="badge bg-warning text-dark rounded-pill px-2 py-1 small">
+                                <i class="bi bi-hourglass-split me-1"></i>New Order
+                            </span>
+                        }
+                        else if (table.FloorStatus == MenuScan.Models.ViewModels.FloorTableStatus.OccupiedPreparing)
+                        {
+                            <span class="badge bg-primary text-white rounded-pill px-2 py-1 small">
+                                <i class="bi bi-fire me-1"></i>Cooking
+                            </span>
+                        }
+                        else if (table.FloorStatus == MenuScan.Models.ViewModels.FloorTableStatus.OccupiedServed)
+                        {
+                            <span class="badge bg-success-subtle text-success rounded-pill px-2 py-1 small">
+                                <i class="bi bi-cup-hot-fill me-1"></i>Dining
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-light text-success border border-success-subtle rounded-pill px-2 py-1 small">
+                                <i class="bi bi-check-circle-fill me-1"></i>Available
+                            </span>
+                        }
+                    </div>
+
+                    <!-- Body Content -->
+                    <div class="card-body p-3 d-flex flex-column">
+                        @if (table.ActiveOrderId.HasValue)
+                        {
+                            <div class="d-flex justify-content-between align-items-baseline mb-2">
+                                <span class="fw-bold small text-muted">#@table.ActiveOrderNumber?.Substring(Math.Max(0, (table.ActiveOrderNumber?.Length ?? 0) - 4))</span>
+                                <span class="badge bg-light text-dark border small">
+                                    <i class="bi bi-stopwatch me-1 text-primary"></i>@table.SeatedDurationMinutes m
+                                </span>
+                            </div>
+
+                            <!-- Items Summary -->
+                            <div class="mb-3 flex-grow-1" style="min-height: 50px;">
+                                @if (table.OrderItems.Any())
+                                {
+                                    <div class="text-truncate small fw-semibold text-dark">
+                                        @string.Join(", ", table.OrderItems.Take(2).Select(i => $"{i.Quantity}x {i.ItemName}"))
+                                        @if (table.OrderItems.Count > 2)
+                                        {
+                                            <span class="text-muted">+@(table.OrderItems.Count - 2) more</span>
+                                        }
+                                    </div>
+                                    <div class="fw-bold fs-6 mt-1" style="color: var(--cafe-primary);">
+                                        ₹@table.ActiveOrderTotal.ToString("0.00")
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-center py-4 text-muted flex-grow-1">
+                                <i class="bi bi-cup display-6 text-black-50 d-block mb-1"></i>
+                                <span class="small">Clean &amp; Ready for Guests</span>
+                            </div>
+                        }
+
+                        <!-- Bottom Action Buttons -->
+                        <div class="mt-auto pt-2 border-top border-light d-flex flex-column gap-2">
+                            @if (table.HasFoodReady && table.ActiveOrderId.HasValue)
+                            {
+                                <button class="btn btn-sm text-white fw-bold w-100 rounded-pill" 
+                                        style="background-color: #6f42c1;" 
+                                        onclick="markServed('@table.ActiveOrderId.Value', '@table.TableNumber')">
+                                    <i class="bi bi-lightning-fill me-1"></i> Runner: Mark Served
+                                </button>
+                            }
+                            else if (table.HasAssistanceCall || table.HasBillCall)
+                            {
+                                var firstReq = table.PendingRequests.FirstOrDefault();
+                                if (firstReq != null)
+                                {
+                                    <button class="btn btn-sm btn-warning text-dark fw-bold w-100 rounded-pill" 
+                                            onclick="acknowledgeService('@firstReq.RequestId', '@table.TableNumber')">
+                                        <i class="bi bi-check2-circle me-1"></i> Attended to Table
+                                    </button>
+                                }
+                            }
+
+                            <div class="d-flex gap-1">
+                                @if (table.ActiveOrderId.HasValue)
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary rounded-pill flex-grow-1" 
+                                            onclick="openTableDrawer('@table.TableNumber')">
+                                        <i class="bi bi-eye me-1"></i> Details
+                                    </button>
+                                    <a href="/Billing?table=@table.TableNumber" class="btn btn-sm btn-outline-success rounded-pill px-2" title="Settle Bill">
+                                        <i class="bi bi-cash-stack"></i>
+                                    </a>
+                                }
+                                else
+                                {
+                                    <a href="/r/@Model.Restaurant.Slug/t/@table.Token" target="_blank" class="btn btn-sm btn-outline-primary rounded-pill flex-grow-1">
+                                        <i class="bi bi-phone me-1"></i> Take Order
+                                    </a>
+                                    <button class="btn btn-sm btn-outline-secondary rounded-pill px-2" onclick="cleanTable('@table.TableId', '@table.TableNumber')" title="Reset / Mark Clean">
+                                        <i class="bi bi-arrow-repeat"></i>
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<!-- Offcanvas / Modal for Table Order Details -->
+<div class="modal fade" id="tableDetailsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content rounded-4 border-0 shadow-lg overflow-hidden">
+            <div class="modal-header text-white p-3" style="background-color: #241812;">
+                <div>
+                    <h5 class="modal-title fw-bold" id="drawerTableTitle">Table Details</h5>
+                    <small class="text-white-50" id="drawerTableSubtitle">Active Dine-In Session</small>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4" id="drawerBody">
+                <!-- Dynamically populated -->
+            </div>
+            <div class="modal-footer bg-light border-0 py-3" id="drawerFooter">
+                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .transition-all { transition: all 0.25s ease-in-out; }
+    .transition-all:hover { transform: translateY(-3px); box-shadow: 0 10px 20px rgba(0,0,0,0.08) !important; }
+    
+    .border-purple { border-color: #6f42c1 !important; }
+    
+    @@keyframes pulseGlowPurple {
+        0% { box-shadow: 0 0 0 0 rgba(111, 66, 193, 0.4); }
+        70% { box-shadow: 0 0 0 10px rgba(111, 66, 193, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(111, 66, 193, 0); }
+    }
+    .pulse-purple {
+        animation: pulseGlowPurple 2s infinite;
+    }
+
+    @@keyframes pulseGlowWarning {
+        0% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.5); }
+        70% { box-shadow: 0 0 0 10px rgba(255, 193, 7, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0); }
+    }
+    .pulse-warning {
+        animation: pulseGlowWarning 2s infinite;
+    }
+
+    @@media (min-width: 1400px) {
+        .col-xl-2-4 {
+            flex: 0 0 auto;
+            width: 20%;
+        }
+    }
+</style>
+
+@section Scripts {
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+    <script>
+        const restaurantId = "@Model.Restaurant.Id";
+        let soundEnabled = true;
+
+        // Raw table data serialized safely for quick client-side drawer lookup
+        const tableStore = {
+            @foreach (var t in Model.Tables)
+            {
+                <text>
+                "@t.TableNumber": {
+                    tableId: "@t.TableId",
+                    tableNumber: "@t.TableNumber",
+                    capacity: @t.Capacity,
+                    token: "@t.Token",
+                    status: "@t.FloorStatus",
+                    activeOrderId: "@(t.ActiveOrderId?.ToString() ?? "")",
+                    activeOrderNumber: "@(t.ActiveOrderNumber ?? "")",
+                    activeOrderTotal: @t.ActiveOrderTotal,
+                    seatedMinutes: @t.SeatedDurationMinutes,
+                    hasFoodReady: @t.HasFoodReady.ToString().ToLower(),
+                    items: [
+                        @foreach (var it in t.OrderItems)
+                        {
+                            <text>{ name: "@Html.Raw(it.ItemName.Replace("\"", "\\\""))", qty: @it.Quantity, price: @it.Price, custom: "@Html.Raw(it.CustomizationSummary?.Replace("\"", "\\\"") ?? "")" },</text>
+                        }
+                    ],
+                    requests: [
+                        @foreach (var r in t.PendingRequests)
+                        {
+                            <text>{ id: "@r.RequestId", type: "@r.RequestType", notes: "@Html.Raw(r.Notes?.Replace("\"", "\\\"") ?? "")", timeAgo: "@r.TimeAgo" },</text>
+                        }
+                    ]
+                },
+                </text>
+            }
+        };
+
+        // Live Clock
+        function updateClock() {
+            const now = new Date();
+            const el = document.getElementById('liveClock');
+            if (el) el.innerText = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // Audio chime alert
+        function playChime(freq1 = 587.33, freq2 = 880.00) {
+            if (!soundEnabled) return;
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const now = ctx.currentTime;
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = "sine";
+                osc.frequency.setValueAtTime(freq1, now);
+                osc.frequency.setValueAtTime(freq2, now + 0.15);
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.5);
+            } catch (e) {
+                console.log("Audio blocked by autoplay policy until user interaction.");
+            }
+        }
+
+        function toggleAudio() {
+            soundEnabled = !soundEnabled;
+            const btn = document.getElementById('btnAudioToggle');
+            const icon = document.getElementById('audioIcon');
+            if (soundEnabled) {
+                btn.className = "btn btn-outline-secondary rounded-pill px-3 btn-sm";
+                btn.innerHTML = '<i class="bi bi-volume-up-fill me-1" id="audioIcon"></i> Sound Alerts: ON';
+                playChime();
+            } else {
+                btn.className = "btn btn-secondary rounded-pill px-3 btn-sm";
+                btn.innerHTML = '<i class="bi bi-volume-mute-fill me-1" id="audioIcon"></i> Sound Alerts: OFF';
+            }
+        }
+
+        // Filtering & Search
+        function filterTables(filter, btn) {
+            document.querySelectorAll('.filter-pill').forEach(b => {
+                b.classList.remove('btn-cafe-primary', 'active');
+                b.classList.add('btn-outline-secondary');
+            });
+            btn.classList.add('btn-cafe-primary', 'active');
+            btn.classList.remove('btn-outline-secondary');
+
+            document.querySelectorAll('.table-card-col').forEach(card => {
+                const isAvail = card.getAttribute('data-is-available') === 'true';
+                const isReady = card.getAttribute('data-is-ready') === 'true';
+                const hasService = card.getAttribute('data-has-service') === 'true';
+
+                let show = false;
+                if (filter === 'all') show = true;
+                else if (filter === 'available' && isAvail) show = true;
+                else if (filter === 'occupied' && !isAvail) show = true;
+                else if (filter === 'ready' && isReady) show = true;
+                else if (filter === 'service' && hasService) show = true;
+
+                card.style.display = show ? '' : 'none';
+            });
+        }
+
+        function searchTables(query) {
+            const q = query.toLowerCase().trim();
+            document.querySelectorAll('.table-card-col').forEach(card => {
+                const num = card.getAttribute('data-table-number') || '';
+                card.style.display = (!q || num.includes(q)) ? '' : 'none';
+            });
+        }
+
+        // Open Table Details Drawer Modal
+        function openTableDrawer(tableNumber) {
+            const data = tableStore[tableNumber];
+            if (!data) return;
+
+            document.getElementById('drawerTableTitle').innerText = `${data.tableNumber} Details`;
+            document.getElementById('drawerTableSubtitle').innerText = `Capacity: ${data.capacity} Guests • Token: ${data.token}`;
+
+            let bodyHtml = '';
+
+            // Service Requests
+            if (data.requests && data.requests.length > 0) {
+                bodyHtml += `<div class="alert alert-warning rounded-3 p-3 mb-3">
+                    <h6 class="fw-bold mb-2"><i class="bi bi-bell-fill me-1"></i>Active Service Requests:</h6>`;
+                data.requests.forEach(r => {
+                    bodyHtml += `
+                        <div class="d-flex justify-content-between align-items-center py-1">
+                            <div>
+                                <strong>${r.type}</strong>: ${r.notes || 'No extra notes'}
+                                <div class="text-muted small">${r.timeAgo}</div>
+                            </div>
+                            <button class="btn btn-sm btn-dark rounded-pill px-3" onclick="acknowledgeService('${r.id}', '${data.tableNumber}')">
+                                Resolve
+                            </button>
+                        </div>`;
+                });
+                bodyHtml += `</div>`;
+            }
+
+            // Order items
+            if (data.activeOrderId && data.items.length > 0) {
+                bodyHtml += `
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="fw-bold mb-0">Order #${data.activeOrderNumber}</h6>
+                        <span class="badge bg-light text-dark border">Seated: ${data.seatedMinutes}m</span>
+                    </div>
+                    <ul class="list-group list-group-flush mb-3">`;
+                data.items.forEach(it => {
+                    bodyHtml += `
+                        <li class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="fw-bold">${it.qty}x</span> ${it.name}
+                                ${it.custom ? `<div class="small text-muted">${it.custom}</div>` : ''}
+                            </div>
+                            <span class="fw-semibold">₹${it.price.toFixed(2)}</span>
+                        </li>`;
+                });
+                bodyHtml += `</ul>
+                    <div class="d-flex justify-content-between align-items-center p-3 rounded-3 mb-3" style="background-color: var(--cafe-primary-light);">
+                        <span class="fw-bold">Total Bill:</span>
+                        <span class="fs-5 fw-bold" style="color: var(--cafe-primary);">₹${data.activeOrderTotal.toFixed(2)}</span>
+                    </div>`;
+            } else {
+                bodyHtml += `
+                    <div class="text-center py-3 text-muted">
+                        <i class="bi bi-check-circle display-5 text-success d-block mb-2"></i>
+                        <h5>Table is Clean &amp; Available</h5>
+                        <p class="small">No active orders or unsettled balances.</p>
+                    </div>`;
+            }
+
+            document.getElementById('drawerBody').innerHTML = bodyHtml;
+
+            // Footer Actions
+            let footerHtml = `
+                <a href="/r/@Model.Restaurant.Slug/t/${data.token}" target="_blank" class="btn btn-outline-primary rounded-pill px-3">
+                    <i class="bi bi-phone me-1"></i> Customer Menu
+                </a>`;
+
+            if (data.activeOrderId) {
+                if (data.hasFoodReady) {
+                    footerHtml += `
+                        <button class="btn text-white rounded-pill px-3" style="background-color: #6f42c1;" onclick="markServed('${data.activeOrderId}', '${data.tableNumber}')">
+                            <i class="bi bi-lightning-fill me-1"></i> Mark Served
+                        </button>`;
+                }
+                footerHtml += `
+                    <a href="/Billing?table=${data.tableNumber}" class="btn btn-success rounded-pill px-3">
+                        <i class="bi bi-cash-stack me-1"></i> Settle Bill
+                    </a>`;
+            } else {
+                footerHtml += `
+                    <button class="btn btn-outline-secondary rounded-pill px-3" onclick="cleanTable('${data.tableId}', '${data.tableNumber}')">
+                        <i class="bi bi-arrow-repeat me-1"></i> Reset Table
+                    </button>`;
+            }
+
+            footerHtml += `<button type="button" class="btn btn-light rounded-pill px-3" data-bs-dismiss="modal">Close</button>`;
+            document.getElementById('drawerFooter').innerHTML = footerHtml;
+
+            const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('tableDetailsModal'));
+            modal.show();
+        }
+
+        // Actions
+        async function markServed(orderId, tableNumber) {
+            try {
+                const res = await fetch(`/api/floor/mark-served/${orderId}`, { method: 'POST' });
+                if (res.ok) {
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('tableDetailsModal'));
+                    if (modal) modal.hide();
+                    window.location.reload();
+                } else {
+                    alert("Failed to mark order as served.");
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Network error.");
+            }
+        }
+
+        async function acknowledgeService(requestId, tableNumber) {
+            try {
+                const res = await fetch(`/api/floor/acknowledge-service/${requestId}`, { method: 'POST' });
+                if (res.ok) {
+                    const alertEl = document.getElementById(`service-req-alert-${requestId}`);
+                    if (alertEl) alertEl.remove();
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('tableDetailsModal'));
+                    if (modal) modal.hide();
+                    window.location.reload();
+                } else {
+                    alert("Failed to acknowledge service request.");
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Network error.");
+            }
+        }
+
+        async function cleanTable(tableId, tableNumber) {
+            try {
+                const res = await fetch(`/api/floor/clean-table/${tableId}`, { method: 'POST' });
+                if (res.ok) {
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('tableDetailsModal'));
+                    if (modal) modal.hide();
+                    window.location.reload();
+                } else {
+                    alert("Failed to reset table.");
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Network error.");
+            }
+        }
+
+        // SignalR Real-time Setup
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/hubs/order")
+            .withAutomaticReconnect()
+            .build();
+
+        connection.on("ReceiveNewOrder", (order) => {
+            console.log("Floor Plan: New order received:", order);
+            playChime(659.25, 880.00); // E5 -> A5
+            // Refresh to update table card state seamlessly
+            setTimeout(() => window.location.reload(), 1000);
+        });
+
+        connection.on("ReceiveOrderStatusUpdate", (orderNumber, newStatus, tableNumber) => {
+            console.log("Floor Plan: Order status update:", orderNumber, newStatus, tableNumber);
+            if (newStatus === "Ready") {
+                playChime(880.00, 1174.66); // Food ready chime (A5 -> D6)
+            }
+            setTimeout(() => window.location.reload(), 1000);
+        });
+
+        connection.on("ReceiveWaiterCall", (data) => {
+            console.log("Floor Plan: Waiter call received:", data);
+            playChime(440.00, 587.33); // Chime alert
+            setTimeout(() => window.location.reload(), 1000);
+        });
+
+        connection.on("ReceiveWaiterCallHandled", (data) => {
+            setTimeout(() => window.location.reload(), 800);
+        });
+
+        connection.on("ReceiveTableCleaned", (data) => {
+            setTimeout(() => window.location.reload(), 800);
+        });
+
+        connection.start().then(() => {
+            console.log("Floor Plan connected to OrderHub.");
+            connection.invoke("JoinRestaurantGroup", restaurantId);
+        }).catch(err => console.error("SignalR connection error:", err));
+    </script>
+}

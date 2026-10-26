@@ -64,6 +64,14 @@
                                     <a class="nav-link" asp-controller="Reports" asp-action="DailySales"><i class="bi bi-graph-up me-1"></i>Reports</a>
                                 </li>
                             }
+                            @if (User.IsInRole("RestaurantAdmin") || User.IsInRole("Cashier") || User.IsInRole("KitchenStaff") || User.IsInRole("SuperAdmin"))
+                            {
+                                <li class="nav-item">
+                                    <a class="nav-link text-info fw-semibold" asp-controller="FloorPlan" asp-action="Index">
+                                        <i class="bi bi-diagram-3 me-1"></i>Floor Plan
+                                    </a>
+                                </li>
+                            }
                             @if (User.IsInRole("KitchenStaff") || User.IsInRole("RestaurantAdmin") || User.IsInRole("SuperAdmin"))
                             {
                                 <li class="nav-item">
