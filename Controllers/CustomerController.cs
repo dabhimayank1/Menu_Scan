@@ -108,10 +108,11 @@ namespace MenuScan.Controllers
                 return BadRequest(new { message = "Table verification failed." });
             }
 
-            // 3. Validate Menu Items & Authoritative Prices
+            // 3. Validate Menu Items & Authoritative Prices with Customizations
             var itemIds = dto.Items.Select(i => i.MenuItemId).Distinct().ToList();
             var menuItems = await _context.MenuItems
                 .IgnoreQueryFilters()
+                .Include(m => m.Customizations)
                 .Where(m => itemIds.Contains(m.Id) && m.RestaurantId == restaurant.Id && m.IsAvailable)
                 .ToDictionaryAsync(m => m.Id);
 
@@ -120,7 +121,7 @@ namespace MenuScan.Controllers
                 return BadRequest(new { message = "Some selected items are no longer available. Please refresh your menu." });
             }
 
-            // 4. Build Order with Price Snapshots
+            // 4. Build Order with Authoritative Price & Customization Snapshots
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
@@ -141,17 +142,37 @@ namespace MenuScan.Controllers
                     if (reqItem.Quantity <= 0) continue;
 
                     var menuItem = menuItems[reqItem.MenuItemId];
-                    var itemTotal = menuItem.Price * reqItem.Quantity;
+                    decimal unitPrice = menuItem.Price;
+                    var selectedCustomizationNames = new List<string>();
+
+                    if (reqItem.CustomizationIds != null && reqItem.CustomizationIds.Any())
+                    {
+                        var validCustomizations = menuItem.Customizations
+                            .Where(c => reqItem.CustomizationIds.Contains(c.Id) && c.IsAvailable)
+                            .ToList();
+
+                        foreach (var custom in validCustomizations)
+                        {
+                            unitPrice += custom.Price;
+                            selectedCustomizationNames.Add(custom.Name);
+                        }
+                    }
+
+                    var customizationSummary = selectedCustomizationNames.Any() 
+                        ? string.Join(", ", selectedCustomizationNames) 
+                        : reqItem.CustomizationSummary;
+
+                    var itemTotal = unitPrice * reqItem.Quantity;
                     subTotal += itemTotal;
 
                     order.OrderItems.Add(new OrderItem
                     {
                         MenuItemId = menuItem.Id,
                         ItemNameSnapshot = menuItem.Name,
-                        UnitPriceSnapshot = menuItem.Price,
+                        UnitPriceSnapshot = unitPrice,
                         Quantity = reqItem.Quantity,
                         TotalPrice = itemTotal,
-                        CustomizationSummary = reqItem.CustomizationSummary
+                        CustomizationSummary = customizationSummary
                     });
                 }
 

@@ -44,6 +44,7 @@ namespace MenuScan.Models.ViewModels
     {
         public Guid MenuItemId { get; set; }
         public int Quantity { get; set; }
+        public List<Guid> CustomizationIds { get; set; } = new();
         public string? CustomizationSummary { get; set; }
     }
 

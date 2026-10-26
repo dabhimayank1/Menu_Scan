@@ -136,6 +136,7 @@
                                          badgeType == "CHEF'S PICK" ? "cafe-badge-chef" : "cafe-badge-popular";
                         var rating = (4.6 + (item.Name.Length % 4) * 0.1).ToString("0.0");
                         var ratingCount = (500 + (item.Name.Length * 47));
+                        var hasCustomizations = item.Customizations.Any();
 
                         <div class="col-12 col-sm-6 col-xl-4 product-item-wrapper" 
                              data-cat-id="@cat.Id" 
@@ -176,24 +177,41 @@
                                     @item.Description
                                 </p>
 
-                                <!-- Size Selector Pills (Image 1) -->
-                                <div class="d-flex gap-2 mb-3">
-                                    <span class="cafe-size-pill active">Regular</span>
-                                    <span class="cafe-size-pill">Large (+₹30)</span>
-                                </div>
+                                <!-- Customization Badges / Hints -->
+                                @if (hasCustomizations)
+                                {
+                                    <div class="d-flex gap-1 mb-3 overflow-hidden text-truncate" style="cursor: pointer;" onclick="openCustomizationModal('@item.Id')">
+                                        <span class="badge bg-light text-muted border rounded-pill px-2 py-1 small">
+                                            <i class="bi bi-sliders me-1"></i> @item.Customizations.Count Options / Sizes
+                                        </span>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="mb-3">
+                                        <span class="cafe-size-pill active">Standard</span>
+                                    </div>
+                                }
 
                                 <!-- Bottom Action Controls -->
                                 <div class="mt-auto d-flex justify-content-between align-items-center pt-2 border-top border-light">
-                                    <div id="card-stepper-@item.Id">
+                                    @if (hasCustomizations)
+                                    {
+                                        <button class="btn btn-cafe-outline btn-sm w-100 fw-bold" onclick="openCustomizationModal('@item.Id')">
+                                            <i class="bi bi-plus-lg me-1"></i> Customize &amp; Add
+                                        </button>
+                                    }
+                                    else
+                                    {
                                         <div class="cafe-stepper">
                                             <button class="cafe-stepper-btn" onclick="updateQty('@item.Id', -1)">-</button>
                                             <span class="cafe-stepper-val" id="qty-val-@item.Id">1</span>
                                             <button class="cafe-stepper-btn" onclick="updateQty('@item.Id', 1)">+</button>
                                         </div>
-                                    </div>
-                                    <button class="btn btn-cafe-primary btn-sm px-3" onclick="addToCart('@item.Id', '@item.Name', @item.Price, '@item.ImageUrl')">
-                                        Add to Cart
-                                    </button>
+                                        <button class="btn btn-cafe-primary btn-sm px-3" onclick="addDirectToCart('@item.Id', '@item.Name', @item.Price, '@item.ImageUrl')">
+                                            Add to Cart
+                                        </button>
+                                    }
                                 </div>
                             </div>
                         </div>
@@ -256,6 +274,45 @@
     </div>
 </div>
 
+<!-- Customization Popup Modal -->
+<div class="modal fade" id="customizationModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header text-white p-3" style="background-color: #241812;">
+                <h5 class="modal-title fw-bold" id="customModalTitle">
+                    <i class="bi bi-sliders me-2" style="color: var(--cafe-primary);"></i>Customize Your Order
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="d-flex align-items-center mb-3">
+                    <img id="customModalImg" src="" class="rounded-3 me-3" style="width: 64px; height: 64px; object-fit: cover;" />
+                    <div>
+                        <h5 class="fw-bold mb-1" id="customModalItemName">Item Name</h5>
+                        <div class="text-muted small">Base price: ₹<span id="customModalBasePrice">0.00</span></div>
+                    </div>
+                </div>
+
+                <hr class="my-3" />
+
+                <h6 class="fw-bold small text-uppercase text-muted mb-2">Available Add-ons &amp; Sizes:</h6>
+                <div id="customModalOptionsList" class="mb-4">
+                    <!-- Populated dynamically -->
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center p-3 rounded-4 mb-3" style="background-color: var(--cafe-primary-light);">
+                    <span class="fw-bold">Item Price (with Options):</span>
+                    <span class="fs-4 fw-bold" style="color: var(--cafe-primary);">₹<span id="customModalCalculatedPrice">0.00</span></span>
+                </div>
+
+                <button type="button" class="btn btn-cafe-primary w-100 py-3 fw-bold" id="btnCustomAddCart" onclick="confirmCustomizationAndAdd()">
+                    Add to Cart
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Mobile Bottom Docked Cart Bar (Image 2) -->
 <div id="mobileCartBar" class="d-lg-none fixed-bottom bg-white border-top shadow-lg p-3 d-none" style="z-index: 1040;">
     <div class="container d-flex justify-content-between align-items-center">
@@ -274,9 +331,9 @@
 <div class="modal fade" id="cartModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
-            <div class="modal-header bg-dark text-white p-3">
+            <div class="modal-header text-white p-3" style="background-color: #241812;">
                 <h5 class="modal-title fw-bold">
-                    <i class="bi bi-cup-hot me-2 text-warning"></i>Your Order (@Model.Table.TableNumber)
+                    <i class="bi bi-cup-hot me-2" style="color: var(--cafe-primary);"></i>Your Order (@Model.Table.TableNumber)
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
@@ -286,8 +343,8 @@
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label small fw-semibold text-muted">Special instructions for the chef:</label>
-                    <textarea id="modalNotes" class="form-control rounded-3" rows="2" placeholder="e.g. Extra napkins, less sugar..."></textarea>
+                    <label class="form-label small fw-semibold text-muted">Special instructions for the barista &amp; chef:</label>
+                    <textarea id="modalNotes" class="form-control rounded-3" rows="2" placeholder="e.g. Extra hot, separate bag..."></textarea>
                 </div>
 
                 <div class="bg-light p-3 rounded-4">
@@ -320,46 +377,157 @@
         const restaurantSlug = "@Model.Restaurant.Slug";
         const tableToken = "@Model.Table.Token";
         const taxRate = @Model.Restaurant.DefaultTaxRate;
-        let cart = {}; // { itemId: { name, price, qty, img } }
+        
+        // Build items data catalog with customizations in JS
+        const menuCatalog = {
+            @foreach (var cat in Model.Categories)
+            {
+                foreach (var item in cat.MenuItems)
+                {
+                    <text>
+                    "@item.Id": {
+                        name: "@Html.Raw(item.Name)",
+                        price: @item.Price,
+                        img: "@(string.IsNullOrEmpty(item.ImageUrl) ? "https://images.unsplash.com/photo-1509785307050-d4066910ec1e?auto=format&fit=crop&w=600&q=80" : item.ImageUrl)",
+                        customizations: [
+                            @foreach (var c in item.Customizations)
+                            {
+                                <text>{ id: "@c.Id", name: "@Html.Raw(c.Name)", price: @c.Price },</text>
+                            }
+                        ]
+                    },
+                    </text>
+                }
+            }
+        };
+
+        let cart = {}; // key -> { menuItemId, name, price, qty, img, customizationIds, customizationSummary }
         let isVegOnly = false;
         let currentSearch = "";
         let currentCatId = "all";
+        let activeCustomItemId = null;
+        let customModalInstance = null;
 
-        function addToCart(id, name, price, img) {
+        function addDirectToCart(id, name, price, img) {
             const stepperVal = parseInt(document.getElementById(`qty-val-${id}`)?.innerText || "1");
-            if (!cart[id]) {
-                cart[id] = { name: name, price: price, qty: stepperVal, img: img };
+            const key = id;
+            if (!cart[key]) {
+                cart[key] = {
+                    menuItemId: id,
+                    name: name,
+                    price: price,
+                    qty: stepperVal,
+                    img: img,
+                    customizationIds: [],
+                    customizationSummary: ""
+                };
             } else {
-                cart[id].qty += stepperVal;
+                cart[key].qty += stepperVal;
+            }
+            updateCartUI();
+        }
+
+        function openCustomizationModal(itemId) {
+            activeCustomItemId = itemId;
+            const item = menuCatalog[itemId];
+            if (!item) return;
+
+            document.getElementById('customModalItemName').innerText = item.name;
+            document.getElementById('customModalBasePrice').innerText = item.price.toFixed(2);
+            document.getElementById('customModalImg').src = item.img;
+            document.getElementById('customModalCalculatedPrice').innerText = item.price.toFixed(2);
+
+            let optionsHtml = '';
+            item.customizations.forEach((c, idx) => {
+                optionsHtml += `
+                    <div class="form-check p-3 mb-2 border rounded-3 d-flex align-items-center justify-content-between" style="background: #FAFAFA;">
+                        <div>
+                            <input class="form-check-input me-2 custom-check-opt" type="checkbox" id="opt_${c.id}" value="${c.id}" data-price="${c.price}" data-name="${c.name}" onchange="recalcCustomModal()">
+                            <label class="form-check-label fw-semibold" for="opt_${c.id}" style="cursor: pointer;">
+                                ${c.name}
+                            </label>
+                        </div>
+                        <span class="badge bg-light text-dark border">+₹${c.price.toFixed(2)}</span>
+                    </div>
+                `;
+            });
+
+            document.getElementById('customModalOptionsList').innerHTML = optionsHtml;
+            customModalInstance = new bootstrap.Modal(document.getElementById('customizationModal'));
+            customModalInstance.show();
+        }
+
+        function recalcCustomModal() {
+            if (!activeCustomItemId) return;
+            const item = menuCatalog[activeCustomItemId];
+            let total = item.price;
+            document.querySelectorAll('.custom-check-opt:checked').forEach(cb => {
+                total += parseFloat(cb.getAttribute('data-price') || "0");
+            });
+            document.getElementById('customModalCalculatedPrice').innerText = total.toFixed(2);
+        }
+
+        function confirmCustomizationAndAdd() {
+            if (!activeCustomItemId) return;
+            const item = menuCatalog[activeCustomItemId];
+            let lineUnitPrice = item.price;
+            const selectedIds = [];
+            const selectedNames = [];
+
+            document.querySelectorAll('.custom-check-opt:checked').forEach(cb => {
+                lineUnitPrice += parseFloat(cb.getAttribute('data-price') || "0");
+                selectedIds.push(cb.value);
+                selectedNames.Add ? selectedNames.Add(cb.getAttribute('data-name')) : selectedNames.push(cb.getAttribute('data-name'));
+            });
+
+            selectedIds.sort();
+            const key = activeCustomItemId + "_" + selectedIds.join("_");
+            const summaryText = selectedNames.join(", ");
+
+            if (!cart[key]) {
+                cart[key] = {
+                    menuItemId: activeCustomItemId,
+                    name: item.name,
+                    price: lineUnitPrice,
+                    qty: 1,
+                    img: item.img,
+                    customizationIds: selectedIds,
+                    customizationSummary: summaryText
+                };
+            } else {
+                cart[key].qty++;
+            }
+
+            if (customModalInstance) customModalInstance.hide();
+            updateCartUI();
+        }
+
+        function updateCartQty(key, change) {
+            if (cart[key]) {
+                cart[key].qty += change;
+                if (cart[key].qty <= 0) {
+                    delete cart[key];
+                }
             }
             updateCartUI();
         }
 
         function updateQty(id, change) {
-            if (cart[id]) {
-                cart[id].qty += change;
-                if (cart[id].qty <= 0) {
-                    delete cart[id];
-                }
-            } else {
-                // Adjust card-level stepper preview
-                const el = document.getElementById(`qty-val-${id}`);
-                if (el) {
-                    let cur = parseInt(el.innerText);
-                    cur = Math.max(1, cur + change);
-                    el.innerText = cur;
-                }
+            const el = document.getElementById(`qty-val-${id}`);
+            if (el) {
+                let cur = parseInt(el.innerText);
+                cur = Math.max(1, cur + change);
+                el.innerText = cur;
             }
-            updateCartUI();
         }
 
         function updateCartUI() {
             let totalCount = 0;
             let subtotal = 0;
 
-            for (const id in cart) {
-                totalCount += cart[id].qty;
-                subtotal += cart[id].price * cart[id].qty;
+            for (const key in cart) {
+                totalCount += cart[key].qty;
+                subtotal += cart[key].price * cart[key].qty;
             }
 
             const tax = subtotal * (taxRate / 100);
@@ -402,22 +570,22 @@
                 modalContainer.innerHTML = '<div class="text-center text-muted py-3">Your cart is empty.</div>';
             } else {
                 let html = '';
-                for (const id in cart) {
-                    const it = cart[id];
+                for (const key in cart) {
+                    const it = cart[key];
                     html += `
                         <div class="d-flex align-items-center justify-content-between py-2 border-bottom">
                             <div class="d-flex align-items-center me-2 text-truncate">
-                                <img src="${it.img || 'https://images.unsplash.com/photo-1509785307050-d4066910ec1e?auto=format&fit=crop&w=100&q=80'}" 
-                                     class="rounded-3 me-2" style="width: 44px; height: 44px; object-fit: cover;" />
+                                <img src="${it.img}" class="rounded-3 me-2" style="width: 44px; height: 44px; object-fit: cover;" />
                                 <div class="text-truncate">
                                     <h6 class="mb-0 fw-bold small text-truncate">${it.name}</h6>
+                                    ${it.customizationSummary ? `<div class="small text-muted" style="font-size: 11px;">${it.customizationSummary}</div>` : ''}
                                     <span class="small fw-semibold" style="color: var(--cafe-primary);">₹${it.price.toFixed(2)}</span>
                                 </div>
                             </div>
                             <div class="cafe-stepper">
-                                <button class="cafe-stepper-btn" onclick="updateQty('${id}', -1)">-</button>
+                                <button class="cafe-stepper-btn" onclick="updateCartQty('${key}', -1)">-</button>
                                 <span class="cafe-stepper-val">${it.qty}</span>
-                                <button class="cafe-stepper-btn" onclick="updateQty('${id}', 1)">+</button>
+                                <button class="cafe-stepper-btn" onclick="updateCartQty('${key}', 1)">+</button>
                             </div>
                         </div>
                     `;
@@ -431,7 +599,6 @@
             currentCatId = catId;
             document.querySelectorAll('.cafe-cat-pill, .cafe-circle-item').forEach(el => el.classList.remove('active'));
             element.classList.add('active');
-
             applyFilters();
         }
 
@@ -477,8 +644,13 @@
 
         async function placeOrder(notesInputId) {
             const items = [];
-            for (const id in cart) {
-                items.push({ menuItemId: id, quantity: cart[id].qty });
+            for (const key in cart) {
+                items.push({
+                    menuItemId: cart[key].menuItemId,
+                    quantity: cart[key].qty,
+                    customizationIds: cart[key].customizationIds || [],
+                    customizationSummary: cart[key].customizationSummary || ""
+                });
             }
 
             if (items.length === 0) {

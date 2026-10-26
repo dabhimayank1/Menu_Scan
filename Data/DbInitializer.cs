@@ -228,6 +228,44 @@ namespace MenuScan.Data
             }
 
             await context.SaveChangesAsync();
+
+            // 7. Seed Item Customizations (Sizes & Add-ons)
+            var existingCustoms = await context.ItemCustomizations.AnyAsync();
+            if (!existingCustoms)
+            {
+                var newCustoms = new List<ItemCustomization>();
+                var allItems = await context.MenuItems.IgnoreQueryFilters()
+                    .Where(m => m.RestaurantId == restaurant.Id)
+                    .ToListAsync();
+
+                foreach (var item in allItems)
+                {
+                    if (item.CategoryId == catCoffee.Id || item.CategoryId == catDrinks.Id)
+                    {
+                        newCustoms.Add(new ItemCustomization { MenuItemId = item.Id, Name = "Large Size (+₹30)", Price = 30.00m, IsAvailable = true });
+                        newCustoms.Add(new ItemCustomization { MenuItemId = item.Id, Name = "Oat Milk Substitute (+₹40)", Price = 40.00m, IsAvailable = true });
+                        newCustoms.Add(new ItemCustomization { MenuItemId = item.Id, Name = "Extra Espresso Shot (+₹35)", Price = 35.00m, IsAvailable = true });
+                        newCustoms.Add(new ItemCustomization { MenuItemId = item.Id, Name = "Vanilla / Caramel Drizzle (+₹25)", Price = 25.00m, IsAvailable = true });
+                    }
+                    else if (item.CategoryId == catFood.Id)
+                    {
+                        newCustoms.Add(new ItemCustomization { MenuItemId = item.Id, Name = "Extra Melted Cheese (+₹40)", Price = 40.00m, IsAvailable = true });
+                        newCustoms.Add(new ItemCustomization { MenuItemId = item.Id, Name = "Spicy Jalapenos (+₹20)", Price = 20.00m, IsAvailable = true });
+                        newCustoms.Add(new ItemCustomization { MenuItemId = item.Id, Name = "Herb Garlic Dip (+₹30)", Price = 30.00m, IsAvailable = true });
+                    }
+                    else if (item.CategoryId == catPastry.Id)
+                    {
+                        newCustoms.Add(new ItemCustomization { MenuItemId = item.Id, Name = "Vanilla Bean Ice Cream Scoop (+₹50)", Price = 50.00m, IsAvailable = true });
+                        newCustoms.Add(new ItemCustomization { MenuItemId = item.Id, Name = "Warm Belgian Chocolate Drizzle (+₹30)", Price = 30.00m, IsAvailable = true });
+                    }
+                }
+
+                if (newCustoms.Any())
+                {
+                    context.ItemCustomizations.AddRange(newCustoms);
+                    await context.SaveChangesAsync();
+                }
+            }
         }
     }
 }
