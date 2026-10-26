@@ -262,6 +262,70 @@ namespace MenuScan.Controllers
             ViewBag.Restaurant = restaurant;
             return View(stands);
         }
+
+        [HttpGet]
+        public async Task<IActionResult> Feedback()
+        {
+            var restaurant = await GetCurrentRestaurantAsync();
+            if (restaurant == null) return NotFound("Restaurant not configured.");
+
+            var rawFeedbacks = await _context.CustomerFeedbacks
+                .IgnoreQueryFilters()
+                .Include(f => f.Table)
+                .Include(f => f.Order)
+                .Where(f => f.RestaurantId == restaurant.Id)
+                .OrderByDescending(f => f.CreatedAtUtc)
+                .ToListAsync();
+
+            var tagFrequencies = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            var feedbackDtos = rawFeedbacks.Select(f =>
+            {
+                var tagList = !string.IsNullOrWhiteSpace(f.Tags)
+                    ? f.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList()
+                    : new List<string>();
+
+                foreach (var tag in tagList)
+                {
+                    tagFrequencies[tag] = tagFrequencies.GetValueOrDefault(tag, 0) + 1;
+                }
+
+                return new CustomerFeedbackItemDto
+                {
+                    Id = f.Id,
+                    OrderNumber = f.Order?.OrderNumber ?? "N/A",
+                    TableNumber = f.Table?.TableNumber ?? "Unknown",
+                    OverallRating = f.OverallRating,
+                    FoodRating = f.FoodRating,
+                    ServiceRating = f.ServiceRating,
+                    CustomerName = string.IsNullOrWhiteSpace(f.CustomerName) ? "Guest" : f.CustomerName,
+                    Tags = tagList,
+                    Comment = f.Comment,
+                    CreatedAtUtc = f.CreatedAtUtc,
+                    TimeAgo = GetTimeAgo(f.CreatedAtUtc)
+                };
+            }).ToList();
+
+            var topTags = tagFrequencies.OrderByDescending(kv => kv.Value).Take(8).ToList();
+
+            var vm = new AdminFeedbackViewModel
+            {
+                Restaurant = restaurant,
+                Feedbacks = feedbackDtos,
+                TopTags = topTags
+            };
+
+            return View(vm);
+        }
+
+        private static string GetTimeAgo(DateTime utcTime)
+        {
+            var span = DateTime.UtcNow - utcTime;
+            if (span.TotalMinutes < 1) return "Just now";
+            if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
+            if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
+            return $"{(int)span.TotalDays}d ago";
+        }
     }
 
     public class TableStandItemDto

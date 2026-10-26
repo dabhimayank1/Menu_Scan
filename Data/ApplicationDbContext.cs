@@ -27,6 +27,7 @@ namespace MenuScan.Data
         public DbSet<Bill> Bills => Set<Bill>();
         public DbSet<Payment> Payments => Set<Payment>();
         public DbSet<ServiceRequest> ServiceRequests => Set<ServiceRequest>();
+        public DbSet<CustomerFeedback> CustomerFeedbacks => Set<CustomerFeedback>();
 
         protected override void OnModelCreating(ModelBuilder builder)
         {
@@ -134,6 +135,27 @@ namespace MenuScan.Data
                 .OnDelete(DeleteBehavior.Restrict);
 
             builder.Entity<ServiceRequest>()
+                .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.RestaurantId == _tenantService.CurrentRestaurantId);
+
+            builder.Entity<CustomerFeedback>()
+                .HasOne(f => f.Restaurant)
+                .WithMany()
+                .HasForeignKey(f => f.RestaurantId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<CustomerFeedback>()
+                .HasOne(f => f.Order)
+                .WithMany()
+                .HasForeignKey(f => f.OrderId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            builder.Entity<CustomerFeedback>()
+                .HasOne(f => f.Table)
+                .WithMany()
+                .HasForeignKey(f => f.TableId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            builder.Entity<CustomerFeedback>()
                 .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.RestaurantId == _tenantService.CurrentRestaurantId);
         }
 

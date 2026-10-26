@@ -1,0 +1,259 @@
+@model MenuScan.Models.ViewModels.AdminFeedbackViewModel
+@{
+    ViewData["Title"] = "Customer Feedback & Reviews";
+    Layout = "_Layout";
+}
+
+<div class="container py-4">
+    <!-- Header -->
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 pb-3 border-bottom">
+        <div>
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="fs-4">⭐</span>
+                <h3 class="fw-bold mb-0" style="letter-spacing: -0.5px;">Customer Feedback &amp; Reviews</h3>
+                <span class="badge bg-dark rounded-pill px-3 py-1">@Model.Restaurant.Name</span>
+            </div>
+            <p class="text-muted small mb-0">Direct guest satisfaction ratings, food quality scores, and post-meal reviews</p>
+        </div>
+        <div class="d-flex gap-2 mt-3 mt-md-0">
+            <a href="/Admin" class="btn btn-outline-secondary rounded-pill px-3 btn-sm">
+                <i class="bi bi-arrow-left me-1"></i> Dashboard
+            </a>
+            <button class="btn btn-cafe-primary rounded-pill px-3 btn-sm" onclick="window.print()">
+                <i class="bi bi-printer me-1"></i> Print Summary
+            </button>
+        </div>
+    </div>
+
+    <!-- Rating Summary Scorecard -->
+    <div class="row g-3 mb-4">
+        <!-- Main Rating Card -->
+        <div class="col-12 col-md-4">
+            <div class="card border-0 shadow-sm rounded-4 p-4 text-center bg-white h-100">
+                <div class="text-muted small fw-semibold text-uppercase mb-2">Overall Guest Score</div>
+                <h1 class="display-3 fw-bold mb-0" style="color: var(--cafe-primary);">@Model.AverageOverallRating.ToString("0.0")</h1>
+                
+                <div class="text-warning fs-4 my-2">
+                    @for (int i = 1; i <= 5; i++)
+                    {
+                        if (i <= Math.Round(Model.AverageOverallRating))
+                        {
+                            <i class="bi bi-star-fill"></i>
+                        }
+                        else
+                        {
+                            <i class="bi bi-star text-black-50"></i>
+                        }
+                    }
+                </div>
+                
+                <div class="text-muted small">Based on <strong>@Model.TotalReviews</strong> verified diner reviews</div>
+                <div class="badge bg-success-subtle text-success rounded-pill px-3 py-1 mt-2">
+                    @Model.FiveStarPercent% 5-Star Ratings
+                </div>
+            </div>
+        </div>
+
+        <!-- Food & Service Breakdown Card -->
+        <div class="col-12 col-md-4">
+            <div class="card border-0 shadow-sm rounded-4 p-4 bg-white h-100">
+                <h6 class="fw-bold mb-3 text-dark"><i class="bi bi-sliders me-2 text-primary"></i>Category Ratings</h6>
+                
+                <!-- Food Rating -->
+                <div class="mb-4">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="small fw-semibold text-muted">🍕 Food &amp; Taste</span>
+                        <strong class="text-dark">@Model.AverageFoodRating.ToString("0.0") / 5.0</strong>
+                    </div>
+                    <div class="progress rounded-pill" style="height: 8px;">
+                        <div class="progress-bar bg-warning" style="width: @(Model.AverageFoodRating / 5.0 * 100)%"></div>
+                    </div>
+                </div>
+
+                <!-- Service Rating -->
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="small fw-semibold text-muted">⚡ Service &amp; Speed</span>
+                        <strong class="text-dark">@Model.AverageServiceRating.ToString("0.0") / 5.0</strong>
+                    </div>
+                    <div class="progress rounded-pill" style="height: 8px;">
+                        <div class="progress-bar bg-info" style="width: @(Model.AverageServiceRating / 5.0 * 100)%"></div>
+                    </div>
+                </div>
+
+                <div class="pt-2 border-top d-flex justify-content-between small text-muted">
+                    <span>Positive Reviews: <strong class="text-success">@Model.PositiveCount</strong></span>
+                    <span>Needs Attention: <strong class="text-danger">@Model.CriticalCount</strong></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Rating Distribution Bars -->
+        <div class="col-12 col-md-4">
+            <div class="card border-0 shadow-sm rounded-4 p-4 bg-white h-100">
+                <h6 class="fw-bold mb-3 text-dark"><i class="bi bi-bar-chart-fill me-2 text-primary"></i>Rating Distribution</h6>
+                
+                @{
+                    var starBars = new[]
+                    {
+                        (Stars: 5, Count: Model.FiveStarCount, Color: "bg-success"),
+                        (Stars: 4, Count: Model.FourStarCount, Color: "bg-primary"),
+                        (Stars: 3, Count: Model.ThreeStarCount, Color: "bg-info"),
+                        (Stars: 2, Count: Model.TwoStarCount, Color: "bg-warning"),
+                        (Stars: 1, Count: Model.OneStarCount, Color: "bg-danger")
+                    };
+                }
+
+                @foreach (var sb in starBars)
+                {
+                    var pct = Model.TotalReviews == 0 ? 0 : (double)sb.Count / Model.TotalReviews * 100;
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <span class="small fw-semibold text-muted" style="width: 32px;">@sb.Stars ★</span>
+                        <div class="progress flex-grow-1 rounded-pill" style="height: 6px;">
+                            <div class="progress-bar @sb.Color" style="width: @pct%"></div>
+                        </div>
+                        <span class="small text-muted text-end" style="width: 25px;">@sb.Count</span>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Highlight Tags -->
+    @if (Model.TopTags.Any())
+    {
+        <div class="card border-0 shadow-sm rounded-4 p-3 mb-4 bg-white">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="small fw-bold text-muted me-2"><i class="bi bi-tags-fill me-1"></i>Most Mentioned:</span>
+                @foreach (var tag in Model.TopTags)
+                {
+                    <span class="badge bg-light text-dark border rounded-pill px-3 py-2 fw-normal small">
+                        @tag.Key <span class="badge bg-dark rounded-pill ms-1">@tag.Value</span>
+                    </span>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Filter Pills -->
+    <div class="card border-0 shadow-sm rounded-4 p-3 mb-4 bg-white">
+        <div class="d-flex flex-wrap gap-2">
+            <button class="btn btn-sm btn-cafe-primary rounded-pill px-3 filter-btn active" onclick="filterReviews('all', this)">
+                All Reviews (@Model.TotalReviews)
+            </button>
+            <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 filter-btn" onclick="filterReviews('5', this)">
+                5 Stars ⭐ (@Model.FiveStarCount)
+            </button>
+            <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 filter-btn" onclick="filterReviews('4', this)">
+                4 Stars 👍 (@Model.FourStarCount)
+            </button>
+            <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 filter-btn" onclick="filterReviews('critical', this)">
+                Critical (1-3 Stars) ⚠️ (@Model.CriticalCount)
+            </button>
+        </div>
+    </div>
+
+    <!-- Reviews Stream List -->
+    <div id="reviewsListContainer">
+        @if (!Model.Feedbacks.Any())
+        {
+            <div class="card border-0 shadow-sm rounded-4 p-5 text-center bg-white">
+                <span class="display-4 text-muted d-block mb-3">💬</span>
+                <h5 class="fw-bold mb-1">No Reviews Yet</h5>
+                <p class="text-muted small mb-0">Customer ratings and reviews will appear here automatically when guests complete their orders.</p>
+            </div>
+        }
+        else
+        {
+            <div class="row g-3">
+                @foreach (var fb in Model.Feedbacks)
+                {
+                    var isCritical = fb.OverallRating <= 3;
+                    <div class="col-12 review-card-wrapper" data-rating="@fb.OverallRating" data-is-critical="@isCritical.ToString().ToLower()">
+                        <div class="card border-0 shadow-sm rounded-4 p-4 bg-white @(isCritical ? "border-start border-4 border-danger" : "")">
+                            <div class="d-flex flex-wrap justify-content-between align-items-start mb-2">
+                                <div>
+                                    <div class="d-flex align-items-center gap-2 mb-1">
+                                        <div class="text-warning fs-5">
+                                            @for (int i = 1; i <= 5; i++)
+                                            {
+                                                if (i <= fb.OverallRating)
+                                                {
+                                                    <i class="bi bi-star-fill"></i>
+                                                }
+                                                else
+                                                {
+                                                    <i class="bi bi-star text-black-50"></i>
+                                                }
+                                            }
+                                        </div>
+                                        <strong class="fs-6 text-dark ms-1">@fb.CustomerName</strong>
+                                        <span class="badge bg-light text-dark border rounded-pill px-2 py-1 small">
+                                            Table @fb.TableNumber
+                                        </span>
+                                        <span class="badge bg-light text-muted border rounded-pill px-2 py-1 small">
+                                            Order #@fb.OrderNumber
+                                        </span>
+                                    </div>
+                                    <div class="text-muted small">
+                                        Food: <strong>@fb.FoodRating ★</strong> • Service: <strong>@fb.ServiceRating ★</strong>
+                                    </div>
+                                </div>
+                                <span class="badge bg-light text-muted border px-3 py-1 small">
+                                    <i class="bi bi-clock me-1"></i> @fb.TimeAgo
+                                </span>
+                            </div>
+
+                            <!-- Tags -->
+                            @if (fb.Tags.Any())
+                            {
+                                <div class="d-flex flex-wrap gap-1 my-2">
+                                    @foreach (var t in fb.Tags)
+                                    {
+                                        <span class="badge bg-light text-dark border rounded-pill px-2 py-1 small">
+                                            @t
+                                        </span>
+                                    }
+                                </div>
+                            }
+
+                            <!-- Comment -->
+                            @if (!string.IsNullOrWhiteSpace(fb.Comment))
+                            {
+                                <div class="p-3 bg-light rounded-3 mt-2 text-dark small" style="border-left: 3px solid var(--cafe-primary);">
+                                    &ldquo;@fb.Comment&rdquo;
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        function filterReviews(filter, btn) {
+            document.querySelectorAll('.filter-btn').forEach(b => {
+                b.classList.remove('btn-cafe-primary', 'active');
+                b.classList.add('btn-outline-secondary');
+            });
+            btn.classList.add('btn-cafe-primary', 'active');
+            btn.classList.remove('btn-outline-secondary');
+
+            document.querySelectorAll('.review-card-wrapper').forEach(card => {
+                const rating = card.getAttribute('data-rating');
+                const isCrit = card.getAttribute('data-is-critical') === 'true';
+
+                let show = false;
+                if (filter === 'all') show = true;
+                else if (filter === '5' && rating === '5') show = true;
+                else if (filter === '4' && rating === '4') show = true;
+                else if (filter === 'critical' && isCrit) show = true;
+
+                card.style.display = show ? '' : 'none';
+            });
+        }
+    </script>
+}

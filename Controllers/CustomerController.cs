@@ -248,11 +248,16 @@ namespace MenuScan.Controllers
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(r => r.Id == order.RestaurantId);
 
+            var hasFeedback = await _context.CustomerFeedbacks
+                .IgnoreQueryFilters()
+                .AnyAsync(f => f.OrderId == order.Id);
+
             var viewModel = new OrderTrackingViewModel
             {
                 Order = order,
                 Restaurant = restaurant!,
-                Table = order.Table!
+                Table = order.Table!,
+                HasSubmittedFeedback = hasFeedback
             };
 
             return View(viewModel);
@@ -306,6 +311,55 @@ namespace MenuScan.Controllers
                 success = true,
                 message = $"Request sent! Staff at {restaurant.Name} has been notified."
             });
+        }
+
+        [HttpPost("api/order/feedback")]
+        public async Task<IActionResult> SubmitFeedback([FromBody] FeedbackSubmissionDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.OrderToken))
+                return BadRequest(new { success = false, message = "Invalid order token." });
+
+            var order = await _context.Orders
+                .IgnoreQueryFilters()
+                .Include(o => o.Restaurant)
+                .Include(o => o.Table)
+                .FirstOrDefaultAsync(o => o.OrderToken == dto.OrderToken);
+
+            if (order == null)
+                return NotFound(new { success = false, message = "Order not found." });
+
+            var existingFeedback = await _context.CustomerFeedbacks
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(f => f.OrderId == order.Id);
+
+            if (existingFeedback != null)
+            {
+                return BadRequest(new { success = false, message = "Feedback has already been submitted for this order." });
+            }
+
+            var tagsStr = dto.Tags != null && dto.Tags.Count > 0 ? string.Join(", ", dto.Tags) : null;
+
+            var feedback = new CustomerFeedback
+            {
+                RestaurantId = order.RestaurantId,
+                OrderId = order.Id,
+                TableId = order.TableId,
+                OverallRating = Math.Clamp(dto.OverallRating, 1, 5),
+                FoodRating = Math.Clamp(dto.FoodRating, 1, 5),
+                ServiceRating = Math.Clamp(dto.ServiceRating, 1, 5),
+                CustomerName = string.IsNullOrWhiteSpace(dto.CustomerName) ? "Anonymous Guest" : dto.CustomerName.Trim(),
+                Tags = tagsStr,
+                Comment = dto.Comment?.Trim(),
+                CreatedAtUtc = DateTime.UtcNow
+            };
+
+            _context.CustomerFeedbacks.Add(feedback);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Feedback recorded for Order {OrderNumber}: {Rating} stars by {Name}",
+                order.OrderNumber, feedback.OverallRating, feedback.CustomerName);
+
+            return Ok(new { success = true, message = "Thank you for your feedback!" });
         }
     }
 

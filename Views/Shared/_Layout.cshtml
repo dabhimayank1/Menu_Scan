@@ -63,6 +63,9 @@
                                 <li class="nav-item">
                                     <a class="nav-link" asp-controller="Reports" asp-action="DailySales"><i class="bi bi-graph-up me-1"></i>Reports</a>
                                 </li>
+                                <li class="nav-item">
+                                    <a class="nav-link" asp-controller="Admin" asp-action="Feedback"><i class="bi bi-star me-1"></i>Feedback</a>
+                                </li>
                             }
                             @if (User.IsInRole("RestaurantAdmin") || User.IsInRole("Cashier") || User.IsInRole("KitchenStaff") || User.IsInRole("SuperAdmin"))
                             {

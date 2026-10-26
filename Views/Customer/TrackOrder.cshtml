@@ -126,6 +126,99 @@
                 </div>
             </div>
 
+            <!-- Customer Rating & Feedback Card -->
+            <div class="card shadow-sm border-0 rounded-4 mb-4 bg-white overflow-hidden @(statusInt < 4 && !Model.HasSubmittedFeedback ? "d-none" : "")" id="customerFeedbackCard">
+                <div class="card-header text-white py-3 d-flex justify-content-between align-items-center" style="background-color: #241812;">
+                    <h6 class="fw-bold mb-0 text-white"><i class="bi bi-star-fill text-warning me-2"></i>Rate Your Experience</h6>
+                    <span class="badge bg-warning text-dark rounded-pill px-2 py-1 small">Feedback</span>
+                </div>
+                
+                @if (Model.HasSubmittedFeedback)
+                {
+                    <div class="card-body p-4 text-center">
+                        <span class="display-4 text-success d-block mb-2">🎉</span>
+                        <h5 class="fw-bold mb-1">Feedback Submitted!</h5>
+                        <p class="text-muted small mb-0">Thank you for helping us improve our dining service. We look forward to serving you again!</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="card-body p-4 text-center" id="feedbackFormContainer">
+                        <p class="text-muted small mb-3">How was your dining experience at <strong>@Model.Restaurant.Name</strong>?</p>
+                        
+                        <!-- Overall Rating -->
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold text-uppercase text-muted d-block">Overall Experience</label>
+                            <div class="d-flex justify-content-center gap-2 fs-2 my-1" id="starGroupOverall">
+                                <i class="bi bi-star-fill text-warning star-icon" data-val="1" onclick="setRating('Overall', 1)" style="cursor: pointer;"></i>
+                                <i class="bi bi-star-fill text-warning star-icon" data-val="2" onclick="setRating('Overall', 2)" style="cursor: pointer;"></i>
+                                <i class="bi bi-star-fill text-warning star-icon" data-val="3" onclick="setRating('Overall', 3)" style="cursor: pointer;"></i>
+                                <i class="bi bi-star-fill text-warning star-icon" data-val="4" onclick="setRating('Overall', 4)" style="cursor: pointer;"></i>
+                                <i class="bi bi-star-fill text-warning star-icon" data-val="5" onclick="setRating('Overall', 5)" style="cursor: pointer;"></i>
+                            </div>
+                            <span class="badge bg-light text-dark border rounded-pill px-3 py-1 small fw-semibold" id="labelOverall">5 - Outstanding ⭐</span>
+                        </div>
+
+                        <!-- Mini breakdown for Food & Service -->
+                        <div class="row g-2 mb-3">
+                            <div class="col-6">
+                                <div class="bg-light p-2 rounded-3 text-center border">
+                                    <small class="fw-bold d-block mb-1 text-muted">Food &amp; Drinks</small>
+                                    <div class="d-flex justify-content-center gap-1 fs-5" id="starGroupFood">
+                                        <i class="bi bi-star-fill text-warning" data-val="1" onclick="setRating('Food', 1)" style="cursor: pointer;"></i>
+                                        <i class="bi bi-star-fill text-warning" data-val="2" onclick="setRating('Food', 2)" style="cursor: pointer;"></i>
+                                        <i class="bi bi-star-fill text-warning" data-val="3" onclick="setRating('Food', 3)" style="cursor: pointer;"></i>
+                                        <i class="bi bi-star-fill text-warning" data-val="4" onclick="setRating('Food', 4)" style="cursor: pointer;"></i>
+                                        <i class="bi bi-star-fill text-warning" data-val="5" onclick="setRating('Food', 5)" style="cursor: pointer;"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="bg-light p-2 rounded-3 text-center border">
+                                    <small class="fw-bold d-block mb-1 text-muted">Service &amp; Speed</small>
+                                    <div class="d-flex justify-content-center gap-1 fs-5" id="starGroupService">
+                                        <i class="bi bi-star-fill text-warning" data-val="1" onclick="setRating('Service', 1)" style="cursor: pointer;"></i>
+                                        <i class="bi bi-star-fill text-warning" data-val="2" onclick="setRating('Service', 2)" style="cursor: pointer;"></i>
+                                        <i class="bi bi-star-fill text-warning" data-val="3" onclick="setRating('Service', 3)" style="cursor: pointer;"></i>
+                                        <i class="bi bi-star-fill text-warning" data-val="4" onclick="setRating('Service', 4)" style="cursor: pointer;"></i>
+                                        <i class="bi bi-star-fill text-warning" data-val="5" onclick="setRating('Service', 5)" style="cursor: pointer;"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tag Pills -->
+                        <div class="mb-3 text-start">
+                            <label class="form-label small fw-bold text-uppercase text-muted d-block text-center">What stood out?</label>
+                            <div class="d-flex flex-wrap justify-content-center gap-2" id="feedbackTagsContainer">
+                                <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill tag-pill" onclick="toggleFeedbackTag(this, '☕ Great Coffee')">☕ Great Coffee</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill tag-pill" onclick="toggleFeedbackTag(this, '🍕 Delicious Food')">🍕 Delicious Food</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill tag-pill" onclick="toggleFeedbackTag(this, '⚡ Fast Service')">⚡ Fast Service</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill tag-pill" onclick="toggleFeedbackTag(this, '🎶 Good Ambience')">🎶 Good Ambience</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill tag-pill" onclick="toggleFeedbackTag(this, '💰 Value for Money')">💰 Value for Money</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill tag-pill" onclick="toggleFeedbackTag(this, '🧹 Clean & Sanitized')">🧹 Clean Table</button>
+                            </div>
+                        </div>
+
+                        <!-- Optional Name & Textarea -->
+                        <div class="mb-3 text-start">
+                            <input type="text" id="feedbackCustomerName" class="form-control form-control-sm rounded-3 mb-2" placeholder="Your Name (Optional)" />
+                            <textarea id="feedbackComment" class="form-control form-control-sm rounded-3" rows="2" placeholder="Any suggestions or compliments? (Optional)"></textarea>
+                        </div>
+
+                        <button type="button" class="btn btn-cafe-primary w-100 rounded-pill py-2 fw-bold" id="btnSubmitFeedback" onclick="submitCustomerFeedback()">
+                            <i class="bi bi-send-fill me-1"></i> Submit Review
+                        </button>
+                    </div>
+
+                    <div class="card-body p-4 text-center d-none" id="feedbackSuccessContainer">
+                        <span class="display-4 text-success d-block mb-2">🎉</span>
+                        <h5 class="fw-bold mb-1">Thank You So Much!</h5>
+                        <p class="text-muted small mb-0">Your feedback has been received by our management team. We look forward to seeing you again!</p>
+                    </div>
+                }
+            </div>
+
             <div class="d-flex justify-content-center gap-2 mb-4">
                 <a href="/r/@Model.Restaurant.Slug/t/@Model.Table.Token" class="btn btn-cafe-outline rounded-pill px-4">
                     <i class="bi bi-arrow-left me-1"></i> Add More Items
@@ -204,7 +297,11 @@
             if (newStatus === "Accepted") pct = 35;
             else if (newStatus === "Preparing") pct = 65;
             else if (newStatus === "Ready") pct = 90;
-            else if (newStatus === "Served" || newStatus === "Completed") pct = 100;
+            if (newStatus === "Served" || newStatus === "Completed") {
+                pct = 100;
+                const feedbackCard = document.getElementById('customerFeedbackCard');
+                if (feedbackCard) feedbackCard.classList.remove('d-none');
+            }
 
             document.getElementById('statusProgressBar').style.width = pct + "%";
             document.getElementById('currentStatusDesc').innerText = `Your order status changed to ${newStatus}.`;
@@ -213,6 +310,92 @@
         connection.start().then(() => {
             connection.invoke("JoinOrderGroup", orderToken);
         }).catch(err => console.error("SignalR connection error:", err));
+
+        let feedbackRatings = {
+            Overall: 5,
+            Food: 5,
+            Service: 5
+        };
+        const selectedFeedbackTags = new Set();
+
+        const ratingLabels = {
+            5: "5 - Outstanding ⭐",
+            4: "4 - Very Good 👍",
+            3: "3 - Average 👌",
+            2: "2 - Needs Work ⚠️",
+            1: "1 - Poor Experience ❌"
+        };
+
+        function setRating(category, val) {
+            feedbackRatings[category] = val;
+            const group = document.getElementById(`starGroup${category}`);
+            if (group) {
+                const stars = group.querySelectorAll('i');
+                stars.forEach((s, idx) => {
+                    if (idx < val) {
+                        s.className = "bi bi-star-fill text-warning";
+                    } else {
+                        s.className = "bi bi-star text-muted";
+                    }
+                });
+            }
+
+            if (category === 'Overall') {
+                const lbl = document.getElementById('labelOverall');
+                if (lbl) lbl.innerText = ratingLabels[val] || `${val} Stars`;
+            }
+        }
+
+        function toggleFeedbackTag(btn, tag) {
+            if (selectedFeedbackTags.has(tag)) {
+                selectedFeedbackTags.delete(tag);
+                btn.classList.remove('btn-warning', 'text-dark', 'fw-semibold');
+                btn.classList.add('btn-outline-secondary');
+            } else {
+                selectedFeedbackTags.add(tag);
+                btn.classList.add('btn-warning', 'text-dark', 'fw-semibold');
+                btn.classList.remove('btn-outline-secondary');
+            }
+        }
+
+        async function submitCustomerFeedback() {
+            const btn = document.getElementById('btnSubmitFeedback');
+            const name = document.getElementById('feedbackCustomerName')?.value || "";
+            const comment = document.getElementById('feedbackComment')?.value || "";
+
+            if (btn) btn.disabled = true;
+
+            try {
+                const response = await fetch('/api/order/feedback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        orderToken: orderToken,
+                        overallRating: feedbackRatings.Overall,
+                        foodRating: feedbackRatings.Food,
+                        serviceRating: feedbackRatings.Service,
+                        customerName: name,
+                        tags: Array.from(selectedFeedbackTags),
+                        comment: comment
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    const formBox = document.getElementById('feedbackFormContainer');
+                    const successBox = document.getElementById('feedbackSuccessContainer');
+                    if (formBox) formBox.classList.add('d-none');
+                    if (successBox) successBox.classList.remove('d-none');
+                } else {
+                    alert(data.message || "Failed to submit feedback.");
+                    if (btn) btn.disabled = false;
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Network error.");
+                if (btn) btn.disabled = false;
+            }
+        }
 
         let trackServiceType = "Assistance";
         let trackModalInstance = null;

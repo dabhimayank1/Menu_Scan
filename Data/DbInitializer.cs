@@ -266,6 +266,59 @@ namespace MenuScan.Data
                     await context.SaveChangesAsync();
                 }
             }
+
+            // 8. Seed Initial Sample Customer Feedbacks
+            if (!await context.CustomerFeedbacks.AnyAsync())
+            {
+                var sampleOrder = await context.Orders.IgnoreQueryFilters().FirstOrDefaultAsync(o => o.RestaurantId == restaurant.Id);
+                var sampleTable = await context.DiningTables.IgnoreQueryFilters().FirstOrDefaultAsync(t => t.RestaurantId == restaurant.Id);
+
+                if (sampleOrder != null && sampleTable != null)
+                {
+                    context.CustomerFeedbacks.AddRange(
+                        new CustomerFeedback
+                        {
+                            RestaurantId = restaurant.Id,
+                            OrderId = sampleOrder.Id,
+                            TableId = sampleTable.Id,
+                            OverallRating = 5,
+                            FoodRating = 5,
+                            ServiceRating = 5,
+                            CustomerName = "Aarav Sharma",
+                            Tags = "☕ Great Coffee, ⚡ Fast Service, 🍕 Delicious Food",
+                            Comment = "The artisan pour-over and woodfired pizza were phenomenal! Staff was super polite and attentive.",
+                            CreatedAtUtc = DateTime.UtcNow.AddMinutes(-45)
+                        },
+                        new CustomerFeedback
+                        {
+                            RestaurantId = restaurant.Id,
+                            OrderId = sampleOrder.Id,
+                            TableId = sampleTable.Id,
+                            OverallRating = 5,
+                            FoodRating = 5,
+                            ServiceRating = 4,
+                            CustomerName = "Priya Nair",
+                            Tags = "🎶 Good Ambience, ☕ Great Coffee",
+                            Comment = "Loved the cozy café ambience and smooth cold brew. Perfect place to work or catch up with friends.",
+                            CreatedAtUtc = DateTime.UtcNow.AddHours(-2)
+                        },
+                        new CustomerFeedback
+                        {
+                            RestaurantId = restaurant.Id,
+                            OrderId = sampleOrder.Id,
+                            TableId = sampleTable.Id,
+                            OverallRating = 4,
+                            FoodRating = 4,
+                            ServiceRating = 5,
+                            CustomerName = "Vikram Mehta",
+                            Tags = "⚡ Fast Service, 💰 Value for Money",
+                            Comment = "Very smooth QR ordering on my phone. Sizzling brownie was delicious!",
+                            CreatedAtUtc = DateTime.UtcNow.AddHours(-5)
+                        }
+                    );
+                    await context.SaveChangesAsync();
+                }
+            }
         }
     }
 }

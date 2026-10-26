@@ -53,6 +53,7 @@ namespace MenuScan.Models.ViewModels
         public Order Order { get; set; } = default!;
         public Restaurant Restaurant { get; set; } = default!;
         public DiningTable Table { get; set; } = default!;
+        public bool HasSubmittedFeedback { get; set; }
     }
 
     public class TableQrViewModel
