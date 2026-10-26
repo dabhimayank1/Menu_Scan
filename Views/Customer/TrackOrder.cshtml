@@ -126,6 +126,43 @@
                 </div>
             </div>
 
+            <!-- Bill Settlement & Online Payment Card -->
+            @{
+                var isOrderPaid = Model.Order.Status == MenuScan.Models.Entities.OrderStatus.Completed || 
+                                  (Model.Order.Bill != null && Model.Order.Bill.Status == MenuScan.Models.Entities.BillStatus.Paid);
+            }
+            <div class="card shadow-sm border-0 rounded-4 mb-4 bg-white overflow-hidden" id="onlinePaymentCard">
+                <div class="card-header text-white py-3 d-flex justify-content-between align-items-center" style="background-color: #241812;">
+                    <h6 class="fw-bold mb-0 text-white"><i class="bi bi-wallet2 text-success me-2"></i>Table Bill &amp; Payment</h6>
+                    <span class="badge @(isOrderPaid ? "bg-success" : "bg-warning text-dark") rounded-pill px-3 py-1" id="badgePaymentStatus">
+                        @(isOrderPaid ? "✓ Paid & Settled" : "Unpaid")
+                    </span>
+                </div>
+                
+                <div class="card-body p-4 text-center">
+                    <div id="paymentUnpaidSection" class="@(isOrderPaid ? "d-none" : "")">
+                        <span class="badge bg-light text-muted border px-3 py-1 rounded-pill small mb-2">Self-Checkout</span>
+                        <h3 class="fw-bold mb-1" style="color: var(--cafe-primary);">₹@Model.Order.TotalAmount.ToString("0.00")</h3>
+                        <p class="text-muted small mb-3">Pay securely at your table using Google Pay, PhonePe, Paytm, or any UPI app</p>
+                        
+                        <button type="button" class="btn btn-success w-100 rounded-pill py-3 fw-bold shadow-sm" onclick="openUpiCheckoutModal()">
+                            <i class="bi bi-qr-code-scan me-2"></i> Pay with UPI / GPay / PhonePe
+                        </button>
+                    </div>
+
+                    <div id="paymentPaidSection" class="@(isOrderPaid ? "" : "d-none")">
+                        <span class="display-4 text-success d-block mb-2">✅</span>
+                        <h5 class="fw-bold mb-1 text-success">Bill Settled &amp; Paid</h5>
+                        <p class="text-muted small mb-3">
+                            Bill Ref: <strong id="paidBillNumberText">@(Model.Order.Bill?.BillNumber ?? "BILL-PAID")</strong> • Paid via UPI
+                        </p>
+                        <button type="button" class="btn btn-outline-dark rounded-pill px-4 btn-sm" onclick="openReceiptModal()">
+                            <i class="bi bi-receipt me-1"></i> View Tax Receipt
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Customer Rating & Feedback Card -->
             <div class="card shadow-sm border-0 rounded-4 mb-4 bg-white overflow-hidden @(statusInt < 4 && !Model.HasSubmittedFeedback ? "d-none" : "")" id="customerFeedbackCard">
                 <div class="card-header text-white py-3 d-flex justify-content-between align-items-center" style="background-color: #241812;">
@@ -280,6 +317,120 @@
     </div>
 </div>
 
+<!-- UPI Self-Checkout Modal -->
+<div class="modal fade" id="upiCheckoutModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content rounded-4 border-0 shadow-lg overflow-hidden">
+            <div class="modal-header text-white p-3" style="background-color: #241812;">
+                <div>
+                    <h5 class="modal-title fw-bold"><i class="bi bi-wallet2 text-success me-2"></i>UPI Self-Checkout</h5>
+                    <small class="text-white-50">@Model.Restaurant.Name • Table @Model.Table.TableNumber</small>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4 text-center">
+                <div class="spinner-border text-primary my-4" role="status" id="upiLoadingSpinner"></div>
+                
+                <div id="upiModalContent" class="d-none">
+                    <!-- Dynamic UPI QR -->
+                    <div class="p-3 bg-light rounded-4 d-inline-block border mb-3 shadow-sm">
+                        <img id="upiQrImage" src="" alt="Scan to Pay via UPI" class="img-fluid" style="width: 200px; height: 200px; object-fit: contain;" />
+                    </div>
+                    
+                    <div class="mb-3">
+                        <span class="text-muted small d-block">Scan with any UPI app to pay</span>
+                        <h3 class="fw-bold my-1" style="color: var(--cafe-primary);">₹<span id="upiAmountText">@Model.Order.TotalAmount.ToString("0.00")</span></h3>
+                        <span class="badge bg-light text-dark border rounded-pill px-3 py-1 small">
+                            UPI ID: <strong id="upiIdText">@(Model.Restaurant.Slug)@@upi</strong>
+                        </span>
+                    </div>
+
+                    <!-- 1-Tap Mobile Intent Buttons -->
+                    <div class="d-flex flex-column gap-2 mb-3">
+                        <a id="btnDirectUpiIntent" href="#" class="btn btn-primary rounded-pill py-2 fw-semibold">
+                            <i class="bi bi-phone me-1"></i> Open in UPI App (GPay / PhonePe / Paytm)
+                        </a>
+                    </div>
+
+                    <hr class="my-3 text-muted" />
+
+                    <!-- Instant Simulation Verification -->
+                    <div class="bg-light p-3 rounded-4 border text-start">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <strong class="small text-dark"><i class="bi bi-shield-check text-success me-1"></i>Instant Verification</strong>
+                            <span class="badge bg-warning text-dark small">Test Mode Available</span>
+                        </div>
+                        <small class="text-muted d-block mb-3">Click below to simulate instant UPI bank confirmation.</small>
+                        <button type="button" class="btn btn-outline-success w-100 rounded-pill py-2 fw-bold" id="btnSimulateUpiPay" onclick="simulateUpiPayment()">
+                            <i class="bi bi-check-circle-fill me-1"></i> Confirm &amp; Settle Payment
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Digital Tax Receipt Modal -->
+<div class="modal fade" id="receiptModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content rounded-4 border-0 shadow-lg overflow-hidden">
+            <div class="modal-body p-4 bg-white" id="receiptPrintArea">
+                <div class="text-center mb-3">
+                    <span class="fs-3">☕</span>
+                    <h5 class="fw-bold mb-0">@Model.Restaurant.Name</h5>
+                    <small class="text-muted d-block">GST/Tax ID: @(Model.Restaurant.TaxNumber ?? "GSTIN-27AABCS1429B1Z")</small>
+                    <small class="text-muted d-block">Official Dine-in Tax Receipt</small>
+                </div>
+                <div class="border-top border-bottom py-2 my-2 small">
+                    <div class="d-flex justify-content-between">
+                        <span>Receipt: <strong id="receiptBillNum">@(Model.Order.Bill?.BillNumber ?? "BILL-PAID")</strong></span>
+                        <span>Date: <strong>@DateTime.UtcNow.ToLocalTime().ToString("dd MMM yyyy")</strong></span>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span>Table: <strong>@Model.Table.TableNumber</strong></span>
+                        <span>Order: <strong>#@Model.Order.OrderNumber</strong></span>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    @foreach (var it in Model.Order.OrderItems)
+                    {
+                        <div class="d-flex justify-content-between small py-1">
+                            <span>@it.Quantity x @it.ItemNameSnapshot</span>
+                            <span>₹@it.TotalPrice.ToString("0.00")</span>
+                        </div>
+                    }
+                </div>
+
+                <div class="border-top pt-2 small">
+                    <div class="d-flex justify-content-between text-muted">
+                        <span>Subtotal:</span>
+                        <span>₹@Model.Order.SubTotal.ToString("0.00")</span>
+                    </div>
+                    <div class="d-flex justify-content-between text-muted">
+                        <span>CGST + SGST (@Model.Order.TaxRate%):</span>
+                        <span>₹@Model.Order.TaxAmount.ToString("0.00")</span>
+                    </div>
+                    <div class="d-flex justify-content-between fw-bold fs-5 border-top mt-2 pt-2 text-dark">
+                        <span>Grand Total:</span>
+                        <span style="color: var(--cafe-primary);">₹@Model.Order.TotalAmount.ToString("0.00")</span>
+                    </div>
+                    <div class="badge bg-success text-white w-100 py-2 mt-3 fs-6 rounded-pill">
+                        PAID &amp; SETTLED VIA UPI
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer bg-light border-0 py-3 d-flex justify-content-between">
+                <button type="button" class="btn btn-outline-secondary rounded-pill px-3" onclick="window.print()">
+                    <i class="bi bi-printer me-1"></i> Print / Save PDF
+                </button>
+                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 @section Scripts {
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
     <script>
@@ -301,6 +452,18 @@
                 pct = 100;
                 const feedbackCard = document.getElementById('customerFeedbackCard');
                 if (feedbackCard) feedbackCard.classList.remove('d-none');
+            }
+
+            if (newStatus === "Completed") {
+                const unpaidSec = document.getElementById('paymentUnpaidSection');
+                const paidSec = document.getElementById('paymentPaidSection');
+                const badge = document.getElementById('badgePaymentStatus');
+                if (unpaidSec) unpaidSec.classList.add('d-none');
+                if (paidSec) paidSec.classList.remove('d-none');
+                if (badge) {
+                    badge.className = "badge bg-success rounded-pill px-3 py-1";
+                    badge.innerText = "✓ Paid & Settled";
+                }
             }
 
             document.getElementById('statusProgressBar').style.width = pct + "%";
@@ -447,6 +610,105 @@
                 alert("Network error.");
                 btn.disabled = false;
             }
+        }
+
+        let upiModalInstance = null;
+
+        async function openUpiCheckoutModal() {
+            if (!upiModalInstance) {
+                upiModalInstance = bootstrap.Modal.getOrCreateInstance(document.getElementById('upiCheckoutModal'));
+            }
+            
+            const spinner = document.getElementById('upiLoadingSpinner');
+            const content = document.getElementById('upiModalContent');
+            if (spinner) spinner.classList.remove('d-none');
+            if (content) content.classList.add('d-none');
+
+            upiModalInstance.show();
+
+            try {
+                const response = await fetch(`/api/order/upi-payment-details/${orderToken}`);
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    if (data.isAlreadyPaid) {
+                        upiModalInstance.hide();
+                        alert("This order is already settled!");
+                        window.location.reload();
+                        return;
+                    }
+
+                    document.getElementById('upiQrImage').src = data.upiQrDataUri;
+                    document.getElementById('upiAmountText').innerText = data.grandTotal.toFixed(2);
+                    document.getElementById('upiIdText').innerText = data.upiId;
+                    document.getElementById('btnDirectUpiIntent').href = data.upiUri;
+
+                    if (spinner) spinner.classList.add('d-none');
+                    if (content) content.classList.remove('d-none');
+                } else {
+                    alert(data.message || "Unable to fetch UPI details.");
+                    upiModalInstance.hide();
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Network error loading UPI checkout.");
+                upiModalInstance.hide();
+            }
+        }
+
+        async function simulateUpiPayment() {
+            const btn = document.getElementById('btnSimulateUpiPay');
+            if (btn) btn.disabled = true;
+
+            try {
+                const response = await fetch('/api/order/confirm-online-payment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        orderToken: orderToken,
+                        paymentMethod: "UPI",
+                        paymentReference: `UPI-ONLINE-${Date.now()}`
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    if (upiModalInstance) upiModalInstance.hide();
+
+                    const unpaidSec = document.getElementById('paymentUnpaidSection');
+                    const paidSec = document.getElementById('paymentPaidSection');
+                    const badge = document.getElementById('badgePaymentStatus');
+                    const billNumTxt = document.getElementById('paidBillNumberText');
+                    const receiptNumTxt = document.getElementById('receiptBillNum');
+
+                    if (unpaidSec) unpaidSec.classList.add('d-none');
+                    if (paidSec) paidSec.classList.remove('d-none');
+                    if (billNumTxt) billNumTxt.innerText = data.billNumber;
+                    if (receiptNumTxt) receiptNumTxt.innerText = data.billNumber;
+
+                    if (badge) {
+                        badge.className = "badge bg-success rounded-pill px-3 py-1";
+                        badge.innerText = "✓ Paid & Settled";
+                    }
+
+                    const feedbackCard = document.getElementById('customerFeedbackCard');
+                    if (feedbackCard) feedbackCard.classList.remove('d-none');
+
+                    openReceiptModal();
+                } else {
+                    alert(data.message || "Payment verification failed.");
+                    if (btn) btn.disabled = false;
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Network error confirming payment.");
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        function openReceiptModal() {
+            const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('receiptModal'));
+            modal.show();
         }
     </script>
 }

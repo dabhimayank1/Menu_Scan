@@ -2,6 +2,7 @@ using MenuScan.Data;
 using MenuScan.Hubs;
 using MenuScan.Models.Entities;
 using MenuScan.Models.ViewModels;
+using MenuScan.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -12,15 +13,18 @@ namespace MenuScan.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly IHubContext<OrderHub> _hubContext;
+        private readonly IQRService _qrService;
         private readonly ILogger<CustomerController> _logger;
 
         public CustomerController(
             ApplicationDbContext context,
             IHubContext<OrderHub> hubContext,
+            IQRService qrService,
             ILogger<CustomerController> logger)
         {
             _context = context;
             _hubContext = hubContext;
+            _qrService = qrService;
             _logger = logger;
         }
 
@@ -360,6 +364,171 @@ namespace MenuScan.Controllers
                 order.OrderNumber, feedback.OverallRating, feedback.CustomerName);
 
             return Ok(new { success = true, message = "Thank you for your feedback!" });
+        }
+
+        [HttpGet("api/order/upi-payment-details/{token}")]
+        public async Task<IActionResult> GetUpiPaymentDetails(string token)
+        {
+            var order = await _context.Orders
+                .IgnoreQueryFilters()
+                .Include(o => o.Restaurant)
+                .Include(o => o.Table)
+                .Include(o => o.Bill)
+                .FirstOrDefaultAsync(o => o.OrderToken == token);
+
+            if (order == null)
+            {
+                return NotFound(new { success = false, message = "Order not found." });
+            }
+
+            var restaurant = order.Restaurant;
+            var upiId = $"{restaurant?.Slug ?? "spicesymphony"}@upi";
+            var grandTotalStr = order.TotalAmount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+            var note = Uri.EscapeDataString($"Order #{order.OrderNumber} at {restaurant?.Name ?? "Restaurant"}");
+            var payeeName = Uri.EscapeDataString(restaurant?.Name ?? "Restaurant");
+
+            var upiUri = $"upi://pay?pa={upiId}&pn={payeeName}&am={grandTotalStr}&tr={order.OrderNumber}&tn={note}&cu=INR";
+            var upiQr = _qrService.GenerateQrCodeDataUri(upiUri);
+
+            var isPaid = order.Status == OrderStatus.Completed || (order.Bill != null && order.Bill.Status == BillStatus.Paid);
+
+            return Ok(new UpiPaymentDetailsDto
+            {
+                Success = true,
+                OrderNumber = order.OrderNumber,
+                TableNumber = order.Table?.TableNumber ?? "Unknown",
+                RestaurantName = restaurant?.Name ?? "Restaurant",
+                SubTotal = order.SubTotal,
+                TaxRate = order.TaxRate,
+                TaxAmount = order.TaxAmount,
+                GrandTotal = order.TotalAmount,
+                UpiId = upiId,
+                UpiUri = upiUri,
+                UpiQrDataUri = upiQr,
+                IsAlreadyPaid = isPaid,
+                BillNumber = order.Bill?.BillNumber
+            });
+        }
+
+        [HttpPost("api/order/confirm-online-payment")]
+        public async Task<IActionResult> ConfirmOnlinePayment([FromBody] ConfirmOnlinePaymentDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.OrderToken))
+                return BadRequest(new { success = false, message = "Invalid order token." });
+
+            var order = await _context.Orders
+                .IgnoreQueryFilters()
+                .Include(o => o.Restaurant)
+                .Include(o => o.Table)
+                .Include(o => o.Bill)
+                .FirstOrDefaultAsync(o => o.OrderToken == dto.OrderToken);
+
+            if (order == null)
+                return NotFound(new { success = false, message = "Order not found." });
+
+            if (order.Status == OrderStatus.Completed && order.Bill != null && order.Bill.Status == BillStatus.Paid)
+            {
+                return Ok(new
+                {
+                    success = true,
+                    alreadyPaid = true,
+                    billNumber = order.Bill.BillNumber,
+                    message = "This bill has already been settled."
+                });
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                var bill = order.Bill;
+                if (bill == null)
+                {
+                    bill = new Bill
+                    {
+                        RestaurantId = order.RestaurantId,
+                        OrderId = order.Id,
+                        BillNumber = $"BILL-{DateTime.UtcNow:yyMMdd}-{Random.Shared.Next(1000, 9999)}",
+                        SubTotal = order.SubTotal,
+                        TaxRate = order.TaxRate,
+                        TaxAmount = order.TaxAmount,
+                        GrandTotal = order.TotalAmount,
+                        Status = BillStatus.Paid,
+                        ClosedAtUtc = DateTime.UtcNow
+                    };
+                    _context.Bills.Add(bill);
+                }
+                else
+                {
+                    bill.Status = BillStatus.Paid;
+                    bill.ClosedAtUtc = DateTime.UtcNow;
+                }
+
+                var paymentRef = string.IsNullOrWhiteSpace(dto.PaymentReference)
+                    ? $"UPI-{DateTime.UtcNow:yyMMddHHmmss}-{Random.Shared.Next(100, 999)}"
+                    : dto.PaymentReference.Trim();
+
+                var payment = new Payment
+                {
+                    BillId = bill.Id,
+                    Amount = bill.GrandTotal,
+                    Method = PaymentMethod.UPI,
+                    Reference = paymentRef,
+                    RecordedBy = "Customer (UPI Self-Checkout)",
+                    PaidAtUtc = DateTime.UtcNow
+                };
+                _context.Payments.Add(payment);
+
+                var oldStatus = order.Status;
+                order.Status = OrderStatus.Completed;
+
+                _context.OrderStatusHistories.Add(new OrderStatusHistory
+                {
+                    OrderId = order.Id,
+                    OldStatus = oldStatus,
+                    NewStatus = OrderStatus.Completed,
+                    ChangedBy = "Customer Online",
+                    ChangedAtUtc = DateTime.UtcNow,
+                    Notes = $"Self-Checkout via UPI ({bill.BillNumber}) Ref: {paymentRef}"
+                });
+
+                var pendingBillRequests = await _context.ServiceRequests
+                    .IgnoreQueryFilters()
+                    .Where(s => s.TableId == order.TableId && !s.IsHandled && s.RequestType == "Bill")
+                    .ToListAsync();
+
+                foreach (var req in pendingBillRequests)
+                {
+                    req.IsHandled = true;
+                    req.HandledAtUtc = DateTime.UtcNow;
+                    req.HandledBy = "Customer Self-Checkout";
+                }
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                await _hubContext.Clients.Group($"Restaurant_{order.RestaurantId}")
+                    .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Completed", order.Table?.TableNumber ?? "Unknown");
+
+                await _hubContext.Clients.Group($"Order_{order.OrderToken}")
+                    .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Completed", order.Table?.TableNumber ?? "Unknown");
+
+                _logger.LogInformation("Order {OrderNumber} paid online by customer via UPI. Bill {BillNumber}",
+                    order.OrderNumber, bill.BillNumber);
+
+                return Ok(new
+                {
+                    success = true,
+                    billNumber = bill.BillNumber,
+                    grandTotal = bill.GrandTotal,
+                    message = "Payment confirmed successfully!"
+                });
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, "Failed to confirm online payment for order {OrderToken}", dto.OrderToken);
+                return StatusCode(500, new { success = false, message = "Payment processing failed. Please ask staff for assistance." });
+            }
         }
     }
 
