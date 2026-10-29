@@ -122,8 +122,11 @@
                             }
                             else if (order.Status == MenuScan.Models.Entities.OrderStatus.Ready)
                             {
-                                <button class="btn btn-success w-100 fw-bold py-2" onclick="updateOrderStatus('@order.Id', 4)">
+                                <button class="btn btn-success w-100 fw-bold py-2 mb-2" onclick="updateOrderStatus('@order.Id', 4)">
                                     <i class="bi bi-check2-circle me-1"></i> Mark as Served
+                                </button>
+                                <button class="btn btn-outline-success btn-sm w-100 fw-semibold" onclick="sendKitchenWhatsApp('@order.Id', '@(order.CustomerPhone ?? "")')">
+                                    <i class="bi bi-whatsapp me-1"></i> WhatsApp Diner (Ready)
                                 </button>
                             }
                             else if (order.Status == MenuScan.Models.Entities.OrderStatus.Served)
@@ -276,8 +279,11 @@
                         if (card) card.setAttribute('data-status', 'Ready');
                         if (actions) {
                             actions.innerHTML = `
-                                <button class="btn btn-success w-100 fw-bold py-2" onclick="updateOrderStatus('${orderId}', 4)">
+                                <button class="btn btn-success w-100 fw-bold py-2 mb-2" onclick="updateOrderStatus('${orderId}', 4)">
                                     <i class="bi bi-check2-circle me-1"></i> Mark as Served
+                                </button>
+                                <button class="btn btn-outline-success btn-sm w-100 fw-semibold" onclick="sendKitchenWhatsApp('${orderId}')">
+                                    <i class="bi bi-whatsapp me-1"></i> WhatsApp Diner (Ready)
                                 </button>`;
                         }
                     } else if (newStatus === 4) { // Served
@@ -359,6 +365,21 @@
             document.getElementById('countPrep').innerText = countPrep;
             document.getElementById('countReady').innerText = countReady;
             document.getElementById('countServed').innerText = countServed;
+        }
+
+        async function sendKitchenWhatsApp(orderId, phone = "") {
+            try {
+                const res = await fetch(`/api/order/whatsapp-link?orderId=${orderId}&type=ready&phone=${phone}`);
+                const data = await res.json();
+                if (res.ok && data.url) {
+                    window.open(data.url, '_blank');
+                } else {
+                    alert(data.message || "Failed to generate WhatsApp link.");
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Network error.");
+            }
         }
     </script>
 }

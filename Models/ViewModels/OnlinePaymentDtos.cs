@@ -33,4 +33,12 @@ namespace MenuScan.Models.ViewModels
         public string? BillNumber { get; set; }
         public Dictionary<string, string> AppUris { get; set; } = new();
     }
+
+    public class UpdateCustomerContactDto
+    {
+        [Required]
+        public string OrderToken { get; set; } = string.Empty;
+        public string? CustomerPhone { get; set; }
+        public string? CustomerName { get; set; }
+    }
 }

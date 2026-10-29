@@ -136,6 +136,8 @@ namespace MenuScan.Controllers
                     OrderNumber = $"ORD-{DateTime.UtcNow:yyMMdd}-{Random.Shared.Next(1000, 9999)}",
                     Status = OrderStatus.New,
                     CustomerNotes = dto.CustomerNotes,
+                    CustomerName = dto.CustomerName,
+                    CustomerPhone = dto.CustomerPhone,
                     IdempotencyKey = dto.IdempotencyKey,
                     TaxRate = restaurant.DefaultTaxRate
                 };
@@ -208,7 +210,9 @@ namespace MenuScan.Controllers
                     items = order.OrderItems.Select(i => new { name = i.ItemNameSnapshot, qty = i.Quantity, customizations = i.CustomizationSummary }).ToList(),
                     createdAt = order.CreatedAtUtc.ToString("HH:mm:ss"),
                     status = order.Status.ToString(),
-                    notes = order.CustomerNotes
+                    notes = order.CustomerNotes,
+                    customerName = order.CustomerName,
+                    customerPhone = order.CustomerPhone
                 };
 
                 await _hubContext.Clients.Group($"Restaurant_{restaurant.Id}")
@@ -240,6 +244,7 @@ namespace MenuScan.Controllers
                 .IgnoreQueryFilters()
                 .Include(o => o.Table)
                 .Include(o => o.OrderItems)
+                .Include(o => o.Bill)
                 .Include(o => o.StatusHistory.OrderByDescending(s => s.ChangedAtUtc))
                 .FirstOrDefaultAsync(o => o.OrderToken == token);
 
@@ -256,6 +261,26 @@ namespace MenuScan.Controllers
                 .IgnoreQueryFilters()
                 .AnyAsync(f => f.OrderId == order.Id);
 
+            var host = NetworkHelper.ResolveReachableHost(Request);
+            var trackerUrl = $"http://{host}/order/track/{order.OrderToken}";
+            var restName = restaurant?.Name ?? "Brew & Bliss Coffee House";
+
+            ViewBag.TrackerUrl = trackerUrl;
+            ViewBag.Host = host;
+            ViewBag.WhatsAppOrderConfirmedUrl = WhatsAppHelper.BuildWhatsAppUrl(
+                order.CustomerPhone,
+                WhatsAppHelper.BuildOrderConfirmedMessage(restName, order.OrderNumber, order.Table?.TableNumber ?? "Table", order.TotalAmount, trackerUrl)
+            );
+
+            if (order.Bill != null)
+            {
+                var receiptUrl = $"http://{host}/Billing/PrintReceipt?orderId={order.Id}";
+                ViewBag.WhatsAppReceiptUrl = WhatsAppHelper.BuildWhatsAppUrl(
+                    order.CustomerPhone,
+                    WhatsAppHelper.BuildBillReceiptMessage(restName, order.Bill.BillNumber, order.OrderNumber, order.Table?.TableNumber ?? "Table", order.Bill.GrandTotal, "UPI", receiptUrl)
+                );
+            }
+
             var viewModel = new OrderTrackingViewModel
             {
                 Order = order,
@@ -265,6 +290,104 @@ namespace MenuScan.Controllers
             };
 
             return View(viewModel);
+        }
+
+        [HttpPost("api/order/save-customer-contact")]
+        [IgnoreAntiforgeryToken]
+        public async Task<IActionResult> SaveCustomerContact([FromBody] UpdateCustomerContactDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.OrderToken))
+                return BadRequest(new { message = "Order token is required." });
+
+            var order = await _context.Orders
+                .IgnoreQueryFilters()
+                .Include(o => o.Table)
+                .Include(o => o.Restaurant)
+                .Include(o => o.Bill)
+                .FirstOrDefaultAsync(o => o.OrderToken == dto.OrderToken);
+
+            if (order == null) return NotFound(new { message = "Order not found." });
+
+            if (!string.IsNullOrWhiteSpace(dto.CustomerPhone))
+            {
+                order.CustomerPhone = dto.CustomerPhone.Trim();
+            }
+            if (!string.IsNullOrWhiteSpace(dto.CustomerName))
+            {
+                order.CustomerName = dto.CustomerName.Trim();
+            }
+
+            await _context.SaveChangesAsync();
+
+            var host = NetworkHelper.ResolveReachableHost(Request);
+            var trackerUrl = $"http://{host}/order/track/{order.OrderToken}";
+            var restName = order.Restaurant?.Name ?? "Brew & Bliss Coffee House";
+            var wpOrderUrl = WhatsAppHelper.BuildWhatsAppUrl(
+                order.CustomerPhone,
+                WhatsAppHelper.BuildOrderConfirmedMessage(restName, order.OrderNumber, order.Table?.TableNumber ?? "Table", order.TotalAmount, trackerUrl)
+            );
+
+            string? wpReceiptUrl = null;
+            if (order.Bill != null)
+            {
+                var receiptUrl = $"http://{host}/Billing/PrintReceipt?orderId={order.Id}";
+                wpReceiptUrl = WhatsAppHelper.BuildWhatsAppUrl(
+                    order.CustomerPhone,
+                    WhatsAppHelper.BuildBillReceiptMessage(restName, order.Bill.BillNumber, order.OrderNumber, order.Table?.TableNumber ?? "Table", order.Bill.GrandTotal, "UPI", receiptUrl)
+                );
+            }
+
+            return Ok(new
+            {
+                success = true,
+                customerPhone = order.CustomerPhone,
+                customerName = order.CustomerName,
+                whatsAppOrderUrl = wpOrderUrl,
+                whatsAppReceiptUrl = wpReceiptUrl
+            });
+        }
+
+        [HttpGet("api/order/whatsapp-link")]
+        public async Task<IActionResult> GetWhatsAppLink([FromQuery] string orderId, [FromQuery] string type = "confirm", [FromQuery] string? phone = null)
+        {
+            if (!Guid.TryParse(orderId, out var id)) return BadRequest("Invalid order ID");
+
+            var order = await _context.Orders
+                .IgnoreQueryFilters()
+                .Include(o => o.Table)
+                .Include(o => o.Restaurant)
+                .Include(o => o.Bill)
+                .FirstOrDefaultAsync(o => o.Id == id);
+
+            if (order == null) return NotFound();
+
+            var targetPhone = !string.IsNullOrWhiteSpace(phone) ? phone : order.CustomerPhone;
+            var host = NetworkHelper.ResolveReachableHost(Request);
+            var trackerUrl = $"http://{host}/order/track/{order.OrderToken}";
+            var restName = order.Restaurant?.Name ?? "Brew & Bliss Coffee House";
+
+            string message;
+            if (type.Equals("ready", StringComparison.OrdinalIgnoreCase))
+            {
+                message = WhatsAppHelper.BuildFoodReadyMessage(restName, order.OrderNumber, order.Table?.TableNumber ?? "Table", trackerUrl);
+            }
+            else if (type.Equals("bill", StringComparison.OrdinalIgnoreCase) && order.Bill != null)
+            {
+                var receiptUrl = $"http://{host}/Billing/PrintReceipt?orderId={order.Id}";
+                message = WhatsAppHelper.BuildBillReceiptMessage(restName, order.Bill.BillNumber, order.OrderNumber, order.Table?.TableNumber ?? "Table", order.Bill.GrandTotal, "UPI", receiptUrl);
+            }
+            else
+            {
+                message = WhatsAppHelper.BuildOrderConfirmedMessage(restName, order.OrderNumber, order.Table?.TableNumber ?? "Table", order.TotalAmount, trackerUrl);
+            }
+
+            var wpUrl = WhatsAppHelper.BuildWhatsAppUrl(targetPhone, message, forceWeb: true);
+            return Ok(new
+            {
+                phone = targetPhone,
+                message = message,
+                url = wpUrl
+            });
         }
 
         [HttpPost("api/table/call-waiter")]

@@ -33,6 +33,8 @@ namespace MenuScan.Models.ViewModels
         public string TableToken { get; set; } = string.Empty;
 
         public string? CustomerNotes { get; set; }
+        public string? CustomerName { get; set; }
+        public string? CustomerPhone { get; set; }
 
         [Required]
         public string IdempotencyKey { get; set; } = string.Empty;

@@ -36,6 +36,12 @@ namespace MenuScan.Models.Entities
         [MaxLength(500)]
         public string? CustomerNotes { get; set; }
 
+        [MaxLength(100)]
+        public string? CustomerName { get; set; }
+
+        [MaxLength(25)]
+        public string? CustomerPhone { get; set; }
+
         [Required]
         [MaxLength(64)]
         public string OrderToken { get; set; } = Guid.NewGuid().ToString("N");

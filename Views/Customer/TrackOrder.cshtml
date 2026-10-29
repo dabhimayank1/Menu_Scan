@@ -167,6 +167,43 @@
                 </div>
             </div>
 
+            <!-- WhatsApp Live Updates Card -->
+            <div class="card shadow-sm border-0 rounded-4 mb-4 bg-white overflow-hidden border border-success-subtle">
+                <div class="card-header bg-success text-white py-3 d-flex justify-content-between align-items-center">
+                    <h6 class="fw-bold mb-0 text-white"><i class="bi bi-whatsapp me-2"></i>WhatsApp Order Notifications</h6>
+                    <span class="badge bg-white text-success rounded-pill px-2 py-1 small fw-bold">Browser Dispatch</span>
+                </div>
+                <div class="card-body p-4 text-center">
+                    <p class="text-muted small mb-3">
+                        Receive live cooking updates, delivery notifications, and your official tax receipt directly in your WhatsApp!
+                    </p>
+
+                    <div class="input-group mb-3">
+                        <span class="input-group-text bg-light border-end-0 fw-semibold text-muted">+91</span>
+                        <input type="tel" id="trackCustomerPhone" class="form-control text-center font-monospace fw-bold" 
+                               placeholder="10-digit WhatsApp number" maxlength="10" 
+                               value="@(Model.Order.CustomerPhone?.StartsWith("91") == true ? Model.Order.CustomerPhone.Substring(2) : (Model.Order.CustomerPhone ?? ""))" />
+                        <button class="btn btn-success fw-bold" type="button" onclick="saveCustomerPhone()">
+                            <i class="bi bi-check-lg me-1"></i> Save
+                        </button>
+                    </div>
+
+                    <div class="d-flex flex-wrap gap-2 justify-content-center">
+                        <a id="btnSendWpOrder" href="@ViewBag.WhatsAppOrderConfirmedUrl" target="_blank" class="btn btn-success rounded-pill px-3 py-2 fw-semibold d-flex align-items-center gap-2">
+                            <i class="bi bi-whatsapp fs-5"></i>
+                            <span>Open Tracker in WhatsApp</span>
+                        </a>
+                        <a id="btnSendWpReceipt" href="@(ViewBag.WhatsAppReceiptUrl ?? "#")" target="_blank" class="btn btn-outline-success rounded-pill px-3 py-2 fw-semibold @(isOrderPaid ? "" : "d-none") d-flex align-items-center gap-2">
+                            <i class="bi bi-receipt fs-5"></i>
+                            <span>Share Tax Receipt on WhatsApp</span>
+                        </a>
+                    </div>
+                    <div id="phoneSaveAlert" class="small text-success mt-2 d-none">
+                        <i class="bi bi-check-circle-fill me-1"></i> WhatsApp number saved successfully!
+                    </div>
+                </div>
+            </div>
+
             <!-- Customer Rating & Feedback Card -->
             <div class="card shadow-sm border-0 rounded-4 mb-4 bg-white overflow-hidden @(statusInt < 4 && !Model.HasSubmittedFeedback ? "d-none" : "")" id="customerFeedbackCard">
                 <div class="card-header text-white py-3 d-flex justify-content-between align-items-center" style="background-color: #241812;">
@@ -844,6 +881,48 @@
         function openReceiptModal() {
             const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('receiptModal'));
             modal.show();
+        }
+
+        async function saveCustomerPhone() {
+            const input = document.getElementById('trackCustomerPhone');
+            const phone = input ? input.value.trim() : "";
+            if (!phone || phone.length < 10) {
+                alert("Please enter a valid 10-digit WhatsApp number.");
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/order/save-customer-contact', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        orderToken: orderToken,
+                        customerPhone: phone
+                    })
+                });
+
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    const alertEl = document.getElementById('phoneSaveAlert');
+                    if (alertEl) {
+                        alertEl.classList.remove('d-none');
+                        setTimeout(() => alertEl.classList.add('d-none'), 3500);
+                    }
+                    const btnOrder = document.getElementById('btnSendWpOrder');
+                    if (btnOrder && data.whatsAppOrderUrl) {
+                        btnOrder.href = data.whatsAppOrderUrl;
+                    }
+                    const btnReceipt = document.getElementById('btnSendWpReceipt');
+                    if (btnReceipt && data.whatsAppReceiptUrl) {
+                        btnReceipt.href = data.whatsAppReceiptUrl;
+                    }
+                } else {
+                    alert(data.message || "Could not save WhatsApp contact.");
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Network error.");
+            }
         }
     </script>
 }

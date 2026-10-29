@@ -136,9 +136,14 @@
                                         <small class="text-muted d-block">(Tax: ₹@order.TaxAmount.ToString("0.00"))</small>
                                     </td>
                                     <td class="text-end">
-                                        <button class="btn btn-success fw-semibold btn-sm px-3" onclick="openSettleModal('@order.Id', '@order.OrderNumber', '@order.Table?.TableNumber', @order.SubTotal, @order.TaxAmount, @order.TotalAmount)">
-                                            <i class="bi bi-wallet2 me-1"></i> Settle Bill
-                                        </button>
+                                        <div class="d-flex justify-content-end gap-1">
+                                            <button class="btn btn-outline-success btn-sm px-2" onclick="openStaffWhatsAppModal('@order.Id', '@(order.CustomerPhone ?? "")')" title="WhatsApp Notification via Browser">
+                                                <i class="bi bi-whatsapp"></i>
+                                            </button>
+                                            <button class="btn btn-success fw-semibold btn-sm px-3" onclick="openSettleModal('@order.Id', '@order.OrderNumber', '@order.Table?.TableNumber', @order.SubTotal, @order.TaxAmount, @order.TotalAmount)">
+                                                <i class="bi bi-wallet2 me-1"></i> Settle Bill
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             }
@@ -191,9 +196,14 @@
                                     </td>
                                     <td class="fw-bold text-success">₹@bill.GrandTotal.ToString("0.00")</td>
                                     <td class="text-end">
-                                        <a href="/Billing/PrintReceipt?orderId=@bill.OrderId" target="_blank" class="btn btn-outline-dark btn-sm">
-                                            <i class="bi bi-printer"></i> Print
-                                        </a>
+                                        <div class="d-flex justify-content-end gap-1">
+                                            <button class="btn btn-outline-success btn-sm px-2" onclick="openStaffWhatsAppModal('@bill.OrderId', '@(bill.Order?.CustomerPhone ?? "")', 'bill')" title="Send Receipt via WhatsApp Web">
+                                                <i class="bi bi-whatsapp me-1"></i> WhatsApp
+                                            </button>
+                                            <a href="/Billing/PrintReceipt?orderId=@bill.OrderId" target="_blank" class="btn btn-outline-dark btn-sm">
+                                                <i class="bi bi-printer"></i> Print
+                                            </a>
+                                        </div>
                                     </td>
                                 </tr>
                             }
@@ -261,11 +271,91 @@
     </div>
 </div>
 
+<!-- Staff WhatsApp Notification Modal (Browser WhatsApp Web) -->
+<div class="modal fade" id="staffWhatsAppModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content rounded-4 border-0 shadow">
+            <div class="modal-header bg-success text-white py-3">
+                <h6 class="modal-title fw-bold"><i class="bi bi-whatsapp me-2"></i>Send WhatsApp Update (Browser)</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4 text-center">
+                <div class="mb-3 text-start">
+                    <label class="form-label small fw-semibold text-muted">Customer Mobile Number:</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light">+91</span>
+                        <input type="tel" id="staffWpPhoneInput" class="form-control font-monospace fw-bold" placeholder="10-digit mobile" maxlength="10" />
+                    </div>
+                </div>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-outline-success text-start p-3 rounded-3 d-flex align-items-center gap-3" onclick="triggerBrowserWhatsApp('confirm')">
+                        <i class="bi bi-check-circle-fill fs-3 text-success"></i>
+                        <div>
+                            <div class="fw-bold">1. Order Confirmation</div>
+                            <small class="text-muted">Sends live order tracking link &amp; items summary</small>
+                        </div>
+                    </button>
+                    <button class="btn btn-outline-primary text-start p-3 rounded-3 d-flex align-items-center gap-3" onclick="triggerBrowserWhatsApp('ready')">
+                        <i class="bi bi-bell-fill fs-3 text-primary"></i>
+                        <div>
+                            <div class="fw-bold">2. Food is Ready &amp; Serving</div>
+                            <small class="text-muted">Notifies diner that food is prepared</small>
+                        </div>
+                    </button>
+                    <button class="btn btn-outline-dark text-start p-3 rounded-3 d-flex align-items-center gap-3" onclick="triggerBrowserWhatsApp('bill')">
+                        <i class="bi bi-receipt fs-3 text-dark"></i>
+                        <div>
+                            <div class="fw-bold">3. Official Tax Receipt</div>
+                            <small class="text-muted">Sends digital tax receipt URL (after settlement)</small>
+                        </div>
+                    </button>
+                </div>
+                <small class="text-muted d-block mt-3">
+                    <i class="bi bi-browser-chrome me-1"></i>Opens WhatsApp Web directly in your browser. No Meta Cloud API needed.
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+
 @section Scripts {
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
     <script>
         const restaurantId = "@restaurantId";
         let currentModal;
+        let activeStaffOrderId = null;
+        let staffWpModalInstance;
+
+        function openStaffWhatsAppModal(orderId, phone, defaultType = 'confirm') {
+            activeStaffOrderId = orderId;
+            const input = document.getElementById('staffWpPhoneInput');
+            if (input) {
+                input.value = phone ? (phone.startsWith('91') ? phone.substring(2) : phone) : '';
+            }
+            if (!staffWpModalInstance) {
+                staffWpModalInstance = new bootstrap.Modal(document.getElementById('staffWhatsAppModal'));
+            }
+            staffWpModalInstance.show();
+        }
+
+        async function triggerBrowserWhatsApp(type) {
+            const input = document.getElementById('staffWpPhoneInput');
+            const phone = input ? input.value.trim() : '';
+
+            try {
+                const res = await fetch(`/api/order/whatsapp-link?orderId=${activeStaffOrderId}&type=${type}&phone=${phone}`);
+                const data = await res.json();
+                if (res.ok && data.url) {
+                    window.open(data.url, '_blank');
+                    if (staffWpModalInstance) staffWpModalInstance.hide();
+                } else {
+                    alert(data.message || "Failed to generate WhatsApp link.");
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Network error.");
+            }
+        }
 
         function openSettleModal(orderId, orderNum, tableNum, subTotal, tax, total) {
             document.getElementById('settleOrderId').value = orderId;
@@ -304,6 +394,13 @@
                     currentModal.hide();
                     // Open print receipt in new window
                     window.open(data.receiptUrl, '_blank');
+                    // Prompt for WhatsApp Web receipt dispatch
+                    if (data.whatsAppUrl) {
+                        const sendWp = confirm("Bill settled! Would you like to open WhatsApp Web to send receipt to " + (data.customerPhone || "customer") + "?");
+                        if (sendWp) {
+                            window.open(data.whatsAppUrl, '_blank');
+                        }
+                    }
                     // Reload table
                     window.location.reload();
                 } else {

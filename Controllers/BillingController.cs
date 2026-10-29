@@ -87,6 +87,7 @@ namespace MenuScan.Controllers
 
             var order = await _context.Orders
                 .IgnoreQueryFilters()
+                .Include(o => o.Restaurant)
                 .Include(o => o.Table)
                 .Include(o => o.Bill)
                 .FirstOrDefaultAsync(o => o.Id == dto.OrderId);
@@ -170,11 +171,22 @@ namespace MenuScan.Controllers
                 _logger.LogInformation("Bill {BillNumber} settled for Order {OrderNumber} amount {Amount} via {Method}",
                     bill.BillNumber, order.OrderNumber, bill.GrandTotal, dto.Method);
 
+                var host = NetworkHelper.ResolveReachableHost(Request);
+                var fullReceiptUrl = $"http://{host}/Billing/PrintReceipt?orderId={order.Id}";
+                var restName = order.Restaurant?.Name ?? "Brew & Bliss Coffee House";
+                var whatsAppUrl = WhatsAppHelper.BuildWhatsAppUrl(
+                    order.CustomerPhone,
+                    WhatsAppHelper.BuildBillReceiptMessage(restName, bill.BillNumber, order.OrderNumber, order.Table?.TableNumber ?? "Table", bill.GrandTotal, dto.Method.ToString(), fullReceiptUrl),
+                    forceWeb: true
+                );
+
                 return Ok(new
                 {
                     success = true,
                     billNumber = bill.BillNumber,
-                    receiptUrl = $"/Billing/PrintReceipt?orderId={order.Id}"
+                    receiptUrl = fullReceiptUrl,
+                    customerPhone = order.CustomerPhone,
+                    whatsAppUrl = whatsAppUrl
                 });
             }
             catch (Exception ex)
