@@ -57,14 +57,61 @@ namespace MenuScan.Controllers
                     .ThenInclude(m => m.Customizations.Where(cu => cu.IsAvailable))
                 .ToListAsync();
 
+            var activeOrders = await _context.Orders
+                .IgnoreQueryFilters()
+                .Include(o => o.OrderItems)
+                .Include(o => o.Bill)
+                .Where(o => o.RestaurantId == restaurant.Id && o.TableId == table.Id && o.Status != OrderStatus.Cancelled && (o.Status != OrderStatus.Completed || o.CreatedAtUtc >= DateTime.UtcNow.AddMinutes(-60)))
+                .OrderByDescending(o => o.CreatedAtUtc)
+                .ToListAsync();
+
             var viewModel = new CustomerMenuViewModel
             {
                 Restaurant = restaurant,
                 Table = table,
-                Categories = categories
+                Categories = categories,
+                ActiveOrders = activeOrders
             };
 
             return View(viewModel);
+        }
+
+        [HttpGet("api/table/active-orders")]
+        public async Task<IActionResult> GetTableActiveOrders([FromQuery] string tableToken, [FromQuery] string restaurantSlug)
+        {
+            var restaurant = await _context.Restaurants.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(r => r.Slug == restaurantSlug && r.IsActive);
+            if (restaurant == null) return NotFound();
+
+            var table = await _context.DiningTables.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(t => t.RestaurantId == restaurant.Id && t.Token == tableToken && t.IsActive);
+            if (table == null) return NotFound();
+
+            var orders = await _context.Orders.IgnoreQueryFilters()
+                .Include(o => o.OrderItems)
+                .Include(o => o.Bill)
+                .Where(o => o.RestaurantId == restaurant.Id && o.TableId == table.Id && o.Status != OrderStatus.Cancelled && (o.Status != OrderStatus.Completed || o.CreatedAtUtc >= DateTime.UtcNow.AddMinutes(-60)))
+                .OrderByDescending(o => o.CreatedAtUtc)
+                .Take(5)
+                .Select(o => new
+                {
+                    orderId = o.Id,
+                    orderNumber = o.OrderNumber,
+                    orderToken = o.OrderToken,
+                    status = o.Status.ToString(),
+                    statusCode = (int)o.Status,
+                    totalAmount = o.TotalAmount,
+                    subTotal = o.SubTotal,
+                    taxAmount = o.TaxAmount,
+                    itemCount = o.OrderItems.Sum(i => i.Quantity),
+                    items = o.OrderItems.Select(i => new { name = i.ItemNameSnapshot, qty = i.Quantity, price = i.TotalPrice, custom = i.CustomizationSummary }).ToList(),
+                    createdAt = o.CreatedAtUtc.ToLocalTime().ToString("hh:mm tt"),
+                    isPaid = o.Status == OrderStatus.Completed || (o.Bill != null && o.Bill.Status == BillStatus.Paid),
+                    billNumber = o.Bill != null ? o.Bill.BillNumber : null
+                })
+                .ToListAsync();
+
+            return Ok(orders);
         }
 
         [HttpPost("api/orders/submit")]

@@ -22,6 +22,7 @@ namespace MenuScan.Models.ViewModels
         public Restaurant Restaurant { get; set; } = default!;
         public DiningTable Table { get; set; } = default!;
         public List<Category> Categories { get; set; } = new();
+        public List<Order> ActiveOrders { get; set; } = new();
     }
 
     public class OrderSubmissionDto
