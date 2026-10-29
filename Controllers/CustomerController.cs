@@ -537,7 +537,7 @@ namespace MenuScan.Controllers
         }
 
         [HttpGet("api/order/upi-payment-details/{token}")]
-        public async Task<IActionResult> GetUpiPaymentDetails(string token, [FromQuery] string? handle = "upi")
+        public async Task<IActionResult> GetUpiPaymentDetails(string token, [FromQuery] string? handle = "okaxis", [FromQuery] string? customUpi = null)
         {
             var order = await _context.Orders
                 .IgnoreQueryFilters()
@@ -568,21 +568,44 @@ namespace MenuScan.Controllers
                 }
             }
 
-            // Supported UPI handles
-            var cleanHandle = string.IsNullOrWhiteSpace(handle) ? "upi" : handle.Trim().TrimStart('@').ToLowerInvariant();
-            var validHandles = new HashSet<string> { "upi", "paytm", "ybl", "okaxis", "okhdfcbank", "ibl" };
-            if (!validHandles.Contains(cleanHandle))
+            // Determine final Payee UPI ID
+            string upiId;
+            string selectedHandle;
+
+            if (!string.IsNullOrWhiteSpace(customUpi) && customUpi.Contains('@'))
             {
-                cleanHandle = "upi";
+                upiId = customUpi.Trim().ToLowerInvariant();
+                var parts = upiId.Split('@');
+                selectedHandle = parts.Length > 1 ? parts[1] : "custom";
+            }
+            else if (!string.IsNullOrWhiteSpace(restaurant?.UpiId) && restaurant.UpiId.Contains('@'))
+            {
+                upiId = restaurant.UpiId.Trim().ToLowerInvariant();
+                var parts = upiId.Split('@');
+                selectedHandle = parts.Length > 1 ? parts[1] : "custom";
+            }
+            else
+            {
+                // Default handle is okaxis (Google Pay) instead of upi (BHIM) to avoid "No payment account registered on Google Pay"
+                var cleanHandle = string.IsNullOrWhiteSpace(handle) ? "okaxis" : handle.Trim().TrimStart('@').ToLowerInvariant();
+                var validHandles = new HashSet<string> { "okaxis", "okhdfcbank", "okicici", "oksbi", "ybl", "ibl", "axl", "paytm", "upi" };
+                if (!validHandles.Contains(cleanHandle))
+                {
+                    cleanHandle = "okaxis";
+                }
+                selectedHandle = cleanHandle;
+                upiId = $"{targetMobile}@{cleanHandle}";
             }
 
-            var upiId = $"{targetMobile}@{cleanHandle}";
             var grandTotalStr = order.TotalAmount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
             var restName = restaurant?.Name ?? "Spice Symphony Restaurant";
-            var safePayeeName = Uri.EscapeDataString(restName.Replace("&", "and").Replace("#", "").Trim());
+            var cleanPayeeName = restName.Replace("&", "and").Replace("#", "").Replace("+", " ").Trim();
+            var safePayeeName = Uri.EscapeDataString(cleanPayeeName);
             var safeNote = Uri.EscapeDataString($"Order {order.OrderNumber} Table {order.Table?.TableNumber ?? ""}".Trim());
 
-            var upiUri = $"upi://pay?pa={upiId}&pn={safePayeeName}&am={grandTotalStr}&tr={order.OrderNumber}&tn={safeNote}&cu=INR";
+            // Universal P2P & P2M UPI QR format without 'tr' parameter.
+            // Note: 'tr' causes Google Pay to require a registered enterprise merchant and fail with "No payment account registered" on standard UPI accounts.
+            var upiUri = $"upi://pay?pa={upiId}&pn={safePayeeName}&am={grandTotalStr}&cu=INR&tn={safeNote}";
             var upiQr = _qrService.GenerateQrCodeDataUri(upiUri);
 
             var isPaid = order.Status == OrderStatus.Completed || (order.Bill != null && order.Bill.Status == BillStatus.Paid);
@@ -590,9 +613,9 @@ namespace MenuScan.Controllers
             var appUris = new Dictionary<string, string>
             {
                 { "generic", upiUri },
-                { "gpay", $"upi://pay?pa={targetMobile}@okaxis&pn={safePayeeName}&am={grandTotalStr}&tr={order.OrderNumber}&tn={safeNote}&cu=INR" },
-                { "phonepe", $"upi://pay?pa={targetMobile}@ybl&pn={safePayeeName}&am={grandTotalStr}&tr={order.OrderNumber}&tn={safeNote}&cu=INR" },
-                { "paytm", $"upi://pay?pa={targetMobile}@paytm&pn={safePayeeName}&am={grandTotalStr}&tr={order.OrderNumber}&tn={safeNote}&cu=INR" }
+                { "gpay", $"upi://pay?pa={upiId}&pn={safePayeeName}&am={grandTotalStr}&cu=INR&tn={safeNote}" },
+                { "phonepe", $"upi://pay?pa={(upiId.EndsWith("@ybl") || upiId.EndsWith("@ibl") ? upiId : $"{targetMobile}@ybl")}&pn={safePayeeName}&am={grandTotalStr}&cu=INR&tn={safeNote}" },
+                { "paytm", $"upi://pay?pa={(upiId.EndsWith("@paytm") ? upiId : $"{targetMobile}@paytm")}&pn={safePayeeName}&am={grandTotalStr}&cu=INR&tn={safeNote}" }
             };
 
             return Ok(new UpiPaymentDetailsDto
@@ -607,12 +630,47 @@ namespace MenuScan.Controllers
                 TaxAmount = order.TaxAmount,
                 GrandTotal = order.TotalAmount,
                 UpiId = upiId,
-                SelectedHandle = cleanHandle,
+                SelectedHandle = selectedHandle,
                 UpiUri = upiUri,
                 UpiQrDataUri = upiQr,
                 IsAlreadyPaid = isPaid,
                 BillNumber = order.Bill?.BillNumber,
                 AppUris = appUris
+            });
+        }
+
+        [HttpPost("api/restaurant/save-upi-id")]
+        public async Task<IActionResult> SaveRestaurantUpiId([FromBody] SaveRestaurantUpiDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.UpiId) || !dto.UpiId.Contains('@'))
+            {
+                return BadRequest(new { success = false, message = "Invalid UPI ID format. Must contain '@' (e.g. 8799020418@okaxis)." });
+            }
+
+            var cleanUpi = dto.UpiId.Trim().ToLowerInvariant();
+            var restaurant = await _context.Restaurants.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(r => r.Slug == dto.RestaurantSlug && r.IsActive);
+
+            if (restaurant == null)
+            {
+                restaurant = await _context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.IsActive);
+            }
+
+            if (restaurant == null)
+            {
+                return NotFound(new { success = false, message = "Restaurant not found." });
+            }
+
+            restaurant.UpiId = cleanUpi;
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Saved default UPI ID {UpiId} for restaurant {Name}", cleanUpi, restaurant.Name);
+
+            return Ok(new
+            {
+                success = true,
+                upiId = restaurant.UpiId,
+                message = "Default restaurant UPI ID updated successfully!"
             });
         }
 
@@ -754,5 +812,11 @@ namespace MenuScan.Controllers
         public string TableToken { get; set; } = string.Empty;
         public string RequestType { get; set; } = "Assistance";
         public string? Notes { get; set; }
+    }
+
+    public class SaveRestaurantUpiDto
+    {
+        public string RestaurantSlug { get; set; } = string.Empty;
+        public string UpiId { get; set; } = string.Empty;
     }
 }

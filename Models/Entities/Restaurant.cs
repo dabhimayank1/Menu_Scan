@@ -21,6 +21,9 @@ namespace MenuScan.Models.Entities
         [MaxLength(30)]
         public string? Phone { get; set; }
 
+        [MaxLength(100)]
+        public string? UpiId { get; set; }
+
         [MaxLength(50)]
         public string? TaxNumber { get; set; }
 

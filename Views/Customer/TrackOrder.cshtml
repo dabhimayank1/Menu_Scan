@@ -392,22 +392,48 @@
                     <!-- UPI Handle Switcher -->
                     <div class="mb-3 text-start">
                         <div class="d-flex justify-content-between align-items-center mb-2">
-                            <label class="form-label small fw-bold text-uppercase text-muted mb-0">Select UPI Handle</label>
+                            <label class="form-label small fw-bold text-uppercase text-muted mb-0">Select UPI App / Handle</label>
                             <small class="text-muted">Updates QR instantly</small>
                         </div>
-                        <div class="d-flex flex-wrap justify-content-center gap-1" id="upiHandlePills">
-                            <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 upi-handle-btn" data-handle="upi" onclick="switchUpiHandle('upi', this)">
-                                @@upi (BHIM)
+                        <div class="d-flex flex-wrap justify-content-center gap-1 mb-2" id="upiHandlePills">
+                            <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 upi-handle-btn" data-handle="okaxis" onclick="switchUpiHandle('okaxis', this)">
+                                <i class="bi bi-google me-1"></i>@@okaxis (GPay)
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn" data-handle="okhdfcbank" onclick="switchUpiHandle('okhdfcbank', this)">
+                                @@okhdfcbank (GPay HDFC)
                             </button>
                             <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn" data-handle="ybl" onclick="switchUpiHandle('ybl', this)">
                                 @@ybl (PhonePe)
                             </button>
-                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn" data-handle="okaxis" onclick="switchUpiHandle('okaxis', this)">
-                                @@okaxis (GPay)
-                            </button>
                             <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn" data-handle="paytm" onclick="switchUpiHandle('paytm', this)">
                                 @@paytm (Paytm)
                             </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn" data-handle="upi" onclick="switchUpiHandle('upi', this)">
+                                @@upi (BHIM)
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Custom UPI ID / Google Pay Fix Box -->
+                    <div class="card p-3 bg-light border rounded-4 mb-3 text-start">
+                        <label class="form-label small fw-bold mb-1 text-muted d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-pencil-square text-primary me-1"></i>Payee UPI ID:</span>
+                            <span class="badge bg-white text-dark border font-monospace fw-bold" id="currentUpiDisplayBadge">8799020418@@okaxis</span>
+                        </label>
+                        <div class="input-group input-group-sm mb-1">
+                            <input type="text" id="customUpiInput" class="form-control" placeholder="e.g. 8799020418@okaxis or yourname@okaxis" />
+                            <button class="btn btn-primary fw-semibold" type="button" onclick="applyCustomUpi()">
+                                <i class="bi bi-arrow-repeat me-1"></i>Update QR
+                            </button>
+                            <button class="btn btn-success fw-semibold" type="button" onclick="saveAsRestaurantDefaultUpi()" title="Save as Restaurant Default">
+                                <i class="bi bi-floppy me-1"></i>Save Default
+                            </button>
+                        </div>
+                        <div id="saveUpiSuccessAlert" class="alert alert-success py-1 px-2 small mb-1 mt-1 d-none">
+                            <i class="bi bi-check-circle-fill me-1"></i> Saved as default restaurant UPI ID! All future scans will use this.
+                        </div>
+                        <div class="text-muted mt-1" style="font-size: 11px;">
+                            💡 <strong>Google Pay Help:</strong> Open Google Pay on phone ➔ tap Profile icon (top right) ➔ check your registered UPI ID under your name (e.g. <code>@@okaxis</code>, <code>@@okhdfcbank</code>, or <code>@@oksbi</code>). Enter it here and click <em>Update QR</em>.
                         </div>
                     </div>
 
@@ -702,9 +728,10 @@
         }
 
         let upiModalInstance = null;
-        let activeHandle = 'upi';
+        let activeHandle = 'okaxis';
+        let activeCustomUpi = null;
 
-        async function openUpiCheckoutModal(handle = 'upi') {
+        async function openUpiCheckoutModal(handle = 'okaxis') {
             activeHandle = handle;
             if (!upiModalInstance) {
                 upiModalInstance = bootstrap.Modal.getOrCreateInstance(document.getElementById('upiCheckoutModal'));
@@ -716,15 +743,19 @@
             if (content) content.classList.add('d-none');
 
             upiModalInstance.show();
-            await fetchUpiDetails(activeHandle);
+            await fetchUpiDetails(activeHandle, activeCustomUpi);
         }
 
-        async function fetchUpiDetails(handle) {
+        async function fetchUpiDetails(handle, customUpi = null) {
             const spinner = document.getElementById('upiLoadingSpinner');
             const content = document.getElementById('upiModalContent');
 
             try {
-                const response = await fetch(`/api/order/upi-payment-details/${orderToken}?handle=${handle}`);
+                let url = `/api/order/upi-payment-details/${orderToken}?handle=${encodeURIComponent(handle || 'okaxis')}`;
+                if (customUpi) {
+                    url += `&customUpi=${encodeURIComponent(customUpi)}`;
+                }
+                const response = await fetch(url);
                 const data = await response.json();
 
                 if (response.ok && data.success) {
@@ -740,6 +771,12 @@
 
                     const amtText = document.getElementById('upiAmountText');
                     if (amtText) amtText.innerText = data.grandTotal.toFixed(2);
+
+                    const badge = document.getElementById('currentUpiDisplayBadge');
+                    if (badge) badge.innerText = data.upiId;
+
+                    const customInput = document.getElementById('customUpiInput');
+                    if (customInput && !customUpi) customInput.value = data.upiId;
 
                     const idText = document.getElementById('upiIdText');
                     if (idText) idText.innerText = data.upiId;
@@ -765,7 +802,7 @@
                     // Update handle buttons active styling
                     const buttons = document.querySelectorAll('.upi-handle-btn');
                     buttons.forEach(btn => {
-                        if (btn.getAttribute('data-handle') === handle) {
+                        if (btn.getAttribute('data-handle') === data.selectedHandle) {
                             btn.className = "btn btn-sm btn-primary rounded-pill px-3 upi-handle-btn";
                         } else {
                             btn.className = "btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn";
@@ -787,6 +824,7 @@
 
         async function switchUpiHandle(handle, btnElem) {
             activeHandle = handle;
+            activeCustomUpi = null; // Reset custom UPI when picking preset handle
             const buttons = document.querySelectorAll('.upi-handle-btn');
             buttons.forEach(btn => {
                 btn.className = "btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn";
@@ -801,6 +839,56 @@
             await fetchUpiDetails(handle);
 
             if (qrImg) qrImg.style.opacity = '1.0';
+        }
+
+        async function applyCustomUpi() {
+            const input = document.getElementById('customUpiInput');
+            const val = input ? input.value.trim() : "";
+            if (!val || !val.includes('@@')) {
+                alert("Please enter a valid UPI ID (e.g. 8799020418@@okaxis or yourname@@okaxis)");
+                return;
+            }
+            activeCustomUpi = val;
+            const qrImg = document.getElementById('upiQrImage');
+            if (qrImg) qrImg.style.opacity = '0.4';
+
+            await fetchUpiDetails('custom', activeCustomUpi);
+
+            if (qrImg) qrImg.style.opacity = '1.0';
+        }
+
+        async function saveAsRestaurantDefaultUpi() {
+            const input = document.getElementById('customUpiInput');
+            const val = input ? input.value.trim() : "";
+            if (!val || !val.includes('@@')) {
+                alert("Please enter a valid UPI ID (e.g. 8799020418@@okaxis)");
+                return;
+            }
+            try {
+                const res = await fetch('/api/restaurant/save-upi-id', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        restaurantSlug: "@Model.Restaurant.Slug",
+                        upiId: val
+                    })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    const alertEl = document.getElementById('saveUpiSuccessAlert');
+                    if (alertEl) {
+                        alertEl.classList.remove('d-none');
+                        setTimeout(() => alertEl.classList.add('d-none'), 3500);
+                    }
+                    activeCustomUpi = val;
+                    await fetchUpiDetails('custom', val);
+                } else {
+                    alert(data.message || "Failed to save UPI ID.");
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Network error saving UPI ID.");
+            }
         }
 
         function copyUpiText(text, btn) {
