@@ -540,7 +540,7 @@ namespace MenuScan.Controllers
         }
 
         [HttpGet("api/order/upi-payment-details/{token}")]
-        public async Task<IActionResult> GetUpiPaymentDetails(string token, [FromQuery] string? handle = "okaxis", [FromQuery] string? customUpi = null)
+        public async Task<IActionResult> GetUpiPaymentDetails(string token, [FromQuery] string? handle = null, [FromQuery] string? customUpi = null)
         {
             var order = await _context.Orders
                 .IgnoreQueryFilters()
@@ -581,6 +581,27 @@ namespace MenuScan.Controllers
                 var parts = upiId.Split('@');
                 selectedHandle = parts.Length > 1 ? parts[1] : "custom";
             }
+            else if (!string.IsNullOrWhiteSpace(handle) && handle != "default")
+            {
+                var cleanHandle = handle.Trim().TrimStart('@').ToLowerInvariant();
+                var validHandles = new HashSet<string> { "oksbi", "okaxis", "okhdfcbank", "okicici", "ybl", "ibl", "axl", "paytm", "upi" };
+                if (validHandles.Contains(cleanHandle))
+                {
+                    selectedHandle = cleanHandle;
+                    upiId = $"{targetMobile}@{cleanHandle}";
+                }
+                else if (!string.IsNullOrWhiteSpace(restaurant?.UpiId) && restaurant.UpiId.Contains('@'))
+                {
+                    upiId = restaurant.UpiId.Trim().ToLowerInvariant();
+                    var parts = upiId.Split('@');
+                    selectedHandle = parts.Length > 1 ? parts[1] : "custom";
+                }
+                else
+                {
+                    selectedHandle = "oksbi";
+                    upiId = $"{targetMobile}@oksbi";
+                }
+            }
             else if (!string.IsNullOrWhiteSpace(restaurant?.UpiId) && restaurant.UpiId.Contains('@'))
             {
                 upiId = restaurant.UpiId.Trim().ToLowerInvariant();
@@ -589,15 +610,8 @@ namespace MenuScan.Controllers
             }
             else
             {
-                // Default handle is okaxis (Google Pay) instead of upi (BHIM) to avoid "No payment account registered on Google Pay"
-                var cleanHandle = string.IsNullOrWhiteSpace(handle) ? "okaxis" : handle.Trim().TrimStart('@').ToLowerInvariant();
-                var validHandles = new HashSet<string> { "okaxis", "okhdfcbank", "okicici", "oksbi", "ybl", "ibl", "axl", "paytm", "upi" };
-                if (!validHandles.Contains(cleanHandle))
-                {
-                    cleanHandle = "okaxis";
-                }
-                selectedHandle = cleanHandle;
-                upiId = $"{targetMobile}@{cleanHandle}";
+                selectedHandle = "oksbi";
+                upiId = $"{targetMobile}@oksbi";
             }
 
             var grandTotalStr = order.TotalAmount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);

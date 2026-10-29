@@ -423,8 +423,11 @@
                             <small class="text-muted">Updates QR instantly</small>
                         </div>
                         <div class="d-flex flex-wrap justify-content-center gap-1 mb-2" id="upiHandlePills">
-                            <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 upi-handle-btn" data-handle="okaxis" onclick="switchUpiHandle('okaxis', this)">
-                                <i class="bi bi-google me-1"></i>@@okaxis (GPay)
+                            <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 upi-handle-btn" data-handle="oksbi" onclick="switchUpiHandle('oksbi', this)">
+                                <i class="bi bi-google me-1"></i>@@oksbi (GPay SBI)
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn" data-handle="okaxis" onclick="switchUpiHandle('okaxis', this)">
+                                @@okaxis (GPay)
                             </button>
                             <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn" data-handle="okhdfcbank" onclick="switchUpiHandle('okhdfcbank', this)">
                                 @@okhdfcbank (GPay HDFC)
@@ -445,7 +448,7 @@
                     <div class="card p-3 bg-light border rounded-4 mb-3 text-start">
                         <div class="d-flex justify-content-between align-items-center mb-2">
                             <span class="fw-bold small text-dark"><i class="bi bi-gear-wide-connected text-primary me-1"></i>Merchant Payment Setup</span>
-                            <span class="badge bg-white text-dark border font-monospace fw-bold" id="currentUpiDisplayBadge">8799020418@@okaxis</span>
+                            <span class="badge bg-white text-dark border font-monospace fw-bold" id="currentUpiDisplayBadge">8799020418@@oksbi</span>
                         </div>
 
                         <!-- Payee Name Input -->
@@ -457,7 +460,7 @@
                         <!-- UPI ID Input -->
                         <div class="mb-2">
                             <label class="form-label small text-muted mb-1 fw-semibold">UPI ID (VPA):</label>
-                            <input type="text" id="customUpiInput" class="form-control form-control-sm font-monospace" placeholder="e.g. 8799020418@@okaxis or yourname@@okaxis" />
+                            <input type="text" id="customUpiInput" class="form-control form-control-sm font-monospace" placeholder="e.g. 8799020418@@oksbi or yourname@@oksbi" />
                         </div>
 
                         <!-- Action Buttons -->
@@ -783,7 +786,7 @@
         }
 
         let upiModalInstance = null;
-        let activeHandle = 'okaxis';
+        let activeHandle = 'oksbi';
         let activeCustomUpi = null;
         let activeQrMode = 'dynamic';
         let currentStandeeUrl = null;
@@ -815,7 +818,7 @@
             }
         }
 
-        async function openUpiCheckoutModal(handle = 'okaxis') {
+        async function openUpiCheckoutModal(handle = 'oksbi') {
             activeHandle = handle;
             if (!upiModalInstance) {
                 upiModalInstance = bootstrap.Modal.getOrCreateInstance(document.getElementById('upiCheckoutModal'));
@@ -835,7 +838,7 @@
             const content = document.getElementById('upiModalContent');
 
             try {
-                let url = `/api/order/upi-payment-details/${orderToken}?handle=${encodeURIComponent(handle || 'okaxis')}`;
+                let url = `/api/order/upi-payment-details/${orderToken}?handle=${encodeURIComponent(handle || 'oksbi')}`;
                 if (customUpi) {
                     url += `&customUpi=${encodeURIComponent(customUpi)}`;
                 }
