@@ -581,37 +581,29 @@ namespace MenuScan.Controllers
                 var parts = upiId.Split('@');
                 selectedHandle = parts.Length > 1 ? parts[1] : "custom";
             }
-            else if (!string.IsNullOrWhiteSpace(handle) && handle != "default")
+            else if (!string.IsNullOrWhiteSpace(restaurant?.UpiId) && restaurant.UpiId.Contains('@'))
             {
-                var cleanHandle = handle.Trim().TrimStart('@').ToLowerInvariant();
-                var validHandles = new HashSet<string> { "oksbi", "okaxis", "okhdfcbank", "okicici", "ybl", "ibl", "axl", "paytm", "upi" };
-                if (validHandles.Contains(cleanHandle))
+                var savedUpi = restaurant.UpiId.Trim().ToLowerInvariant();
+                var savedParts = savedUpi.Split('@');
+                var savedHandle = savedParts.Length > 1 ? savedParts[1] : "okhdfcbank";
+
+                if (!string.IsNullOrWhiteSpace(handle) && handle != "default" && handle != savedHandle)
                 {
+                    var cleanHandle = handle.Trim().TrimStart('@').ToLowerInvariant();
                     selectedHandle = cleanHandle;
                     upiId = $"{targetMobile}@{cleanHandle}";
                 }
-                else if (!string.IsNullOrWhiteSpace(restaurant?.UpiId) && restaurant.UpiId.Contains('@'))
-                {
-                    upiId = restaurant.UpiId.Trim().ToLowerInvariant();
-                    var parts = upiId.Split('@');
-                    selectedHandle = parts.Length > 1 ? parts[1] : "custom";
-                }
                 else
                 {
-                    selectedHandle = "oksbi";
-                    upiId = $"{targetMobile}@oksbi";
+                    upiId = savedUpi;
+                    selectedHandle = savedHandle;
                 }
-            }
-            else if (!string.IsNullOrWhiteSpace(restaurant?.UpiId) && restaurant.UpiId.Contains('@'))
-            {
-                upiId = restaurant.UpiId.Trim().ToLowerInvariant();
-                var parts = upiId.Split('@');
-                selectedHandle = parts.Length > 1 ? parts[1] : "custom";
             }
             else
             {
-                selectedHandle = "oksbi";
-                upiId = $"{targetMobile}@oksbi";
+                var cleanHandle = string.IsNullOrWhiteSpace(handle) ? "okhdfcbank" : handle.Trim().TrimStart('@').ToLowerInvariant();
+                selectedHandle = cleanHandle;
+                upiId = $"{targetMobile}@{cleanHandle}";
             }
 
             var grandTotalStr = order.TotalAmount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
@@ -621,9 +613,8 @@ namespace MenuScan.Controllers
             var safePayeeName = Uri.EscapeDataString(cleanPayeeName);
             var safeNote = Uri.EscapeDataString($"Order {order.OrderNumber} Table {order.Table?.TableNumber ?? ""}".Trim());
 
-            // Universal P2P & P2M UPI QR format without 'tr' parameter.
-            // Note: 'tr' causes Google Pay to require a registered enterprise merchant and fail with "No payment account registered" on standard UPI accounts.
-            var upiUri = $"upi://pay?pa={upiId}&pn={safePayeeName}&am={grandTotalStr}&cu=INR&tn={safeNote}";
+            var aidParam = upiId.Contains("dabhimayank") ? "&aid=uGICAgMCRn5uuCQ" : "";
+            var upiUri = $"upi://pay?pa={upiId}&pn={safePayeeName}&am={grandTotalStr}&cu=INR{aidParam}&tn={safeNote}";
             var upiQr = _qrService.GenerateQrCodeDataUri(upiUri);
 
             var isPaid = order.Status == OrderStatus.Completed || (order.Bill != null && order.Bill.Status == BillStatus.Paid);
@@ -631,7 +622,7 @@ namespace MenuScan.Controllers
             var appUris = new Dictionary<string, string>
             {
                 { "generic", upiUri },
-                { "gpay", $"upi://pay?pa={upiId}&pn={safePayeeName}&am={grandTotalStr}&cu=INR&tn={safeNote}" },
+                { "gpay", $"upi://pay?pa={upiId}&pn={safePayeeName}&am={grandTotalStr}&cu=INR{aidParam}&tn={safeNote}" },
                 { "phonepe", $"upi://pay?pa={(upiId.EndsWith("@ybl") || upiId.EndsWith("@ibl") ? upiId : $"{targetMobile}@ybl")}&pn={safePayeeName}&am={grandTotalStr}&cu=INR&tn={safeNote}" },
                 { "paytm", $"upi://pay?pa={(upiId.EndsWith("@paytm") ? upiId : $"{targetMobile}@paytm")}&pn={safePayeeName}&am={grandTotalStr}&cu=INR&tn={safeNote}" }
             };

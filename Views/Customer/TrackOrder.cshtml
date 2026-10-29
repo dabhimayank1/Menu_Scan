@@ -375,44 +375,49 @@
                 <div id="upiModalContent" class="d-none">
                     <!-- QR View Mode Switcher -->
                     <div class="d-flex justify-content-center gap-2 mb-3">
-                        <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 fw-bold" id="btnModeDynamicQr" onclick="switchQrMode('dynamic')">
-                            <i class="bi bi-qr-code me-1"></i> Auto-Amount QR
+                        <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 fw-bold" id="btnModeStandeeQr" onclick="switchQrMode('standee')">
+                            <i class="bi bi-qr-code me-1"></i> Official Google Pay QR
                         </button>
-                        <button type="button" class="btn btn-sm btn-outline-dark rounded-pill px-3 fw-bold" id="btnModeStandeeQr" onclick="switchQrMode('standee')">
-                            <i class="bi bi-image me-1"></i> Real Standee Scanner
+                        <button type="button" class="btn btn-sm btn-outline-dark rounded-pill px-3 fw-bold" id="btnModeDynamicQr" onclick="switchQrMode('dynamic')">
+                            <i class="bi bi-lightning-charge me-1"></i> Auto-Amount QR (PhonePe/Paytm)
                         </button>
                     </div>
 
-                    <!-- Dynamic UPI QR Scanner Box -->
-                    <div id="dynamicQrContainer">
-                        <div class="position-relative d-inline-block p-3 bg-white rounded-4 border shadow-sm mb-2" style="max-width: 260px;">
-                            <img id="upiQrImage" src="" alt="Scan to Pay via UPI" class="img-fluid rounded-3" style="width: 210px; height: 210px; object-fit: contain; transition: opacity 0.2s;" />
-                            <div class="small fw-semibold text-muted mt-2 d-flex align-items-center justify-content-center gap-1">
-                                <i class="bi bi-camera text-primary"></i> Scan with GPay, PhonePe, Paytm
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Standee / Uploaded Real QR Box -->
-                    <div id="standeeQrContainer" class="d-none mb-2">
-                        <div class="position-relative d-inline-block p-3 bg-white rounded-4 border shadow-sm" style="max-width: 280px;">
-                            <img id="standeeQrImage" src="" alt="Merchant Standee QR" class="img-fluid rounded-3" style="max-height: 230px; object-fit: contain;" />
+                    <!-- Standee / Uploaded Real QR Box (Default!) -->
+                    <div id="standeeQrContainer" class="mb-2">
+                        <div class="position-relative d-inline-block p-3 bg-white rounded-4 border shadow-sm" style="max-width: 290px;">
+                            <img id="standeeQrImage" src="/uploads/payment-qrs/dabhi-mayank-qr.jpeg" alt="Merchant Standee QR" class="img-fluid rounded-3" style="max-height: 260px; object-fit: contain;" />
                             <div class="small fw-semibold text-success mt-2 d-flex align-items-center justify-content-center gap-1">
-                                <i class="bi bi-patch-check-fill"></i> Merchant Official Standee QR
+                                <i class="bi bi-patch-check-fill"></i> Official Verified Google Pay Scanner
                             </div>
                         </div>
                         <div id="noStandeeAlert" class="alert alert-warning py-2 px-3 small rounded-3 my-2 d-none">
-                            <i class="bi bi-info-circle me-1"></i> No standee image uploaded yet. Upload your Google Pay / PhonePe QR screenshot below!
+                            <i class="bi bi-info-circle me-1"></i> No standee image uploaded yet.
+                        </div>
+                    </div>
+
+                    <!-- Dynamic UPI QR Scanner Box (Alternate) -->
+                    <div id="dynamicQrContainer" class="d-none mb-2">
+                        <div class="position-relative d-inline-block p-3 bg-white rounded-4 border shadow-sm" style="max-width: 260px;">
+                            <img id="upiQrImage" src="" alt="Scan to Pay via UPI" class="img-fluid rounded-3" style="width: 210px; height: 210px; object-fit: contain; transition: opacity 0.2s;" />
+                            <div class="small fw-semibold text-muted mt-2 d-flex align-items-center justify-content-center gap-1">
+                                <i class="bi bi-camera text-primary"></i> Scan with PhonePe, Paytm or BHIM
+                            </div>
                         </div>
                     </div>
                     
                     <div class="mb-3">
                         <span class="text-muted small d-block">Account / Payee Name</span>
-                        <h6 class="fw-bold my-1 text-dark" id="displayPayeeName">@Model.Restaurant.Name</h6>
-                        <span class="text-muted small d-block mt-1">Grand Total to Pay</span>
-                        <h3 class="fw-bold my-1" style="color: var(--cafe-primary);">₹<span id="upiAmountText">@Model.Order.TotalAmount.ToString("0.00")</span></h3>
-                        <span class="badge bg-light text-dark border rounded-pill px-3 py-1 small">
-                            <i class="bi bi-shield-check text-success me-1"></i>Verified UPI Self-Checkout
+                        <h6 class="fw-bold my-1 text-dark" id="displayPayeeName">Dabhi Mayank</h6>
+                        <span class="text-muted small d-block mt-1">Total Bill to Pay</span>
+                        <div class="d-flex align-items-center justify-content-center gap-2 my-1">
+                            <h3 class="fw-bold mb-0" style="color: var(--cafe-primary);">₹<span id="upiAmountText">@Model.Order.TotalAmount.ToString("0.00")</span></h3>
+                            <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-2 py-0" onclick="copyUpiText('@Model.Order.TotalAmount.ToString("0.00")', this)" style="font-size: 11px;">
+                                <i class="bi bi-copy me-1"></i>Copy
+                            </button>
+                        </div>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1 small">
+                            <i class="bi bi-shield-check text-success me-1"></i>Dabhi Mayank (dabhimayank086@@okhdfcbank)
                         </span>
                     </div>
 
@@ -786,9 +791,9 @@
         }
 
         let upiModalInstance = null;
-        let activeHandle = 'oksbi';
+        let activeHandle = 'okhdfcbank';
         let activeCustomUpi = null;
-        let activeQrMode = 'dynamic';
+        let activeQrMode = 'standee';
         let currentStandeeUrl = null;
 
         function switchQrMode(mode) {
@@ -818,7 +823,7 @@
             }
         }
 
-        async function openUpiCheckoutModal(handle = 'oksbi') {
+        async function openUpiCheckoutModal(handle = 'okhdfcbank') {
             activeHandle = handle;
             if (!upiModalInstance) {
                 upiModalInstance = bootstrap.Modal.getOrCreateInstance(document.getElementById('upiCheckoutModal'));
@@ -838,7 +843,7 @@
             const content = document.getElementById('upiModalContent');
 
             try {
-                let url = `/api/order/upi-payment-details/${orderToken}?handle=${encodeURIComponent(handle || 'oksbi')}`;
+                let url = `/api/order/upi-payment-details/${orderToken}?handle=${encodeURIComponent(handle || 'okhdfcbank')}`;
                 if (customUpi) {
                     url += `&customUpi=${encodeURIComponent(customUpi)}`;
                 }
