@@ -863,8 +863,10 @@
                     if (standeeImg && currentStandeeUrl) {
                         standeeImg.src = currentStandeeUrl;
                         if (noStandeeAlert) noStandeeAlert.classList.add('d-none');
+                        switchQrMode('standee');
                     } else if (noStandeeAlert) {
                         noStandeeAlert.classList.remove('d-none');
+                        switchQrMode('dynamic');
                     }
 
                     const amtText = document.getElementById('upiAmountText');
