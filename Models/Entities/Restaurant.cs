@@ -24,6 +24,12 @@ namespace MenuScan.Models.Entities
         [MaxLength(100)]
         public string? UpiId { get; set; }
 
+        [MaxLength(150)]
+        public string? PayeeName { get; set; }
+
+        [MaxLength(500)]
+        public string? PaymentQrImageUrl { get; set; }
+
         [MaxLength(50)]
         public string? TaxNumber { get; set; }
 

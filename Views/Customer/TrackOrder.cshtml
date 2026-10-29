@@ -373,19 +373,46 @@
                 <div class="spinner-border text-primary my-4" role="status" id="upiLoadingSpinner"></div>
                 
                 <div id="upiModalContent" class="d-none">
+                    <!-- QR View Mode Switcher -->
+                    <div class="d-flex justify-content-center gap-2 mb-3">
+                        <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 fw-bold" id="btnModeDynamicQr" onclick="switchQrMode('dynamic')">
+                            <i class="bi bi-qr-code me-1"></i> Auto-Amount QR
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-dark rounded-pill px-3 fw-bold" id="btnModeStandeeQr" onclick="switchQrMode('standee')">
+                            <i class="bi bi-image me-1"></i> Real Standee Scanner
+                        </button>
+                    </div>
+
                     <!-- Dynamic UPI QR Scanner Box -->
-                    <div class="position-relative d-inline-block p-3 bg-white rounded-4 border shadow-sm mb-3" style="max-width: 260px;">
-                        <img id="upiQrImage" src="" alt="Scan to Pay via UPI" class="img-fluid rounded-3" style="width: 210px; height: 210px; object-fit: contain; transition: opacity 0.2s;" />
-                        <div class="small fw-semibold text-muted mt-2 d-flex align-items-center justify-content-center gap-1">
-                            <i class="bi bi-camera text-primary"></i> Scan with GPay, PhonePe, Paytm or BHIM
+                    <div id="dynamicQrContainer">
+                        <div class="position-relative d-inline-block p-3 bg-white rounded-4 border shadow-sm mb-2" style="max-width: 260px;">
+                            <img id="upiQrImage" src="" alt="Scan to Pay via UPI" class="img-fluid rounded-3" style="width: 210px; height: 210px; object-fit: contain; transition: opacity 0.2s;" />
+                            <div class="small fw-semibold text-muted mt-2 d-flex align-items-center justify-content-center gap-1">
+                                <i class="bi bi-camera text-primary"></i> Scan with GPay, PhonePe, Paytm
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Standee / Uploaded Real QR Box -->
+                    <div id="standeeQrContainer" class="d-none mb-2">
+                        <div class="position-relative d-inline-block p-3 bg-white rounded-4 border shadow-sm" style="max-width: 280px;">
+                            <img id="standeeQrImage" src="" alt="Merchant Standee QR" class="img-fluid rounded-3" style="max-height: 230px; object-fit: contain;" />
+                            <div class="small fw-semibold text-success mt-2 d-flex align-items-center justify-content-center gap-1">
+                                <i class="bi bi-patch-check-fill"></i> Merchant Official Standee QR
+                            </div>
+                        </div>
+                        <div id="noStandeeAlert" class="alert alert-warning py-2 px-3 small rounded-3 my-2 d-none">
+                            <i class="bi bi-info-circle me-1"></i> No standee image uploaded yet. Upload your Google Pay / PhonePe QR screenshot below!
                         </div>
                     </div>
                     
                     <div class="mb-3">
-                        <span class="text-muted small d-block">Grand Total to Pay</span>
+                        <span class="text-muted small d-block">Account / Payee Name</span>
+                        <h6 class="fw-bold my-1 text-dark" id="displayPayeeName">@Model.Restaurant.Name</h6>
+                        <span class="text-muted small d-block mt-1">Grand Total to Pay</span>
                         <h3 class="fw-bold my-1" style="color: var(--cafe-primary);">₹<span id="upiAmountText">@Model.Order.TotalAmount.ToString("0.00")</span></h3>
                         <span class="badge bg-light text-dark border rounded-pill px-3 py-1 small">
-                            <i class="bi bi-shield-check text-success me-1"></i>Verified Merchant UPI Self-Checkout
+                            <i class="bi bi-shield-check text-success me-1"></i>Verified UPI Self-Checkout
                         </span>
                     </div>
 
@@ -414,26 +441,54 @@
                         </div>
                     </div>
 
-                    <!-- Custom UPI ID / Google Pay Fix Box -->
+                    <!-- Merchant Payment Setup & Google Pay Fix Box -->
                     <div class="card p-3 bg-light border rounded-4 mb-3 text-start">
-                        <label class="form-label small fw-bold mb-1 text-muted d-flex justify-content-between align-items-center">
-                            <span><i class="bi bi-pencil-square text-primary me-1"></i>Payee UPI ID:</span>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-bold small text-dark"><i class="bi bi-gear-wide-connected text-primary me-1"></i>Merchant Payment Setup</span>
                             <span class="badge bg-white text-dark border font-monospace fw-bold" id="currentUpiDisplayBadge">8799020418@@okaxis</span>
-                        </label>
-                        <div class="input-group input-group-sm mb-1">
-                            <input type="text" id="customUpiInput" class="form-control" placeholder="e.g. 8799020418@okaxis or yourname@okaxis" />
-                            <button class="btn btn-primary fw-semibold" type="button" onclick="applyCustomUpi()">
-                                <i class="bi bi-arrow-repeat me-1"></i>Update QR
+                        </div>
+
+                        <!-- Payee Name Input -->
+                        <div class="mb-2">
+                            <label class="form-label small text-muted mb-1 fw-semibold">Account Holder / Store Name (Shows on GPay/PhonePe):</label>
+                            <input type="text" id="customPayeeNameInput" class="form-control form-control-sm" placeholder="e.g. Your Real Name or Shop Name" />
+                        </div>
+
+                        <!-- UPI ID Input -->
+                        <div class="mb-2">
+                            <label class="form-label small text-muted mb-1 fw-semibold">UPI ID (VPA):</label>
+                            <input type="text" id="customUpiInput" class="form-control form-control-sm font-monospace" placeholder="e.g. 8799020418@@okaxis or yourname@@okaxis" />
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="d-flex gap-2 mb-2">
+                            <button class="btn btn-sm btn-primary flex-grow-1 fw-semibold" type="button" onclick="applyCustomUpi()">
+                                <i class="bi bi-arrow-repeat me-1"></i>Preview QR
                             </button>
-                            <button class="btn btn-success fw-semibold" type="button" onclick="saveAsRestaurantDefaultUpi()" title="Save as Restaurant Default">
-                                <i class="bi bi-floppy me-1"></i>Save Default
+                            <button class="btn btn-sm btn-success flex-grow-1 fw-semibold" type="button" onclick="saveAsRestaurantDefaultUpi()" title="Save as Restaurant Default">
+                                <i class="bi bi-floppy me-1"></i>Save as Default
                             </button>
                         </div>
-                        <div id="saveUpiSuccessAlert" class="alert alert-success py-1 px-2 small mb-1 mt-1 d-none">
-                            <i class="bi bi-check-circle-fill me-1"></i> Saved as default restaurant UPI ID! All future scans will use this.
+
+                        <!-- Real Standee Scanner Upload -->
+                        <div class="border-top pt-2 mt-2">
+                            <label class="form-label small text-muted mb-1 fw-semibold d-block"><i class="bi bi-camera me-1"></i>Or Upload Your Real Scanner Image (Standee/Screenshot):</label>
+                            <div class="input-group input-group-sm">
+                                <input type="file" id="uploadStandeeFileInput" accept="image/png, image/jpeg, image/jpg, image/webp" class="form-control" />
+                                <button class="btn btn-dark fw-semibold" type="button" onclick="uploadRealStandeeQr()">
+                                    <i class="bi bi-upload me-1"></i>Upload
+                                </button>
+                            </div>
+                            <div id="standeeUploadSuccessAlert" class="alert alert-success py-1 px-2 small mt-2 d-none">
+                                <i class="bi bi-check-circle-fill me-1"></i> Scanner image uploaded successfully!
+                            </div>
                         </div>
-                        <div class="text-muted mt-1" style="font-size: 11px;">
-                            💡 <strong>Google Pay Help:</strong> Open Google Pay on phone ➔ tap Profile icon (top right) ➔ check your registered UPI ID under your name (e.g. <code>@@okaxis</code>, <code>@@okhdfcbank</code>, or <code>@@oksbi</code>). Enter it here and click <em>Update QR</em>.
+
+                        <div id="saveUpiSuccessAlert" class="alert alert-success py-1 px-2 small mt-2 d-none">
+                            <i class="bi bi-check-circle-fill me-1"></i> Settings saved! Your real name &amp; UPI ID will now be used.
+                        </div>
+                        <div class="text-muted mt-2" style="font-size: 11px;">
+                            💡 <strong>Google Pay Fix:</strong> Open Google Pay on phone ➔ tap Profile icon (top right) ➔ check your registered UPI ID under your name (e.g. <code>@@okaxis</code>, <code>@@okhdfcbank</code>, or <code>@@oksbi</code>). Enter it above and click <em>Save as Default</em>.
                         </div>
                     </div>
 
@@ -730,6 +785,35 @@
         let upiModalInstance = null;
         let activeHandle = 'okaxis';
         let activeCustomUpi = null;
+        let activeQrMode = 'dynamic';
+        let currentStandeeUrl = null;
+
+        function switchQrMode(mode) {
+            activeQrMode = mode;
+            const dynBtn = document.getElementById('btnModeDynamicQr');
+            const standBtn = document.getElementById('btnModeStandeeQr');
+            const dynBox = document.getElementById('dynamicQrContainer');
+            const standBox = document.getElementById('standeeQrContainer');
+            const noStandeeAlert = document.getElementById('noStandeeAlert');
+
+            if (mode === 'standee') {
+                if (dynBtn) { dynBtn.className = "btn btn-sm btn-outline-dark rounded-pill px-3 fw-bold"; }
+                if (standBtn) { standBtn.className = "btn btn-sm btn-primary rounded-pill px-3 fw-bold"; }
+                if (dynBox) dynBox.classList.add('d-none');
+                if (standBox) standBox.classList.remove('d-none');
+
+                if (!currentStandeeUrl && noStandeeAlert) {
+                    noStandeeAlert.classList.remove('d-none');
+                } else if (noStandeeAlert) {
+                    noStandeeAlert.classList.add('d-none');
+                }
+            } else {
+                if (dynBtn) { dynBtn.className = "btn btn-sm btn-primary rounded-pill px-3 fw-bold"; }
+                if (standBtn) { standBtn.className = "btn btn-sm btn-outline-dark rounded-pill px-3 fw-bold"; }
+                if (dynBox) dynBox.classList.remove('d-none');
+                if (standBox) standBox.classList.add('d-none');
+            }
+        }
 
         async function openUpiCheckoutModal(handle = 'okaxis') {
             activeHandle = handle;
@@ -769,8 +853,27 @@
                     const qrImage = document.getElementById('upiQrImage');
                     if (qrImage) qrImage.src = data.upiQrDataUri;
 
+                    // Standee QR handling
+                    currentStandeeUrl = data.paymentQrImageUrl;
+                    const standeeImg = document.getElementById('standeeQrImage');
+                    const noStandeeAlert = document.getElementById('noStandeeAlert');
+                    if (standeeImg && currentStandeeUrl) {
+                        standeeImg.src = currentStandeeUrl;
+                        if (noStandeeAlert) noStandeeAlert.classList.add('d-none');
+                    } else if (noStandeeAlert) {
+                        noStandeeAlert.classList.remove('d-none');
+                    }
+
                     const amtText = document.getElementById('upiAmountText');
                     if (amtText) amtText.innerText = data.grandTotal.toFixed(2);
+
+                    const payeeNameDisplay = document.getElementById('displayPayeeName');
+                    if (payeeNameDisplay) payeeNameDisplay.innerText = data.payeeName || data.restaurantName;
+
+                    const customPayeeInput = document.getElementById('customPayeeNameInput');
+                    if (customPayeeInput && !customPayeeInput.value) {
+                        customPayeeInput.value = data.payeeName || data.restaurantName;
+                    }
 
                     const badge = document.getElementById('currentUpiDisplayBadge');
                     if (badge) badge.innerText = data.upiId;
@@ -859,7 +962,10 @@
 
         async function saveAsRestaurantDefaultUpi() {
             const input = document.getElementById('customUpiInput');
+            const payeeInput = document.getElementById('customPayeeNameInput');
             const val = input ? input.value.trim() : "";
+            const payeeVal = payeeInput ? payeeInput.value.trim() : "";
+
             if (!val || !val.includes('@@')) {
                 alert("Please enter a valid UPI ID (e.g. 8799020418@@okaxis)");
                 return;
@@ -870,7 +976,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         restaurantSlug: "@Model.Restaurant.Slug",
-                        upiId: val
+                        upiId: val,
+                        payeeName: payeeVal
                     })
                 });
                 const data = await res.json();
@@ -883,11 +990,49 @@
                     activeCustomUpi = val;
                     await fetchUpiDetails('custom', val);
                 } else {
-                    alert(data.message || "Failed to save UPI ID.");
+                    alert(data.message || "Failed to save settings.");
                 }
             } catch (e) {
                 console.error(e);
-                alert("Network error saving UPI ID.");
+                alert("Network error saving payment settings.");
+            }
+        }
+
+        async function uploadRealStandeeQr() {
+            const fileInput = document.getElementById('uploadStandeeFileInput');
+            if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+                alert("Please choose a scanner image (screenshot or standee photo) first.");
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('restaurantSlug', "@Model.Restaurant.Slug");
+
+            try {
+                const res = await fetch('/api/restaurant/upload-payment-qr', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    currentStandeeUrl = data.imageUrl;
+                    const standeeImg = document.getElementById('standeeQrImage');
+                    if (standeeImg) standeeImg.src = data.imageUrl;
+                    const alertBox = document.getElementById('standeeUploadSuccessAlert');
+                    if (alertBox) {
+                        alertBox.classList.remove('d-none');
+                        setTimeout(() => alertBox.classList.add('d-none'), 4000);
+                    }
+                    // Switch to standee mode so merchant sees the new scanner
+                    switchQrMode('standee');
+                } else {
+                    alert(data.message || "Failed to upload image.");
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Upload failed due to network error.");
             }
         }
 

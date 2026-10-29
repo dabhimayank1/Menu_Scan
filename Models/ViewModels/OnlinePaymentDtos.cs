@@ -29,8 +29,10 @@ namespace MenuScan.Models.ViewModels
         public string SelectedHandle { get; set; } = "upi";
         public string UpiUri { get; set; } = string.Empty;
         public string UpiQrDataUri { get; set; } = string.Empty;
-        public bool IsAlreadyPaid { get; set; }
         public string? BillNumber { get; set; }
+        public bool IsAlreadyPaid { get; set; }
+        public string? PayeeName { get; set; }
+        public string? PaymentQrImageUrl { get; set; }
         public Dictionary<string, string> AppUris { get; set; } = new();
     }
 

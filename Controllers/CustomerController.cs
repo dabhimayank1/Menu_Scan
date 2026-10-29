@@ -15,17 +15,20 @@ namespace MenuScan.Controllers
         private readonly IHubContext<OrderHub> _hubContext;
         private readonly IQRService _qrService;
         private readonly ILogger<CustomerController> _logger;
+        private readonly IWebHostEnvironment _env;
 
         public CustomerController(
             ApplicationDbContext context,
             IHubContext<OrderHub> hubContext,
             IQRService qrService,
-            ILogger<CustomerController> logger)
+            ILogger<CustomerController> logger,
+            IWebHostEnvironment env)
         {
             _context = context;
             _hubContext = hubContext;
             _qrService = qrService;
             _logger = logger;
+            _env = env;
         }
 
         [HttpGet("r/{slug}/t/{token}")]
@@ -599,7 +602,8 @@ namespace MenuScan.Controllers
 
             var grandTotalStr = order.TotalAmount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
             var restName = restaurant?.Name ?? "Spice Symphony Restaurant";
-            var cleanPayeeName = restName.Replace("&", "and").Replace("#", "").Replace("+", " ").Trim();
+            var payeeDisplayName = !string.IsNullOrWhiteSpace(restaurant?.PayeeName) ? restaurant.PayeeName : restName;
+            var cleanPayeeName = payeeDisplayName.Replace("&", "and").Replace("#", "").Replace("+", " ").Trim();
             var safePayeeName = Uri.EscapeDataString(cleanPayeeName);
             var safeNote = Uri.EscapeDataString($"Order {order.OrderNumber} Table {order.Table?.TableNumber ?? ""}".Trim());
 
@@ -635,6 +639,8 @@ namespace MenuScan.Controllers
                 UpiQrDataUri = upiQr,
                 IsAlreadyPaid = isPaid,
                 BillNumber = order.Bill?.BillNumber,
+                PayeeName = restaurant?.PayeeName ?? restName,
+                PaymentQrImageUrl = restaurant?.PaymentQrImageUrl,
                 AppUris = appUris
             });
         }
@@ -642,12 +648,6 @@ namespace MenuScan.Controllers
         [HttpPost("api/restaurant/save-upi-id")]
         public async Task<IActionResult> SaveRestaurantUpiId([FromBody] SaveRestaurantUpiDto dto)
         {
-            if (string.IsNullOrWhiteSpace(dto.UpiId) || !dto.UpiId.Contains('@'))
-            {
-                return BadRequest(new { success = false, message = "Invalid UPI ID format. Must contain '@' (e.g. 8799020418@okaxis)." });
-            }
-
-            var cleanUpi = dto.UpiId.Trim().ToLowerInvariant();
             var restaurant = await _context.Restaurants.IgnoreQueryFilters()
                 .FirstOrDefaultAsync(r => r.Slug == dto.RestaurantSlug && r.IsActive);
 
@@ -661,16 +661,85 @@ namespace MenuScan.Controllers
                 return NotFound(new { success = false, message = "Restaurant not found." });
             }
 
-            restaurant.UpiId = cleanUpi;
+            if (!string.IsNullOrWhiteSpace(dto.UpiId))
+            {
+                if (!dto.UpiId.Contains('@'))
+                {
+                    return BadRequest(new { success = false, message = "Invalid UPI ID format. Must contain '@' (e.g. 8799020418@okaxis)." });
+                }
+                restaurant.UpiId = dto.UpiId.Trim().ToLowerInvariant();
+            }
+
+            if (!string.IsNullOrWhiteSpace(dto.PayeeName))
+            {
+                restaurant.PayeeName = dto.PayeeName.Trim();
+            }
+
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("Saved default UPI ID {UpiId} for restaurant {Name}", cleanUpi, restaurant.Name);
+            _logger.LogInformation("Saved default UPI ID {UpiId} and PayeeName '{Payee}' for restaurant {Name}", 
+                restaurant.UpiId, restaurant.PayeeName, restaurant.Name);
 
             return Ok(new
             {
                 success = true,
                 upiId = restaurant.UpiId,
-                message = "Default restaurant UPI ID updated successfully!"
+                payeeName = restaurant.PayeeName,
+                paymentQrImageUrl = restaurant.PaymentQrImageUrl,
+                message = "Payment configuration updated successfully!"
+            });
+        }
+
+        [HttpPost("api/restaurant/upload-payment-qr")]
+        public async Task<IActionResult> UploadPaymentQr([FromForm] IFormFile file, [FromForm] string? restaurantSlug)
+        {
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new { success = false, message = "Please select a valid image file." });
+            }
+
+            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp" };
+            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (!allowedExtensions.Contains(ext))
+            {
+                return BadRequest(new { success = false, message = "Only JPG, PNG, and WEBP image files are allowed." });
+            }
+
+            var restaurant = await _context.Restaurants.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(r => r.Slug == restaurantSlug && r.IsActive);
+            if (restaurant == null)
+            {
+                restaurant = await _context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.IsActive);
+            }
+            if (restaurant == null)
+            {
+                return NotFound(new { success = false, message = "Restaurant not found." });
+            }
+
+            var uploadFolder = Path.Combine(_env.WebRootPath, "uploads", "payment-qrs");
+            if (!Directory.Exists(uploadFolder))
+            {
+                Directory.CreateDirectory(uploadFolder);
+            }
+
+            var fileName = $"{restaurant.Slug}-qr-{DateTime.UtcNow.Ticks}{ext}";
+            var filePath = Path.Combine(uploadFolder, fileName);
+
+            using (var stream = new FileStream(filePath, FileMode.Create))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            restaurant.PaymentQrImageUrl = $"/uploads/payment-qrs/{fileName}";
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Saved real payment QR image {Url} for restaurant {Name}", restaurant.PaymentQrImageUrl, restaurant.Name);
+
+            return Ok(new
+            {
+                success = true,
+                imageUrl = restaurant.PaymentQrImageUrl,
+                message = "Official Scanner QR image uploaded and saved successfully!"
             });
         }
 
@@ -817,6 +886,7 @@ namespace MenuScan.Controllers
     public class SaveRestaurantUpiDto
     {
         public string RestaurantSlug { get; set; } = string.Empty;
-        public string UpiId { get; set; } = string.Empty;
+        public string? UpiId { get; set; }
+        public string? PayeeName { get; set; }
     }
 }
