@@ -15,8 +15,8 @@
                 Customers scan a table QR code and browse our artisan coffee, breakfast, and snack catalog in mobile or desktop view. Orders instantly chime on the barista & kitchen screen and sync to billing!
             </p>
             <div class="d-flex flex-wrap gap-3">
-                <a href="/r/spice-symphony/t/TAB-01" class="btn btn-cafe-primary btn-lg px-4 fw-bold">
-                    <i class="bi bi-cup-hot me-2"></i> Launch Customer Menu (Table 1)
+                <a href="@(ViewBag.CustomerUrl ?? "/r/spice-symphony/t/TAB-01")" class="btn btn-cafe-primary btn-lg px-4 fw-bold">
+                    <i class="bi bi-cup-hot me-2"></i> Launch Customer Menu (@(ViewBag.TableNumber ?? "Table 1"))
                 </a>
                 <a asp-controller="Account" asp-action="Login" class="btn btn-cafe-outline btn-lg px-4 fw-bold">
                     <i class="bi bi-shield-lock me-2"></i> Staff Portal Login
@@ -27,15 +27,23 @@
         <div class="col-lg-5 text-center">
             <div class="card shadow-lg border-0 rounded-4 p-4 bg-white d-inline-block w-100" style="border: 1.5px solid var(--cafe-border) !important;">
                 <span class="badge bg-dark rounded-pill px-3 py-1 mb-3">TABLE QR STAND</span>
-                <div class="p-3 border rounded-4 bg-light d-inline-block mb-3">
-                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=http://192.168.1.8:5073/r/spice-symphony/t/TAB-01" 
-                         alt="Table 1 QR Code" class="img-fluid" style="width: 190px; height: 190px;" />
+                <div class="p-3 border rounded-4 bg-light d-inline-block mb-3 shadow-sm">
+                    <img src="@(ViewBag.QrCodeDataUri ?? "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=" + ViewBag.CustomerUrl)" 
+                         alt="@(ViewBag.TableNumber ?? "Table 1") QR Code" class="img-fluid rounded-3" style="width: 200px; height: 200px;" />
                 </div>
-                <h5 class="fw-bold text-dark mb-1">Brew &amp; Bliss Coffee House</h5>
+                <h5 class="fw-bold text-dark mb-1">@(ViewBag.RestaurantName ?? "Brew & Bliss Coffee House")</h5>
                 <span class="badge bg-success-subtle text-success border border-success rounded-pill px-3 py-1 mb-2">
-                    Table 1 (Active)
+                    @(ViewBag.TableNumber ?? "Table 1") (Active)
                 </span>
-                <p class="small text-muted mb-0"><strong>Scan with your smartphone camera</strong> to open the menu on your phone!</p>
+                <p class="small text-muted mb-2"><strong>Scan with your smartphone camera</strong> to open menu on your phone:</p>
+                <div class="p-2 bg-light border rounded-3 mb-2 user-select-all" style="font-size: 0.82rem; font-family: monospace; word-break: break-all;">
+                    <a href="@ViewBag.CustomerUrl" target="_blank" class="text-decoration-none text-primary fw-semibold">
+                        <i class="bi bi-link-45deg me-1"></i>@ViewBag.CustomerUrl
+                    </a>
+                </div>
+                <div class="small text-muted" style="font-size: 0.75rem;">
+                    <i class="bi bi-wifi text-success me-1"></i>Connect phone to same Wi-Fi network
+                </div>
             </div>
         </div>
     </div>

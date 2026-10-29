@@ -409,10 +409,10 @@ namespace MenuScan.Controllers
             var upiId = $"{targetMobile}@{cleanHandle}";
             var grandTotalStr = order.TotalAmount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
             var restName = restaurant?.Name ?? "Spice Symphony Restaurant";
-            var payeeName = Uri.EscapeDataString(restName);
-            var note = Uri.EscapeDataString($"Order #{order.OrderNumber} Table {order.Table?.TableNumber ?? ""} at {restName}");
+            var safePayeeName = Uri.EscapeDataString(restName.Replace("&", "and").Replace("#", "").Trim());
+            var safeNote = Uri.EscapeDataString($"Order {order.OrderNumber} Table {order.Table?.TableNumber ?? ""}".Trim());
 
-            var upiUri = $"upi://pay?pa={upiId}&pn={payeeName}&am={grandTotalStr}&tr={order.OrderNumber}&tn={note}&cu=INR";
+            var upiUri = $"upi://pay?pa={upiId}&pn={safePayeeName}&am={grandTotalStr}&tr={order.OrderNumber}&tn={safeNote}&cu=INR";
             var upiQr = _qrService.GenerateQrCodeDataUri(upiUri);
 
             var isPaid = order.Status == OrderStatus.Completed || (order.Bill != null && order.Bill.Status == BillStatus.Paid);
@@ -420,9 +420,9 @@ namespace MenuScan.Controllers
             var appUris = new Dictionary<string, string>
             {
                 { "generic", upiUri },
-                { "gpay", $"upi://pay?pa={targetMobile}@okaxis&pn={payeeName}&am={grandTotalStr}&tr={order.OrderNumber}&tn={note}&cu=INR" },
-                { "phonepe", $"upi://pay?pa={targetMobile}@ybl&pn={payeeName}&am={grandTotalStr}&tr={order.OrderNumber}&tn={note}&cu=INR" },
-                { "paytm", $"upi://pay?pa={targetMobile}@paytm&pn={payeeName}&am={grandTotalStr}&tr={order.OrderNumber}&tn={note}&cu=INR" }
+                { "gpay", $"upi://pay?pa={targetMobile}@okaxis&pn={safePayeeName}&am={grandTotalStr}&tr={order.OrderNumber}&tn={safeNote}&cu=INR" },
+                { "phonepe", $"upi://pay?pa={targetMobile}@ybl&pn={safePayeeName}&am={grandTotalStr}&tr={order.OrderNumber}&tn={safeNote}&cu=INR" },
+                { "paytm", $"upi://pay?pa={targetMobile}@paytm&pn={safePayeeName}&am={grandTotalStr}&tr={order.OrderNumber}&tn={safeNote}&cu=INR" }
             };
 
             return Ok(new UpiPaymentDetailsDto

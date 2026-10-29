@@ -139,7 +139,7 @@ namespace MenuScan.Controllers
             if (table == null) return NotFound();
 
             var request = HttpContext.Request;
-            var host = request.Host.Host == "localhost" ? "192.168.1.8:5073" : request.Host.Value;
+            var host = NetworkHelper.ResolveReachableHost(request);
             var customerUrl = $"http://{host}/r/{table.Restaurant!.Slug}/t/{table.Token}";
             var qrDataUri = _qrService.GenerateQrCodeDataUri(customerUrl);
 
@@ -249,7 +249,7 @@ namespace MenuScan.Controllers
                 .ToListAsync();
 
             var request = HttpContext.Request;
-            var host = request.Host.Host == "localhost" ? "192.168.1.8:5073" : request.Host.Value;
+            var host = NetworkHelper.ResolveReachableHost(request);
 
             var stands = tables.Select(t => new TableStandItemDto
             {
