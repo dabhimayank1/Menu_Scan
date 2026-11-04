@@ -51,7 +51,8 @@ namespace MenuScan.Data
                 .IsUnique();
 
             builder.Entity<Order>()
-                .HasIndex(o => o.IdempotencyKey);
+                .HasIndex(o => new { o.RestaurantId, o.IdempotencyKey })
+                .IsUnique();
 
             builder.Entity<Bill>()
                 .HasIndex(b => b.BillNumber)
@@ -135,7 +136,17 @@ namespace MenuScan.Data
                 .OnDelete(DeleteBehavior.Restrict);
 
             builder.Entity<ServiceRequest>()
+                .HasOne(s => s.Order)
+                .WithMany()
+                .HasForeignKey(s => s.OrderId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            builder.Entity<ServiceRequest>()
                 .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.RestaurantId == _tenantService.CurrentRestaurantId);
+
+            builder.Entity<CustomerFeedback>()
+                .HasIndex(f => f.OrderId)
+                .IsUnique();
 
             builder.Entity<CustomerFeedback>()
                 .HasOne(f => f.Restaurant)

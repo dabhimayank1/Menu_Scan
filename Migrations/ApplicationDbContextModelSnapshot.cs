@@ -129,6 +129,12 @@ namespace MenuScan.Migrations
                     b.Property<Guid>("RestaurantId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
@@ -222,7 +228,8 @@ namespace MenuScan.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("OrderId");
+                    b.HasIndex("OrderId")
+                        .IsUnique();
 
                     b.HasIndex("RestaurantId");
 
@@ -398,17 +405,16 @@ namespace MenuScan.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("IdempotencyKey");
-
                     b.HasIndex("OrderNumber")
                         .IsUnique();
 
                     b.HasIndex("OrderToken")
                         .IsUnique();
 
-                    b.HasIndex("RestaurantId");
-
                     b.HasIndex("TableId");
+
+                    b.HasIndex("RestaurantId", "IdempotencyKey")
+                        .IsUnique();
 
                     b.ToTable("Orders");
                 });
@@ -603,6 +609,9 @@ namespace MenuScan.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<Guid?>("OrderId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("RequestType")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -615,6 +624,8 @@ namespace MenuScan.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("OrderId");
 
                     b.HasIndex("RestaurantId");
 
@@ -922,6 +933,11 @@ namespace MenuScan.Migrations
 
             modelBuilder.Entity("MenuScan.Models.Entities.ServiceRequest", b =>
                 {
+                    b.HasOne("MenuScan.Models.Entities.Order", "Order")
+                        .WithMany()
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("MenuScan.Models.Entities.Restaurant", "Restaurant")
                         .WithMany()
                         .HasForeignKey("RestaurantId")
@@ -933,6 +949,8 @@ namespace MenuScan.Migrations
                         .HasForeignKey("TableId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Order");
 
                     b.Navigation("Restaurant");
 

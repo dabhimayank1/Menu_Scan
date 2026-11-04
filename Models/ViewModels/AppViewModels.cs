@@ -89,6 +89,17 @@ namespace MenuScan.Models.ViewModels
 
         public PaymentMethod Method { get; set; } = PaymentMethod.Cash;
 
+        [MaxLength(100)]
         public string? Reference { get; set; }
+    }
+
+    public class CancelOrderDto
+    {
+        [Required]
+        public Guid OrderId { get; set; }
+
+        [Required(ErrorMessage = "Cancellation reason is required.")]
+        [MaxLength(500, ErrorMessage = "Cancellation reason cannot exceed 500 characters.")]
+        public string Reason { get; set; } = string.Empty;
     }
 }

@@ -6,6 +6,7 @@ namespace MenuScan.Models.ViewModels
     public class FeedbackSubmissionDto
     {
         [Required]
+        [MaxLength(64)]
         public string OrderToken { get; set; } = string.Empty;
 
         [Range(1, 5)]
@@ -17,10 +18,12 @@ namespace MenuScan.Models.ViewModels
         [Range(1, 5)]
         public int ServiceRating { get; set; } = 5;
 
+        [MaxLength(100)]
         public string? CustomerName { get; set; }
 
         public List<string>? Tags { get; set; }
 
+        [MaxLength(1000)]
         public string? Comment { get; set; }
     }
 

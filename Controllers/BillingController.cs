@@ -219,11 +219,85 @@ namespace MenuScan.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> SettleBill([FromBody] SettleBillDto dto)
+        [Authorize(Roles = $"{AppRoles.Cashier},{AppRoles.RestaurantAdmin},{AppRoles.SuperAdmin}")]
+        public async Task<IActionResult> CancelOrder([FromBody] CancelOrderDto? dto)
         {
-            if (!ModelState.IsValid)
+            if (dto == null || !ModelState.IsValid || string.IsNullOrWhiteSpace(dto.Reason))
+            {
+                return BadRequest(new { message = "Cancellation reason is required." });
+            }
+
+            var order = await _context.Orders
+                .IgnoreQueryFilters()
+                .Include(o => o.Table)
+                .Include(o => o.Bill)
+                .FirstOrDefaultAsync(o => o.Id == dto.OrderId);
+
+            if (order == null)
+            {
+                return NotFound(new { message = "Order not found." });
+            }
+
+            var currentTenantId = _tenantService.CurrentRestaurantId;
+            if (!User.IsInRole(AppRoles.SuperAdmin) && (!currentTenantId.HasValue || order.RestaurantId != currentTenantId.Value))
+            {
+                return Forbid();
+            }
+
+            // Only if bill is not Paid and order is not Completed
+            if (order.Status == OrderStatus.Completed || (order.Bill != null && order.Bill.Status == BillStatus.Paid))
+            {
+                return BadRequest(new { message = "Cannot cancel an order that is already completed or paid." });
+            }
+
+            if (order.Status == OrderStatus.Cancelled)
+            {
+                return Ok(new { success = true, message = "Order is already cancelled." });
+            }
+
+            var oldStatus = order.Status;
+            order.Status = OrderStatus.Cancelled;
+            if (order.Bill != null && order.Bill.Status == BillStatus.Unpaid)
+            {
+                order.Bill.Status = BillStatus.Cancelled;
+            }
+
+            _context.OrderStatusHistories.Add(new OrderStatusHistory
+            {
+                OrderId = order.Id,
+                OldStatus = oldStatus,
+                NewStatus = OrderStatus.Cancelled,
+                ChangedBy = User.Identity?.Name ?? "Cashier",
+                Notes = $"Order cancelled: {dto.Reason.Trim()}"
+            });
+
+            await _context.SaveChangesAsync();
+
+            // Broadcast to Restaurant Group (Kitchen & Cashier)
+            await _hubContext.Clients.Group($"Restaurant_{order.RestaurantId}")
+                .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Cancelled", order.Table?.TableNumber ?? "Unknown");
+
+            // Broadcast to Customer Order Group
+            await _hubContext.Clients.Group($"Order_{order.OrderToken}")
+                .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Cancelled", order.Table?.TableNumber ?? "Unknown");
+
+            _logger.LogInformation("Order {OrderNumber} cancelled by {User}. Reason: {Reason}",
+                order.OrderNumber, User.Identity?.Name, dto.Reason);
+
+            return Ok(new { success = true, message = "Order cancelled successfully." });
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> SettleBill([FromBody] SettleBillDto? dto)
+        {
+            if (dto == null || !ModelState.IsValid)
             {
                 return BadRequest(new { message = "Invalid payment data." });
+            }
+
+            if (!Enum.IsDefined(typeof(PaymentMethod), dto.Method))
+            {
+                return BadRequest(new { message = "Invalid payment method." });
             }
 
             var order = await _context.Orders
@@ -243,6 +317,12 @@ namespace MenuScan.Controllers
             if (!User.IsInRole(AppRoles.SuperAdmin) && (!currentTenantId.HasValue || order.RestaurantId != currentTenantId.Value))
             {
                 return Forbid();
+            }
+
+            // Reject cancelled orders
+            if (order.Status == OrderStatus.Cancelled)
+            {
+                return BadRequest(new { message = "Cannot settle a cancelled order." });
             }
 
             var baseUrl = NetworkHelper.ResolveBaseUrl(Request, _configuration);
@@ -269,78 +349,88 @@ namespace MenuScan.Controllers
                 });
             }
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
+            int attempts = 0;
+            const int maxAttempts = 2;
+
+            while (attempts < maxAttempts)
             {
-                var bill = order.Bill;
-                if (bill == null)
+                attempts++;
+                using var transaction = await _context.Database.BeginTransactionAsync();
+                try
                 {
-                    bill = new Bill
+                    var bill = order.Bill;
+                    if (bill == null)
                     {
-                        RestaurantId = order.RestaurantId,
-                        OrderId = order.Id,
-                        BillNumber = $"BILL-{DateTime.UtcNow:yyMMddHHmmss}-{Random.Shared.Next(100, 999)}",
-                        SubTotal = order.SubTotal,
-                        TaxRate = order.TaxRate,
-                        TaxAmount = order.TaxAmount,
-                        GrandTotal = order.TotalAmount,
-                        Status = BillStatus.Paid,
-                        ClosedAtUtc = DateTime.UtcNow
+                        bill = new Bill
+                        {
+                            RestaurantId = order.RestaurantId,
+                            OrderId = order.Id,
+                            BillNumber = GenerateBillNumber(),
+                            SubTotal = order.SubTotal,
+                            TaxRate = order.TaxRate,
+                            TaxAmount = order.TaxAmount,
+                            GrandTotal = order.TotalAmount,
+                            Status = BillStatus.Paid,
+                            ClosedAtUtc = DateTime.UtcNow
+                        };
+                        _context.Bills.Add(bill);
+                    }
+                    else
+                    {
+                        bill.Status = BillStatus.Paid;
+                        bill.ClosedAtUtc = DateTime.UtcNow;
+                    }
+
+                    // Add payment record
+                    var payment = new Payment
+                    {
+                        BillId = bill.Id,
+                        Amount = bill.GrandTotal,
+                        Method = dto.Method,
+                        Reference = dto.Reference,
+                        RecordedBy = User.Identity?.Name ?? "Cashier",
+                        PaidAtUtc = DateTime.UtcNow
                     };
-                    _context.Bills.Add(bill);
-                }
-                else
-                {
-                    bill.Status = BillStatus.Paid;
-                    bill.ClosedAtUtc = DateTime.UtcNow;
-                }
+                    _context.Payments.Add(payment);
 
-                // Add payment record
-                var payment = new Payment
-                {
-                    BillId = bill.Id,
-                    Amount = bill.GrandTotal,
-                    Method = dto.Method,
-                    Reference = dto.Reference,
-                    RecordedBy = User.Identity?.Name ?? "Cashier",
-                    PaidAtUtc = DateTime.UtcNow
-                };
-                _context.Payments.Add(payment);
+                    // Update order to Completed
+                    var oldStatus = order.Status;
+                    order.Status = OrderStatus.Completed;
 
-                // Update order to Completed
-                var oldStatus = order.Status;
-                order.Status = OrderStatus.Completed;
+                    _context.OrderStatusHistories.Add(new OrderStatusHistory
+                    {
+                        OrderId = order.Id,
+                        OldStatus = oldStatus,
+                        NewStatus = OrderStatus.Completed,
+                        ChangedBy = User.Identity?.Name ?? "Cashier",
+                        Notes = $"Bill settled via {dto.Method} ({bill.BillNumber})"
+                    });
 
-                _context.OrderStatusHistories.Add(new OrderStatusHistory
-                {
-                    OrderId = order.Id,
-                    OldStatus = oldStatus,
-                    NewStatus = OrderStatus.Completed,
-                    ChangedBy = User.Identity?.Name ?? "Cashier",
-                    Notes = $"Bill settled via {dto.Method} ({bill.BillNumber})"
-                });
+                    // Mark as handled only the service requests of this order's table with RequestType "UPI Payment" or "Bill"
+                    var pendingTableRequests = await _context.ServiceRequests
+                        .IgnoreQueryFilters()
+                        .Where(s => s.RestaurantId == order.RestaurantId
+                                 && (s.OrderId == order.Id || (s.TableId == order.TableId && (s.RequestType == "UPI Payment" || s.RequestType == "Bill")))
+                                 && (s.RequestType == "UPI Payment" || s.RequestType == "Bill")
+                                 && !s.IsHandled)
+                        .ToListAsync();
 
-                // Mark any pending service requests (UPI Payment, Bill, etc.) for this table as handled
-                var pendingTableRequests = await _context.ServiceRequests
-                    .IgnoreQueryFilters()
-                    .Where(s => s.TableId == order.TableId && !s.IsHandled)
-                    .ToListAsync();
-                foreach (var req in pendingTableRequests)
-                {
-                    req.IsHandled = true;
-                    req.HandledAtUtc = DateTime.UtcNow;
-                    req.HandledBy = User.Identity?.Name ?? "Cashier";
-                }
+                    foreach (var req in pendingTableRequests)
+                    {
+                        req.IsHandled = true;
+                        req.HandledAtUtc = DateTime.UtcNow;
+                        req.HandledBy = User.Identity?.Name ?? "Cashier";
+                    }
 
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
 
-                // Notify via SignalR
-                await _hubContext.Clients.Group($"Restaurant_{order.RestaurantId}")
-                    .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Completed", order.Table?.TableNumber ?? "");
+                    // Notify via SignalR
+                    await _hubContext.Clients.Group($"Restaurant_{order.RestaurantId}")
+                        .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Completed", order.Table?.TableNumber ?? "");
 
-                await _hubContext.Clients.Group($"Restaurant_{order.RestaurantId}")
-                    .SendAsync("ReceivePaymentSettled", new
+                    await _hubContext.Clients.Group($"Restaurant_{order.RestaurantId}")
+                        .SendAsync("ReceivePaymentSettled", new
                     {
                         orderNumber = order.OrderNumber,
                         tableNumber = order.Table?.TableNumber ?? "Table",
@@ -349,11 +439,11 @@ namespace MenuScan.Controllers
                         billNumber = bill.BillNumber
                     });
 
-                await _hubContext.Clients.Group($"Order_{order.OrderToken}")
-                    .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Completed", order.Table?.TableNumber ?? "");
+                    await _hubContext.Clients.Group($"Order_{order.OrderToken}")
+                        .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Completed", order.Table?.TableNumber ?? "");
 
-                await _hubContext.Clients.Group($"Order_{order.OrderToken}")
-                    .SendAsync("ReceivePaymentSettled", new
+                    await _hubContext.Clients.Group($"Order_{order.OrderToken}")
+                        .SendAsync("ReceivePaymentSettled", new
                     {
                         orderNumber = order.OrderNumber,
                         tableNumber = order.Table?.TableNumber ?? "Table",
@@ -362,31 +452,99 @@ namespace MenuScan.Controllers
                         billNumber = bill.BillNumber
                     });
 
-                _logger.LogInformation("Bill {BillNumber} settled for Order {OrderNumber} amount {Amount} via {Method}",
-                    bill.BillNumber, order.OrderNumber, bill.GrandTotal, dto.Method);
+                    _logger.LogInformation("Bill {BillNumber} settled for Order {OrderNumber} amount {Amount} via {Method}",
+                        bill.BillNumber, order.OrderNumber, bill.GrandTotal, dto.Method);
 
-                var fullReceiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={order.Id}";
-                var whatsAppUrl = WhatsAppHelper.BuildWhatsAppUrl(
-                    order.CustomerPhone,
-                    WhatsAppHelper.BuildBillReceiptMessage(restName, bill.BillNumber, order.OrderNumber, order.Table?.TableNumber ?? "Table", bill.GrandTotal, dto.Method.ToString(), fullReceiptUrl),
-                    forceWeb: true
-                );
+                    var fullReceiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={order.Id}";
+                    var whatsAppUrl = WhatsAppHelper.BuildWhatsAppUrl(
+                        order.CustomerPhone,
+                        WhatsAppHelper.BuildBillReceiptMessage(restName, bill.BillNumber, order.OrderNumber, order.Table?.TableNumber ?? "Table", bill.GrandTotal, dto.Method.ToString(), fullReceiptUrl),
+                        forceWeb: true
+                    );
 
-                return Ok(new
+                    return Ok(new
+                    {
+                        success = true,
+                        billNumber = bill.BillNumber,
+                        receiptUrl = fullReceiptUrl,
+                        customerPhone = order.CustomerPhone,
+                        whatsAppUrl = whatsAppUrl
+                    });
+                }
+                catch (DbUpdateConcurrencyException ex)
                 {
-                    success = true,
-                    billNumber = bill.BillNumber,
-                    receiptUrl = fullReceiptUrl,
-                    customerPhone = order.CustomerPhone,
-                    whatsAppUrl = whatsAppUrl
-                });
+                    await transaction.RollbackAsync();
+                    _logger.LogWarning(ex, "Concurrency conflict settling bill for Order {OrderId}. Returning already paid result.", dto.OrderId);
+                    return await GetAlreadyPaidResponseAsync(order.Id, baseUrl, restName, dto.Method);
+                }
+                catch (DbUpdateException ex) when (IsUniqueIndexViolation(ex))
+                {
+                    await transaction.RollbackAsync();
+                    if (ex.InnerException?.Message.Contains("IX_Bills_BillNumber") == true && attempts < maxAttempts)
+                    {
+                        _logger.LogWarning("BillNumber collision detected. Retrying with new BillNumber (attempt {Attempt}).", attempts);
+                        _context.ChangeTracker.Clear();
+                        order = await _context.Orders
+                            .IgnoreQueryFilters()
+                            .Include(o => o.Restaurant)
+                            .Include(o => o.Table)
+                            .Include(o => o.Bill)
+                            .FirstOrDefaultAsync(o => o.Id == dto.OrderId);
+                        continue;
+                    }
+
+                    _logger.LogWarning(ex, "Duplicate bill detected for Order {OrderId}. Returning already paid result.", dto.OrderId);
+                    return await GetAlreadyPaidResponseAsync(order.Id, baseUrl, restName, dto.Method);
+                }
+                catch (Exception ex)
+                {
+                    await transaction.RollbackAsync();
+                    _logger.LogError(ex, "Failed to settle bill for Order {OrderId}", dto.OrderId);
+                    return StatusCode(500, new { message = "Payment processing failed." });
+                }
             }
-            catch (Exception ex)
+
+            return StatusCode(500, new { message = "Payment processing failed due to repeated number collisions." });
+        }
+
+        private static string GenerateBillNumber()
+        {
+            var suffix = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(4));
+            return $"BILL-{DateTime.UtcNow:yyMMdd}-{suffix}";
+        }
+
+        private static bool IsUniqueIndexViolation(DbUpdateException ex)
+        {
+            var msg = ex.InnerException?.Message ?? ex.Message;
+            return msg.Contains("IX_") || msg.Contains("UNIQUE") || msg.Contains("duplicate") || msg.Contains("2601") || msg.Contains("2627");
+        }
+
+        private async Task<IActionResult> GetAlreadyPaidResponseAsync(Guid orderId, string baseUrl, string restName, PaymentMethod method)
+        {
+            _context.ChangeTracker.Clear();
+            var refreshedOrder = await _context.Orders
+                .IgnoreQueryFilters()
+                .Include(o => o.Bill)
+                .Include(o => o.Table)
+                .FirstOrDefaultAsync(o => o.Id == orderId);
+
+            var billNum = refreshedOrder?.Bill?.BillNumber ?? "PAID";
+            var receiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={orderId}";
+            var whatsAppUrl = WhatsAppHelper.BuildWhatsAppUrl(
+                refreshedOrder?.CustomerPhone,
+                WhatsAppHelper.BuildBillReceiptMessage(restName, billNum, refreshedOrder?.OrderNumber ?? "", refreshedOrder?.Table?.TableNumber ?? "Table", refreshedOrder?.Bill?.GrandTotal ?? 0, method.ToString(), receiptUrl),
+                forceWeb: true
+            );
+
+            return Ok(new
             {
-                await transaction.RollbackAsync();
-                _logger.LogError(ex, "Failed to settle bill for Order {OrderId}", dto.OrderId);
-                return StatusCode(500, new { message = "Payment processing failed." });
-            }
+                success = true,
+                alreadyPaid = true,
+                billNumber = billNum,
+                receiptUrl = receiptUrl,
+                customerPhone = refreshedOrder?.CustomerPhone,
+                whatsAppUrl = whatsAppUrl
+            });
         }
 
         [HttpGet]

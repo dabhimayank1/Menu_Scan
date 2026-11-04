@@ -59,8 +59,18 @@ namespace MenuScan.Controllers
         }
 
         [HttpPost]
-        public async Task<IActionResult> UpdateStatus([FromBody] UpdateStatusDto dto)
+        public async Task<IActionResult> UpdateStatus([FromBody] UpdateStatusDto? dto)
         {
+            if (dto == null || !ModelState.IsValid)
+            {
+                return BadRequest(new { message = "Invalid status update request." });
+            }
+
+            if (!Enum.IsDefined(typeof(OrderStatus), dto.NewStatus))
+            {
+                return BadRequest(new { message = "Invalid or undefined order status value." });
+            }
+
             var order = await _context.Orders
                 .IgnoreQueryFilters()
                 .Include(o => o.Table)
@@ -82,6 +92,18 @@ namespace MenuScan.Controllers
             if (dto.NewStatus == OrderStatus.Completed)
             {
                 return BadRequest(new { message = "Orders can only be marked Completed by the Cashier upon bill settlement." });
+            }
+
+            // If status is unchanged, skip writing status-history row and return OK
+            if (order.Status == dto.NewStatus)
+            {
+                return Ok(new { success = true, newStatus = order.Status.ToString() });
+            }
+
+            // Validate transition using OrderStatusRules
+            if (!OrderStatusRules.CanTransition(order.Status, dto.NewStatus, out var errorMsg))
+            {
+                return BadRequest(new { message = errorMsg ?? $"Cannot transition order from '{order.Status}' to '{dto.NewStatus}'." });
             }
 
             var oldStatus = order.Status;
@@ -115,6 +137,7 @@ namespace MenuScan.Controllers
 
     public class UpdateStatusDto
     {
+        [System.ComponentModel.DataAnnotations.Required]
         public Guid OrderId { get; set; }
         public OrderStatus NewStatus { get; set; }
     }

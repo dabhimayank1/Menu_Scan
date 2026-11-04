@@ -214,6 +214,18 @@ namespace MenuScan.Controllers
                 return Forbid();
             }
 
+            // If status is unchanged, skip writing status history
+            if (order.Status == OrderStatus.Served)
+            {
+                return Ok(new { success = true, message = "Order is already marked as Served." });
+            }
+
+            // Validate transition using OrderStatusRules (Only Ready -> Served is allowed; Completed/Cancelled/New etc. are rejected with 400)
+            if (!OrderStatusRules.CanTransition(order.Status, OrderStatus.Served, out var errorMsg))
+            {
+                return BadRequest(new { success = false, message = errorMsg ?? $"Cannot mark order as Served from status '{order.Status}'." });
+            }
+
             var oldStatus = order.Status;
             order.Status = OrderStatus.Served;
 

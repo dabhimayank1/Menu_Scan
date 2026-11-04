@@ -1123,6 +1123,21 @@
             }
         }
 
+        let currentCartIdempotencyKey = null;
+
+        function getCartIdempotencyKey() {
+            if (!currentCartIdempotencyKey) {
+                currentCartIdempotencyKey = (window.crypto && crypto.randomUUID) 
+                    ? crypto.randomUUID() 
+                    : ('idemp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 11));
+            }
+            return currentCartIdempotencyKey;
+        }
+
+        function resetCartIdempotencyKey() {
+            currentCartIdempotencyKey = null;
+        }
+
         async function placeOrder(notesInputId) {
             const items = [];
             for (const key in cart) {
@@ -1151,9 +1166,7 @@
             if (btn) btn.disabled = true;
             if (modalBtn) modalBtn.disabled = true;
 
-            const idempotencyKey = (window.crypto && crypto.randomUUID) 
-                ? crypto.randomUUID() 
-                : ('idemp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 11));
+            const idempotencyKey = getCartIdempotencyKey();
 
             try {
                 const response = await fetch('/api/orders/submit', {
@@ -1171,6 +1184,9 @@
 
                 const result = await response.json();
                 if (response.ok && result.success) {
+                    // Reset idempotencyKey only after a successful order
+                    resetCartIdempotencyKey();
+
                     // Save new order token into this diner's session
                     if (result.orderToken) {
                         saveSessionOrderToken(result.orderToken);

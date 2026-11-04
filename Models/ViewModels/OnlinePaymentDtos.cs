@@ -6,10 +6,13 @@ namespace MenuScan.Models.ViewModels
     public class ConfirmOnlinePaymentDto
     {
         [Required]
+        [MaxLength(64)]
         public string OrderToken { get; set; } = string.Empty;
 
+        [MaxLength(100)]
         public string PaymentReference { get; set; } = string.Empty;
 
+        [MaxLength(50)]
         public string PaymentMethod { get; set; } = "UPI";
     }
 
@@ -39,8 +42,13 @@ namespace MenuScan.Models.ViewModels
     public class UpdateCustomerContactDto
     {
         [Required]
+        [MaxLength(64)]
         public string OrderToken { get; set; } = string.Empty;
+
+        [MaxLength(25)]
         public string? CustomerPhone { get; set; }
+
+        [MaxLength(100)]
         public string? CustomerName { get; set; }
     }
 }

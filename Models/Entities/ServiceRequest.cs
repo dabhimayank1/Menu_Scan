@@ -12,6 +12,9 @@ namespace MenuScan.Models.Entities
         public Guid TableId { get; set; }
         public DiningTable? Table { get; set; }
 
+        public Guid? OrderId { get; set; }
+        public Order? Order { get; set; }
+
         [Required, MaxLength(50)]
         public string RequestType { get; set; } = "Assistance"; // Assistance, Water, Cutlery, Bill, Custom
 

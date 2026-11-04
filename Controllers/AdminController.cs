@@ -434,9 +434,14 @@ namespace MenuScan.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to delete menu item {ItemId}", id);
-                item.IsAvailable = false;
-                await _context.SaveChangesAsync();
-                TempData["Success"] = $"Item '{item.Name}' was marked unavailable to preserve existing order references.";
+                _context.ChangeTracker.Clear();
+                var itemToDeactivate = await _context.MenuItems.IgnoreQueryFilters().FirstOrDefaultAsync(m => m.Id == id);
+                if (itemToDeactivate != null)
+                {
+                    itemToDeactivate.IsAvailable = false;
+                    await _context.SaveChangesAsync();
+                    TempData["Success"] = $"Item '{itemToDeactivate.Name}' was marked unavailable to preserve existing order references.";
+                }
             }
 
             return RedirectToAction(nameof(Menu));

@@ -376,14 +376,7 @@ namespace MenuScan.Data
             foreach (var t in targetItems)
             {
                 var existing = existingItems.FirstOrDefault(i => i.Name == t.Name);
-                if (existing != null)
-                {
-                    existing.ImageUrl = t.Img;
-                    existing.Description = t.Desc;
-                    existing.Price = t.Price;
-                    existing.IsVeg = t.IsVeg;
-                }
-                else
+                if (existing == null)
                 {
                     context.MenuItems.Add(new MenuItem
                     {
@@ -443,16 +436,23 @@ namespace MenuScan.Data
             // 8. Seed Initial Sample Customer Feedbacks
             if (!await context.CustomerFeedbacks.AnyAsync())
             {
-                var sampleOrder = await context.Orders.IgnoreQueryFilters().FirstOrDefaultAsync(o => o.RestaurantId == restaurant.Id);
+                var sampleOrders = await context.Orders.IgnoreQueryFilters()
+                    .Where(o => o.RestaurantId == restaurant.Id)
+                    .OrderBy(o => o.CreatedAtUtc)
+                    .Take(3)
+                    .ToListAsync();
                 var sampleTable = await context.DiningTables.IgnoreQueryFilters().FirstOrDefaultAsync(t => t.RestaurantId == restaurant.Id);
 
-                if (sampleOrder != null && sampleTable != null)
+                if (sampleOrders.Count > 0 && sampleTable != null)
                 {
-                    context.CustomerFeedbacks.AddRange(
-                        new CustomerFeedback
+                    var sampleFeedbacks = new List<CustomerFeedback>();
+
+                    if (sampleOrders.Count >= 1)
+                    {
+                        sampleFeedbacks.Add(new CustomerFeedback
                         {
                             RestaurantId = restaurant.Id,
-                            OrderId = sampleOrder.Id,
+                            OrderId = sampleOrders[0].Id,
                             TableId = sampleTable.Id,
                             OverallRating = 5,
                             FoodRating = 5,
@@ -461,11 +461,15 @@ namespace MenuScan.Data
                             Tags = "☕ Great Coffee, ⚡ Fast Service, 🍕 Delicious Food",
                             Comment = "The artisan pour-over and woodfired pizza were phenomenal! Staff was super polite and attentive.",
                             CreatedAtUtc = DateTime.UtcNow.AddMinutes(-45)
-                        },
-                        new CustomerFeedback
+                        });
+                    }
+
+                    if (sampleOrders.Count >= 2)
+                    {
+                        sampleFeedbacks.Add(new CustomerFeedback
                         {
                             RestaurantId = restaurant.Id,
-                            OrderId = sampleOrder.Id,
+                            OrderId = sampleOrders[1].Id,
                             TableId = sampleTable.Id,
                             OverallRating = 5,
                             FoodRating = 5,
@@ -474,11 +478,15 @@ namespace MenuScan.Data
                             Tags = "🎶 Good Ambience, ☕ Great Coffee",
                             Comment = "Loved the cozy café ambience and smooth cold brew. Perfect place to work or catch up with friends.",
                             CreatedAtUtc = DateTime.UtcNow.AddHours(-2)
-                        },
-                        new CustomerFeedback
+                        });
+                    }
+
+                    if (sampleOrders.Count >= 3)
+                    {
+                        sampleFeedbacks.Add(new CustomerFeedback
                         {
                             RestaurantId = restaurant.Id,
-                            OrderId = sampleOrder.Id,
+                            OrderId = sampleOrders[2].Id,
                             TableId = sampleTable.Id,
                             OverallRating = 4,
                             FoodRating = 4,
@@ -487,8 +495,10 @@ namespace MenuScan.Data
                             Tags = "⚡ Fast Service, 💰 Value for Money",
                             Comment = "Very smooth QR ordering on my phone. Sizzling brownie was delicious!",
                             CreatedAtUtc = DateTime.UtcNow.AddHours(-5)
-                        }
-                    );
+                        });
+                    }
+
+                    context.CustomerFeedbacks.AddRange(sampleFeedbacks);
                     await context.SaveChangesAsync();
                 }
             }

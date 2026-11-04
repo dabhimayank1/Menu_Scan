@@ -240,6 +240,12 @@
                                                     <button class="btn btn-outline-success btn-sm px-2" onclick="openStaffWhatsAppModal('@order.OrderToken', '@(order.CustomerPhone ?? "")')" title="WhatsApp Notification via Browser">
                                                         <i class="bi bi-whatsapp"></i>
                                                     </button>
+                                                    <button type="button" class="btn btn-outline-danger btn-sm px-2 btn-cancel-order"
+                                                            data-order-id="@order.Id"
+                                                            data-order-num="@order.OrderNumber"
+                                                            title="Cancel Order">
+                                                        <i class="bi bi-x-circle me-1"></i> Cancel
+                                                    </button>
                                                     <button class="btn @(pendingUpi != null ? "btn-outline-secondary" : "btn-success") fw-semibold btn-sm px-3" onclick="openSettleModal('@order.Id', '@order.OrderNumber', '@order.Table?.TableNumber', @order.SubTotal, @order.TaxAmount, @order.TotalAmount)">
                                                         <i class="bi bi-wallet2 me-1"></i> Settle Bill
                                                     </button>
@@ -916,6 +922,44 @@
                 const amount = parseFloat(btn.getAttribute('data-amount') || '0');
                 const reqId = btn.getAttribute('data-req-id') || '';
                 instantApprovePayment(orderId, orderNum, tableNum, amount, reqId);
+            }
+
+            const cancelBtn = e.target.closest('.btn-cancel-order');
+            if (cancelBtn) {
+                const orderId = cancelBtn.getAttribute('data-order-id');
+                const orderNum = cancelBtn.getAttribute('data-order-num') || '';
+                const reason = prompt("Enter cancellation reason for order " + orderNum + ":");
+                if (reason === null) return;
+                const trimmedReason = reason.trim();
+                if (!trimmedReason) {
+                    alert("Cancellation reason is required.");
+                    return;
+                }
+
+                cancelBtn.disabled = true;
+                fetch('/Billing/CancelOrder', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'RequestVerificationToken': getAntiForgeryToken()
+                    },
+                    body: JSON.stringify({ orderId: orderId, reason: trimmedReason })
+                })
+                .then(r => r.json().then(data => ({ ok: r.ok, data })))
+                .then(res => {
+                    if (res.ok && res.data.success) {
+                        alert(res.data.message || "Order cancelled successfully.");
+                        window.location.reload();
+                    } else {
+                        alert(res.data.message || "Failed to cancel order.");
+                        cancelBtn.disabled = false;
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    alert("Network error cancelling order.");
+                    cancelBtn.disabled = false;
+                });
             }
         });
 

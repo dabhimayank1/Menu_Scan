@@ -150,11 +150,35 @@ namespace MenuScan.Controllers
         [HttpPost("api/orders/submit")]
         [IgnoreAntiforgeryToken] // Allow API fetch call from mobile cart
         [EnableRateLimiting("diner-api-policy")]
-        public async Task<IActionResult> SubmitOrder([FromBody] OrderSubmissionDto dto)
+        public async Task<IActionResult> SubmitOrder([FromBody] OrderSubmissionDto? dto)
         {
-            if (!ModelState.IsValid || dto.Items == null || !dto.Items.Any())
+            if (dto == null || !ModelState.IsValid || dto.Items == null || !dto.Items.Any() || dto.Items.All(i => i.Quantity <= 0))
             {
                 return BadRequest(new { message = "Invalid order submission. Cart cannot be empty." });
+            }
+
+            if (!string.IsNullOrWhiteSpace(dto.CustomerName) && dto.CustomerName.Trim().Length > 100)
+            {
+                return BadRequest(new { message = "Customer name cannot exceed 100 characters." });
+            }
+
+            if (!string.IsNullOrWhiteSpace(dto.CustomerNotes) && dto.CustomerNotes.Trim().Length > 500)
+            {
+                return BadRequest(new { message = "Customer notes cannot exceed 500 characters." });
+            }
+
+            if (!string.IsNullOrWhiteSpace(dto.CustomerPhone))
+            {
+                var trimmedPhone = dto.CustomerPhone.Trim();
+                if (trimmedPhone.Length > 25 || !System.Text.RegularExpressions.Regex.IsMatch(trimmedPhone, @"^[\d\+\s\-\(\)]+$"))
+                {
+                    return BadRequest(new { message = "Invalid phone number format." });
+                }
+                var digitCount = trimmedPhone.Count(char.IsDigit);
+                if (digitCount < 7 || digitCount > 15)
+                {
+                    return BadRequest(new { message = "Phone number must contain between 7 and 15 digits." });
+                }
             }
 
             // 1. Validate Restaurant & Table
@@ -196,7 +220,8 @@ namespace MenuScan.Controllers
             }
 
             // 3. Validate Menu Items & Authoritative Prices with Customizations
-            var itemIds = dto.Items.Select(i => i.MenuItemId).Distinct().ToList();
+            var validItems = dto.Items.Where(i => i.Quantity > 0).ToList();
+            var itemIds = validItems.Select(i => i.MenuItemId).Distinct().ToList();
             var menuItems = await _context.MenuItems
                 .IgnoreQueryFilters()
                 .Include(m => m.Customizations)
@@ -208,116 +233,166 @@ namespace MenuScan.Controllers
                 return BadRequest(new { message = "Some selected items are no longer available. Please refresh your menu." });
             }
 
-            // 4. Build Order with Authoritative Price & Customization Snapshots
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
+            int attempts = 0;
+            const int maxAttempts = 2;
+
+            while (attempts < maxAttempts)
             {
-                var order = new Order
+                attempts++;
+                using var transaction = await _context.Database.BeginTransactionAsync();
+                try
                 {
-                    RestaurantId = restaurant.Id,
-                    TableId = table.Id,
-                    OrderNumber = $"ORD-{DateTime.UtcNow:yyMMddHHmmss}-{Random.Shared.Next(100, 999)}",
-                    Status = OrderStatus.New,
-                    CustomerNotes = dto.CustomerNotes,
-                    CustomerName = dto.CustomerName,
-                    CustomerPhone = dto.CustomerPhone,
-                    IdempotencyKey = dto.IdempotencyKey,
-                    TaxRate = restaurant.DefaultTaxRate
-                };
-
-                decimal subTotal = 0;
-                foreach (var reqItem in dto.Items)
-                {
-                    if (reqItem.Quantity <= 0) continue;
-
-                    var menuItem = menuItems[reqItem.MenuItemId];
-                    decimal unitPrice = menuItem.Price;
-                    var selectedCustomizationNames = new List<string>();
-
-                    if (reqItem.CustomizationIds != null && reqItem.CustomizationIds.Any())
+                    var order = new Order
                     {
-                        var validCustomizations = menuItem.Customizations
-                            .Where(c => reqItem.CustomizationIds.Contains(c.Id) && c.IsAvailable)
-                            .ToList();
+                        RestaurantId = restaurant.Id,
+                        TableId = table.Id,
+                        OrderNumber = GenerateOrderNumber(),
+                        Status = OrderStatus.New,
+                        CustomerNotes = dto.CustomerNotes?.Trim(),
+                        CustomerName = dto.CustomerName?.Trim(),
+                        CustomerPhone = dto.CustomerPhone?.Trim(),
+                        IdempotencyKey = dto.IdempotencyKey,
+                        TaxRate = restaurant.DefaultTaxRate
+                    };
 
-                        foreach (var custom in validCustomizations)
+                    decimal subTotal = 0;
+                    foreach (var reqItem in validItems)
+                    {
+                        var menuItem = menuItems[reqItem.MenuItemId];
+                        decimal unitPrice = menuItem.Price;
+                        var selectedCustomizationNames = new List<string>();
+
+                        if (reqItem.CustomizationIds != null && reqItem.CustomizationIds.Any())
                         {
-                            unitPrice += custom.Price;
-                            selectedCustomizationNames.Add(custom.Name);
+                            var validCustomizations = menuItem.Customizations
+                                .Where(c => reqItem.CustomizationIds.Contains(c.Id) && c.IsAvailable)
+                                .ToList();
+
+                            foreach (var custom in validCustomizations)
+                            {
+                                unitPrice += custom.Price;
+                                selectedCustomizationNames.Add(custom.Name);
+                            }
                         }
+
+                        var customizationSummary = selectedCustomizationNames.Any() 
+                            ? string.Join(", ", selectedCustomizationNames) 
+                            : reqItem.CustomizationSummary;
+
+                        var itemTotal = unitPrice * reqItem.Quantity;
+                        subTotal += itemTotal;
+
+                        order.OrderItems.Add(new OrderItem
+                        {
+                            MenuItemId = menuItem.Id,
+                            ItemNameSnapshot = menuItem.Name,
+                            UnitPriceSnapshot = unitPrice,
+                            Quantity = reqItem.Quantity,
+                            TotalPrice = itemTotal,
+                            CustomizationSummary = customizationSummary
+                        });
                     }
 
-                    var customizationSummary = selectedCustomizationNames.Any() 
-                        ? string.Join(", ", selectedCustomizationNames) 
-                        : reqItem.CustomizationSummary;
+                    order.SubTotal = subTotal;
+                    order.TaxAmount = Math.Round(subTotal * (order.TaxRate / 100m), 2);
+                    order.TotalAmount = order.SubTotal + order.TaxAmount;
 
-                    var itemTotal = unitPrice * reqItem.Quantity;
-                    subTotal += itemTotal;
-
-                    order.OrderItems.Add(new OrderItem
+                    // Add Status History
+                    order.StatusHistory.Add(new OrderStatusHistory
                     {
-                        MenuItemId = menuItem.Id,
-                        ItemNameSnapshot = menuItem.Name,
-                        UnitPriceSnapshot = unitPrice,
-                        Quantity = reqItem.Quantity,
-                        TotalPrice = itemTotal,
-                        CustomizationSummary = customizationSummary
+                        OldStatus = OrderStatus.New,
+                        NewStatus = OrderStatus.New,
+                        ChangedBy = "Customer (Table QR)",
+                        Notes = $"Order placed at {table.TableNumber}"
+                    });
+
+                    _context.Orders.Add(order);
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+
+                    // Broadcast to Kitchen & Cashier via SignalR
+                    var orderPayload = new
+                    {
+                        orderId = order.Id,
+                        orderNumber = order.OrderNumber,
+                        tableNumber = table.TableNumber,
+                        totalAmount = order.TotalAmount,
+                        itemCount = order.OrderItems.Sum(i => i.Quantity),
+                        items = order.OrderItems.Select(i => new { name = i.ItemNameSnapshot, qty = i.Quantity, customizations = i.CustomizationSummary }).ToList(),
+                        createdAt = order.CreatedAtUtc.ToString("HH:mm:ss"),
+                        status = order.Status.ToString(),
+                        notes = order.CustomerNotes,
+                        customerName = order.CustomerName,
+                        customerPhone = order.CustomerPhone
+                    };
+
+                    await _hubContext.Clients.Group($"Restaurant_{restaurant.Id}")
+                        .SendAsync("ReceiveNewOrder", orderPayload);
+
+                    _logger.LogInformation("Order {OrderNumber} created successfully for {Restaurant} {TableNumber}",
+                        order.OrderNumber, restaurant.Name, table.TableNumber);
+
+                    return Ok(new
+                    {
+                        success = true,
+                        orderNumber = order.OrderNumber,
+                        orderToken = order.OrderToken,
+                        redirectUrl = $"/order/track/{order.OrderToken}"
                     });
                 }
-
-                order.SubTotal = subTotal;
-                order.TaxAmount = Math.Round(subTotal * (order.TaxRate / 100m), 2);
-                order.TotalAmount = order.SubTotal + order.TaxAmount;
-
-                // Add Status History
-                order.StatusHistory.Add(new OrderStatusHistory
+                catch (DbUpdateException ex) when (IsUniqueIndexViolation(ex))
                 {
-                    OldStatus = OrderStatus.New,
-                    NewStatus = OrderStatus.New,
-                    ChangedBy = "Customer (Table QR)",
-                    Notes = $"Order placed at {table.TableNumber}"
-                });
+                    await transaction.RollbackAsync();
+                    _context.ChangeTracker.Clear();
 
-                _context.Orders.Add(order);
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
+                    // If OrderNumber collided, retry once
+                    if (ex.InnerException?.Message.Contains("IX_Orders_OrderNumber") == true && attempts < maxAttempts)
+                    {
+                        _logger.LogWarning("OrderNumber collision detected. Retrying with fresh OrderNumber.");
+                        continue;
+                    }
 
-                // 5. Broadcast to Kitchen & Cashier via SignalR
-                var orderPayload = new
+                    // If duplicate IdempotencyKey (e.g. concurrent submission), return existing order
+                    var raceOrder = await _context.Orders
+                        .IgnoreQueryFilters()
+                        .FirstOrDefaultAsync(o => o.RestaurantId == restaurant.Id && o.IdempotencyKey == dto.IdempotencyKey);
+
+                    if (raceOrder != null)
+                    {
+                        _logger.LogInformation("Concurrent duplicate submission caught by unique index for IdempotencyKey {Key}.", dto.IdempotencyKey);
+                        return Ok(new
+                        {
+                            success = true,
+                            isDuplicate = true,
+                            orderNumber = raceOrder.OrderNumber,
+                            orderToken = raceOrder.OrderToken,
+                            redirectUrl = $"/order/track/{raceOrder.OrderToken}"
+                        });
+                    }
+
+                    throw;
+                }
+                catch (Exception ex)
                 {
-                    orderId = order.Id,
-                    orderNumber = order.OrderNumber,
-                    tableNumber = table.TableNumber,
-                    totalAmount = order.TotalAmount,
-                    itemCount = order.OrderItems.Sum(i => i.Quantity),
-                    items = order.OrderItems.Select(i => new { name = i.ItemNameSnapshot, qty = i.Quantity, customizations = i.CustomizationSummary }).ToList(),
-                    createdAt = order.CreatedAtUtc.ToString("HH:mm:ss"),
-                    status = order.Status.ToString(),
-                    notes = order.CustomerNotes,
-                    customerName = order.CustomerName,
-                    customerPhone = order.CustomerPhone
-                };
-
-                await _hubContext.Clients.Group($"Restaurant_{restaurant.Id}")
-                    .SendAsync("ReceiveNewOrder", orderPayload);
-
-                _logger.LogInformation("Order {OrderNumber} created successfully for {Restaurant} {TableNumber}",
-                    order.OrderNumber, restaurant.Name, table.TableNumber);
-
-                return Ok(new
-                {
-                    success = true,
-                    orderNumber = order.OrderNumber,
-                    orderToken = order.OrderToken,
-                    redirectUrl = $"/order/track/{order.OrderToken}"
-                });
+                    await transaction.RollbackAsync();
+                    _logger.LogError(ex, "Failed to create order for {RestaurantSlug}", dto.RestaurantSlug);
+                    return StatusCode(500, new { message = "An error occurred while creating your order. Please try again." });
+                }
             }
-            catch (Exception ex)
-            {
-                await transaction.RollbackAsync();
-                _logger.LogError(ex, "Failed to create order for {RestaurantSlug}", dto.RestaurantSlug);
-                return StatusCode(500, new { message = "An error occurred while creating your order. Please try again." });
-            }
+
+            return StatusCode(500, new { message = "An error occurred while creating your order. Please try again." });
+        }
+
+        private static string GenerateOrderNumber()
+        {
+            var suffix = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(4));
+            return $"ORD-{DateTime.UtcNow:yyMMdd}-{suffix}";
+        }
+
+        private static bool IsUniqueIndexViolation(DbUpdateException ex)
+        {
+            var msg = ex.InnerException?.Message ?? ex.Message;
+            return msg.Contains("IX_") || msg.Contains("UNIQUE") || msg.Contains("duplicate") || msg.Contains("2601") || msg.Contains("2627");
         }
 
         [HttpGet("order/track/{token}")]
@@ -368,7 +443,10 @@ namespace MenuScan.Controllers
 
             var pendingUpiRequest = await _context.ServiceRequests
                 .IgnoreQueryFilters()
-                .Where(s => s.TableId == order.TableId && s.RequestType == "UPI Payment" && !s.IsHandled)
+                .Where(s => s.RestaurantId == order.RestaurantId 
+                         && (s.OrderId == order.Id || (s.OrderId == null && s.TableId == order.TableId))
+                         && s.RequestType == "UPI Payment" 
+                         && !s.IsHandled)
                 .OrderByDescending(s => s.CreatedAtUtc)
                 .FirstOrDefaultAsync();
 
@@ -387,9 +465,9 @@ namespace MenuScan.Controllers
 
         [HttpPost("api/order/save-customer-contact")]
         [IgnoreAntiforgeryToken]
-        public async Task<IActionResult> SaveCustomerContact([FromBody] UpdateCustomerContactDto dto)
+        public async Task<IActionResult> SaveCustomerContact([FromBody] UpdateCustomerContactDto? dto)
         {
-            if (string.IsNullOrWhiteSpace(dto.OrderToken))
+            if (dto == null || !ModelState.IsValid || string.IsNullOrWhiteSpace(dto.OrderToken))
                 return BadRequest(new { message = "Order token is required." });
 
             var order = await _context.Orders
@@ -404,11 +482,15 @@ namespace MenuScan.Controllers
 
             if (!string.IsNullOrWhiteSpace(dto.CustomerPhone))
             {
-                order.CustomerPhone = dto.CustomerPhone.Trim();
+                var trimmed = dto.CustomerPhone.Trim();
+                if (trimmed.Length > 25) return BadRequest(new { message = "Customer phone exceeds maximum length." });
+                order.CustomerPhone = trimmed;
             }
             if (!string.IsNullOrWhiteSpace(dto.CustomerName))
             {
-                order.CustomerName = dto.CustomerName.Trim();
+                var trimmed = dto.CustomerName.Trim();
+                if (trimmed.Length > 100) return BadRequest(new { message = "Customer name exceeds maximum length." });
+                order.CustomerName = trimmed;
             }
 
             await _context.SaveChangesAsync();
@@ -501,9 +583,9 @@ namespace MenuScan.Controllers
         [HttpPost("api/table/call-waiter")]
         [IgnoreAntiforgeryToken]
         [EnableRateLimiting("diner-api-policy")]
-        public async Task<IActionResult> CallWaiter([FromBody] CallWaiterDto dto)
+        public async Task<IActionResult> CallWaiter([FromBody] CallWaiterDto? dto)
         {
-            if (string.IsNullOrWhiteSpace(dto.TableToken) || string.IsNullOrWhiteSpace(dto.RestaurantSlug))
+            if (dto == null || !ModelState.IsValid || string.IsNullOrWhiteSpace(dto.TableToken) || string.IsNullOrWhiteSpace(dto.RestaurantSlug))
             {
                 return BadRequest(new { message = "Invalid request details." });
             }
@@ -552,10 +634,10 @@ namespace MenuScan.Controllers
         [HttpPost("api/order/feedback")]
         [IgnoreAntiforgeryToken]
         [EnableRateLimiting("diner-api-policy")]
-        public async Task<IActionResult> SubmitFeedback([FromBody] FeedbackSubmissionDto dto)
+        public async Task<IActionResult> SubmitFeedback([FromBody] FeedbackSubmissionDto? dto)
         {
-            if (string.IsNullOrWhiteSpace(dto.OrderToken))
-                return BadRequest(new { success = false, message = "Invalid order token." });
+            if (dto == null || !ModelState.IsValid || string.IsNullOrWhiteSpace(dto.OrderToken))
+                return BadRequest(new { success = false, message = "Invalid order token or feedback data." });
 
             var order = await _context.Orders
                 .IgnoreQueryFilters()
@@ -566,6 +648,12 @@ namespace MenuScan.Controllers
             if (order == null)
                 return NotFound(new { success = false, message = "Order not found." });
 
+            // Allow feedback ONLY when the order is Served or Completed
+            if (order.Status != OrderStatus.Served && order.Status != OrderStatus.Completed)
+            {
+                return BadRequest(new { success = false, message = "Feedback can only be submitted after your order has been served or completed." });
+            }
+
             var existingFeedback = await _context.CustomerFeedbacks
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(f => f.OrderId == order.Id);
@@ -575,7 +663,21 @@ namespace MenuScan.Controllers
                 return BadRequest(new { success = false, message = "Feedback has already been submitted for this order." });
             }
 
-            var tagsStr = dto.Tags != null && dto.Tags.Count > 0 ? string.Join(", ", dto.Tags) : null;
+            if (dto.Tags != null)
+            {
+                if (dto.Tags.Count > 8)
+                {
+                    return BadRequest(new { success = false, message = "A maximum of 8 tags are allowed." });
+                }
+                if (dto.Tags.Any(t => t != null && t.Length > 40))
+                {
+                    return BadRequest(new { success = false, message = "Each tag must be 40 characters or fewer." });
+                }
+            }
+
+            var tagsStr = dto.Tags != null && dto.Tags.Count > 0 
+                ? string.Join(", ", dto.Tags.Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim())) 
+                : null;
 
             var feedback = new CustomerFeedback
             {
@@ -591,8 +693,16 @@ namespace MenuScan.Controllers
                 CreatedAtUtc = DateTime.UtcNow
             };
 
-            _context.CustomerFeedbacks.Add(feedback);
-            await _context.SaveChangesAsync();
+            try
+            {
+                _context.CustomerFeedbacks.Add(feedback);
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex) when (IsUniqueIndexViolation(ex))
+            {
+                _logger.LogWarning(ex, "Concurrent duplicate feedback submission for Order {OrderId}", order.Id);
+                return BadRequest(new { success = false, message = "Feedback has already been submitted for this order." });
+            }
 
             _logger.LogInformation("Feedback recorded for Order {OrderNumber}: {Rating} stars by {Name}",
                 order.OrderNumber, feedback.OverallRating, feedback.CustomerName);
@@ -689,8 +799,13 @@ namespace MenuScan.Controllers
 
         [HttpPost("api/restaurant/save-upi-id")]
         [Microsoft.AspNetCore.Authorization.Authorize(Roles = $"{AppRoles.RestaurantAdmin},{AppRoles.SuperAdmin}")]
-        public async Task<IActionResult> SaveRestaurantUpiId([FromBody] SaveRestaurantUpiDto dto)
+        public async Task<IActionResult> SaveRestaurantUpiId([FromBody] SaveRestaurantUpiDto? dto)
         {
+            if (dto == null || !ModelState.IsValid)
+            {
+                return BadRequest(new { success = false, message = "Invalid restaurant UPI data." });
+            }
+
             var restaurant = await _context.Restaurants.IgnoreQueryFilters()
                 .FirstOrDefaultAsync(r => r.Slug == dto.RestaurantSlug && r.IsActive);
 
@@ -833,9 +948,9 @@ namespace MenuScan.Controllers
         [HttpPost("api/order/confirm-online-payment")]
         [IgnoreAntiforgeryToken]
         [EnableRateLimiting("diner-api-policy")]
-        public async Task<IActionResult> ConfirmOnlinePayment([FromBody] ConfirmOnlinePaymentDto dto)
+        public async Task<IActionResult> ConfirmOnlinePayment([FromBody] ConfirmOnlinePaymentDto? dto)
         {
-            if (dto == null || string.IsNullOrWhiteSpace(dto.OrderToken))
+            if (dto == null || !ModelState.IsValid || string.IsNullOrWhiteSpace(dto.OrderToken))
                 return BadRequest(new { success = false, message = "Invalid payment request or order token." });
 
             var order = await _context.Orders
@@ -866,7 +981,10 @@ namespace MenuScan.Controllers
                 // Cashier at /billing MUST verify bank credit and approve the settlement.
                 var pendingRequest = await _context.ServiceRequests
                     .IgnoreQueryFilters()
-                    .Where(s => s.TableId == order.TableId && s.RequestType == "UPI Payment" && !s.IsHandled)
+                    .Where(s => s.RestaurantId == order.RestaurantId
+                             && (s.OrderId == order.Id || (s.OrderId == null && s.TableId == order.TableId))
+                             && s.RequestType == "UPI Payment"
+                             && !s.IsHandled)
                     .OrderByDescending(s => s.CreatedAtUtc)
                     .FirstOrDefaultAsync();
 
@@ -876,15 +994,17 @@ namespace MenuScan.Controllers
                     {
                         RestaurantId = order.RestaurantId,
                         TableId = order.TableId,
+                        OrderId = order.Id,
                         RequestType = "UPI Payment",
-                        Note = $"Table {order.Table?.TableNumber ?? "Table"} has reported UPI payment of ₹{order.TotalAmount:F2}. Verify bank SMS/Soundbox before approving.",
+                        Note = $"Order {order.OrderNumber} (Table {order.Table?.TableNumber ?? "Table"}): reported UPI payment of ₹{order.TotalAmount:F2}. Verify bank SMS/Soundbox before approving.",
                         CreatedAtUtc = DateTime.UtcNow
                     };
                     _context.ServiceRequests.Add(pendingRequest);
                 }
                 else
                 {
-                    pendingRequest.Note = $"Table {order.Table?.TableNumber ?? "Table"} payment reminder: ₹{order.TotalAmount:F2} via UPI awaiting approval.";
+                    pendingRequest.OrderId = order.Id;
+                    pendingRequest.Note = $"Order {order.OrderNumber} (Table {order.Table?.TableNumber ?? "Table"}): reminder of ₹{order.TotalAmount:F2} via UPI awaiting approval.";
                     pendingRequest.CreatedAtUtc = DateTime.UtcNow;
                 }
 
@@ -927,7 +1047,7 @@ namespace MenuScan.Controllers
     public class CallWaiterDto
     {
         [System.ComponentModel.DataAnnotations.Required]
-        [System.ComponentModel.DataAnnotations.MaxLength(120)]
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
         public string RestaurantSlug { get; set; } = string.Empty;
 
         [System.ComponentModel.DataAnnotations.Required]
@@ -937,20 +1057,20 @@ namespace MenuScan.Controllers
         [System.ComponentModel.DataAnnotations.MaxLength(50)]
         public string RequestType { get; set; } = "Assistance";
 
-        [System.ComponentModel.DataAnnotations.MaxLength(300)]
+        [System.ComponentModel.DataAnnotations.MaxLength(200)]
         public string? Notes { get; set; }
     }
 
     public class SaveRestaurantUpiDto
     {
         [System.ComponentModel.DataAnnotations.Required]
-        [System.ComponentModel.DataAnnotations.MaxLength(120)]
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
         public string RestaurantSlug { get; set; } = string.Empty;
 
         [System.ComponentModel.DataAnnotations.MaxLength(100)]
         public string? UpiId { get; set; }
 
-        [System.ComponentModel.DataAnnotations.MaxLength(150)]
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
         public string? PayeeName { get; set; }
     }
 }

@@ -36,6 +36,9 @@ namespace MenuScan.Models.Entities
         public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
         public DateTime? ClosedAtUtc { get; set; }
 
+        [Timestamp]
+        public byte[] RowVersion { get; set; } = null!;
+
         public ICollection<Payment> Payments { get; set; } = new List<Payment>();
     }
 }
