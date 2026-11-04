@@ -488,3 +488,7 @@ $RECYCLE.BIN/
 scratch/
 *.bak
 backups/
+*quick_check*
+*manual_tests*
+*test_suite*
+*.py
