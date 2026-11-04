@@ -12,8 +12,8 @@
             <p class="text-muted mb-0">@restaurant.Name - Table Management</p>
         </div>
         <div class="d-flex gap-2">
-            <a asp-action="PrintTableStands" target="_blank" class="btn btn-outline-dark fw-bold">
-                <i class="bi bi-printer me-1"></i> Print All Table Tent Cards
+            <a asp-action="PrintTableStands" target="_blank" class="btn btn-warning fw-bold shadow-sm">
+                <i class="bi bi-printer-fill me-1"></i> Print / Download QR Standees (PDF)
             </a>
             <button class="btn btn-primary fw-bold" data-bs-toggle="modal" data-bs-target="#addTableModal">
                 <i class="bi bi-plus-circle me-1"></i> Add New Table
@@ -50,10 +50,18 @@
                         </div>
 
                         <div class="d-grid gap-2">
-                            <button class="btn btn-outline-dark btn-sm fw-semibold" onclick="showQrModal('@table.Id')">
-                                <i class="bi bi-qr-code me-1"></i> View & Print QR
-                            </button>
-                            <a href="/r/@restaurant.Slug/t/@table.Token" target="_blank" class="btn btn-light btn-sm text-primary">
+                            <a href="/Admin/PrintTableStands?tableId=@table.Id" target="_blank" class="btn btn-outline-dark btn-sm fw-semibold">
+                                <i class="bi bi-printer me-1"></i> Print Standee Card
+                            </a>
+                            <div class="d-flex gap-1">
+                                <button class="btn btn-light btn-sm flex-grow-1 text-dark fw-semibold border" onclick="showQrModal('@table.Id')">
+                                    <i class="bi bi-qr-code me-1"></i> QR Preview
+                                </button>
+                                <a href="/Admin/DownloadTableQrPng?id=@table.Id" target="_blank" class="btn btn-light btn-sm text-primary fw-semibold border" title="Download High-Res QR PNG">
+                                    <i class="bi bi-download"></i> PNG
+                                </a>
+                            </div>
+                            <a href="/r/@restaurant.Slug/t/@table.Token" target="_blank" class="btn btn-light btn-sm text-muted">
                                 <i class="bi bi-box-arrow-up-right me-1"></i> Test Customer View
                             </a>
                         </div>
@@ -113,12 +121,15 @@
                     <code class="small text-truncate d-block" id="qrModalUrlText"></code>
                 </div>
             </div>
-            <div class="modal-footer bg-light justify-content-center">
-                <button type="button" class="btn btn-primary fw-bold" onclick="printQrCard()">
-                    <i class="bi bi-printer me-1"></i> Print Table Stand
-                </button>
-                <a href="#" id="qrDirectLink" target="_blank" class="btn btn-outline-secondary">
-                    Open Menu Link
+            <div class="modal-footer bg-light justify-content-center gap-2">
+                <a href="#" id="qrStandeeLink" target="_blank" class="btn btn-warning fw-bold">
+                    <i class="bi bi-printer-fill me-1"></i> Print Tent Standee (PDF)
+                </a>
+                <a href="#" id="qrPngDownloadLink" target="_blank" class="btn btn-outline-dark fw-semibold">
+                    <i class="bi bi-download me-1"></i> Download PNG
+                </a>
+                <a href="#" id="qrDirectLink" target="_blank" class="btn btn-light text-primary">
+                    <i class="bi bi-box-arrow-up-right me-1"></i> Menu
                 </a>
             </div>
         </div>
@@ -139,6 +150,8 @@
                 document.getElementById('qrImageElement').src = data.qrDataUri;
                 document.getElementById('qrModalUrlText').innerText = data.customerUrl;
                 document.getElementById('qrDirectLink').href = data.customerUrl;
+                document.getElementById('qrStandeeLink').href = `/Admin/PrintTableStands?tableId=${tableId}`;
+                document.getElementById('qrPngDownloadLink').href = `/Admin/DownloadTableQrPng?id=${tableId}`;
 
                 qrModalInstance = new bootstrap.Modal(document.getElementById('qrModal'));
                 qrModalInstance.show();

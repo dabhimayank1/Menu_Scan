@@ -176,7 +176,9 @@ window.MenuScanSoundbox = (function () {
             unlockAudio();
             playChime();
             if (language === 'hi') {
-                if (requestType === 'Bill') {
+                if (requestType === 'UPI Payment' || requestType === 'UPI Verification') {
+                    speak(`${tableNumber} par UPI payment verify karein!`);
+                } else if (requestType === 'Bill') {
                     speak(`${tableNumber} ne bill request kiya hai!`);
                 } else if (requestType === 'Water') {
                     speak(`${tableNumber} ne paani request kiya hai!`);
@@ -184,7 +186,11 @@ window.MenuScanSoundbox = (function () {
                     speak(`Dhyaan dein! ${tableNumber} ne service request kiya hai!`);
                 }
             } else {
-                speak(`Attention! ${tableNumber} requested ${requestType}.`);
+                if (requestType === 'UPI Payment' || requestType === 'UPI Verification') {
+                    speak(`Please verify UPI payment for ${tableNumber}!`);
+                } else {
+                    speak(`Attention! ${tableNumber} requested ${requestType}.`);
+                }
             }
         },
 

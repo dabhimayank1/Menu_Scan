@@ -1,0 +1,652 @@
+@model MenuScan.Models.ViewModels.MonthlySalesViewModel
+@{
+    ViewData["Title"] = $"Monthly Sales Report - {Model.MonthName}";
+    Layout = "_Layout";
+    var restaurant = Model.Restaurant;
+}
+
+<div class="container-fluid py-4 px-3 px-lg-4">
+    <!-- Navigation Tabs & Header -->
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+        <div>
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="fs-4">🗓️</span>
+                <h3 class="fw-bold mb-0" style="letter-spacing: -0.5px;">Monthly Business &amp; Sales Report</h3>
+                <span class="badge bg-dark rounded-pill px-3 py-1">@restaurant.Name</span>
+            </div>
+            <p class="text-muted small mb-0">Complete monthly sales breakdown, payment splits, bestsellers, and daily settlement trends</p>
+        </div>
+
+        <!-- Report View Tabs -->
+        <div class="d-flex align-items-center gap-2">
+            <div class="btn-group p-1 bg-light rounded-pill border shadow-sm">
+                <a asp-action="DailySales" class="btn btn-sm rounded-pill px-3 py-1 fw-semibold text-muted">
+                    <i class="bi bi-calendar-check me-1"></i> Daily Report
+                </a>
+                <a asp-action="MonthlySales" class="btn btn-sm btn-cafe-primary rounded-pill px-3 py-1 fw-bold shadow-sm">
+                    <i class="bi bi-calendar-month me-1"></i> Monthly Report
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Month Navigation & Action Bar -->
+    <div class="card border-0 shadow-sm rounded-4 p-3 bg-white mb-4">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+            <!-- Prev/Next & Selector Form -->
+            <form method="get" asp-action="MonthlySales" class="d-flex flex-wrap align-items-center gap-2 m-0" id="monthFilterForm">
+                <a asp-action="MonthlySales" asp-route-year="@Model.PrevMonth.Year" asp-route-month="@Model.PrevMonth.Month" class="btn btn-outline-dark btn-sm rounded-pill px-3" title="Previous Month">
+                    <i class="bi bi-chevron-left me-1"></i> @Model.PrevMonth.ToString("MMM yyyy")
+                </a>
+
+                <div class="d-flex align-items-center gap-1 bg-light p-1 rounded-pill border">
+                    <select name="month" class="form-select form-select-sm border-0 bg-transparent fw-bold text-dark px-2" style="width: auto; cursor: pointer;" onchange="document.getElementById('monthFilterForm').submit()">
+                        @for (int m = 1; m <= 12; m++)
+                        {
+                            var mName = new DateTime(2026, m, 1).ToString("MMMM");
+                            <option value="@m" selected="@(m == Model.Month)">@mName</option>
+                        }
+                    </select>
+
+                    <select name="year" class="form-select form-select-sm border-0 bg-transparent fw-bold text-dark px-2" style="width: auto; cursor: pointer;" onchange="document.getElementById('monthFilterForm').submit()">
+                        @for (int y = DateTime.UtcNow.Year - 2; y <= DateTime.UtcNow.Year + 1; y++)
+                        {
+                            <option value="@y" selected="@(y == Model.Year)">@y</option>
+                        }
+                    </select>
+                </div>
+
+                <a asp-action="MonthlySales" asp-route-year="@Model.NextMonth.Year" asp-route-month="@Model.NextMonth.Month" class="btn btn-outline-dark btn-sm rounded-pill px-3" title="Next Month">
+                    @Model.NextMonth.ToString("MMM yyyy") <i class="bi bi-chevron-right ms-1"></i>
+                </a>
+
+                <!-- Quick Jump Pills -->
+                <div class="d-none d-md-flex align-items-center gap-1 ms-2">
+                    <a asp-action="MonthlySales" asp-route-year="@DateTime.UtcNow.Year" asp-route-month="@DateTime.UtcNow.Month" class="badge rounded-pill text-decoration-none px-2 py-1 @(Model.Year == DateTime.UtcNow.Year && Model.Month == DateTime.UtcNow.Month ? "bg-dark text-white" : "bg-light text-muted border")">
+                        Current Month
+                    </a>
+                    <a asp-action="MonthlySales" asp-route-year="@DateTime.UtcNow.AddMonths(-1).Year" asp-route-month="@DateTime.UtcNow.AddMonths(-1).Month" class="badge rounded-pill text-decoration-none px-2 py-1 @(Model.Year == DateTime.UtcNow.AddMonths(-1).Year && Model.Month == DateTime.UtcNow.AddMonths(-1).Month ? "bg-dark text-white" : "bg-light text-muted border")">
+                        Last Month
+                    </a>
+                </div>
+            </form>
+
+            <!-- Export Actions -->
+            <div class="d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-success btn-sm rounded-pill px-3 fw-bold shadow-sm d-flex align-items-center gap-1" onclick="openMonthEndWhatsAppModal()">
+                    <i class="bi bi-whatsapp fs-6"></i> Send WhatsApp Report
+                </button>
+                <div class="btn-group shadow-sm">
+                    <a asp-action="ExportMonthlyExcel" asp-route-year="@Model.Year" asp-route-month="@Model.Month" class="btn btn-outline-success btn-sm fw-bold px-3 rounded-start-pill" title="Download Excel spreadsheet (.xls) with auto-fit wide columns and styled formatting without any ### errors">
+                        <i class="bi bi-file-earmark-excel-fill text-success me-1"></i> Download Excel (.xls)
+                    </a>
+                    <a asp-action="ExportMonthlyCsv" asp-route-year="@Model.Year" asp-route-month="@Model.Month" class="btn btn-outline-secondary btn-sm px-2 rounded-end-pill" title="Download raw CSV format">
+                        CSV
+                    </a>
+                </div>
+                <button type="button" class="btn btn-outline-dark btn-sm rounded-pill px-3 fw-semibold" onclick="window.print()">
+                    <i class="bi bi-printer me-1"></i> Print Report
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- KPI Summary Cards -->
+    <div class="row g-3 mb-4">
+        <!-- 1. Total Net Sales -->
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                <small class="text-muted text-uppercase fw-semibold" style="font-size: 0.72rem;">Monthly Revenue</small>
+                <h4 class="fw-bold text-success mb-0 mt-1">₹@Model.TotalSales.ToString("N2")</h4>
+                <small class="text-muted" style="font-size: 0.75rem;">Net Settled</small>
+            </div>
+        </div>
+
+        <!-- 2. Total Invoices / Orders -->
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                <small class="text-muted text-uppercase fw-semibold" style="font-size: 0.72rem;">Settled Orders</small>
+                <h4 class="fw-bold text-primary mb-0 mt-1">@Model.TotalBills</h4>
+                <small class="text-muted" style="font-size: 0.75rem;">Paid Bills</small>
+            </div>
+        </div>
+
+        <!-- 3. Avg. Order Value (AOV) -->
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                <small class="text-muted text-uppercase fw-semibold" style="font-size: 0.72rem;">Avg. Order Value</small>
+                <h4 class="fw-bold text-dark mb-0 mt-1">₹@Model.AvgOrderValue.ToString("N2")</h4>
+                <small class="text-muted" style="font-size: 0.75rem;">Per table bill</small>
+            </div>
+        </div>
+
+        <!-- 4. Daily Average Sales -->
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                <small class="text-muted text-uppercase fw-semibold" style="font-size: 0.72rem;">Daily Avg. Sales</small>
+                <h4 class="fw-bold text-info-emphasis mb-0 mt-1">₹@Model.DailyAverageSales.ToString("N2")</h4>
+                <small class="text-muted" style="font-size: 0.75rem;">@Model.ActiveSalesDays active days</small>
+            </div>
+        </div>
+
+        <!-- 5. Tax / GST -->
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                <small class="text-muted text-uppercase fw-semibold" style="font-size: 0.72rem;">GST / Taxes</small>
+                <h4 class="fw-bold text-secondary mb-0 mt-1">₹@Model.TotalTax.ToString("N2")</h4>
+                <small class="text-muted" style="font-size: 0.75rem;">Collected tax</small>
+            </div>
+        </div>
+
+        <!-- 6. Peak Sales Day -->
+        <div class="col-6 col-md-4 col-xl-2">
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                <small class="text-muted text-uppercase fw-semibold" style="font-size: 0.72rem;">Peak Sales Day</small>
+                <h4 class="fw-bold text-warning-emphasis mb-0 mt-1">₹@Model.HighestDaySales.ToString("N2")</h4>
+                <small class="text-muted" style="font-size: 0.75rem;">@(Model.HighestSalesDate?.ToString("dd MMM") ?? "N/A")</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="row g-4 mb-4">
+        <!-- 1. Daily Sales Flow Chart -->
+        <div class="col-12 col-lg-8">
+            <div class="card shadow-sm border-0 rounded-4 bg-white p-4 h-100">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                        <h5 class="fw-bold mb-0">
+                            <i class="bi bi-graph-up-arrow me-2 text-success"></i>Daily Sales Trend &amp; Volume (@Model.MonthName)
+                        </h5>
+                        <small class="text-muted">Day-by-day revenue progression throughout the month</small>
+                    </div>
+                    <span class="badge bg-light text-dark border">Month Overview</span>
+                </div>
+                <div style="height: 320px; position: relative;">
+                    <canvas id="monthlySalesTrendChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Payment Method Split Donut -->
+        <div class="col-12 col-lg-4">
+            <div class="card shadow-sm border-0 rounded-4 bg-white p-4 h-100">
+                <div class="mb-3">
+                    <h5 class="fw-bold mb-0">
+                        <i class="bi bi-pie-chart-fill me-2" style="color: var(--cafe-primary);"></i>Payment Method Split
+                    </h5>
+                    <small class="text-muted">Distribution of UPI, Cash, and Card payments</small>
+                </div>
+                <div style="height: 230px; position: relative;" class="d-flex align-items-center justify-content-center">
+                    <canvas id="monthlyPaymentDonut"></canvas>
+                </div>
+                <!-- Payment Legends -->
+                <div class="mt-3 pt-3 border-top">
+                    <div class="d-flex justify-content-between small mb-1">
+                        <span><i class="bi bi-circle-fill text-success me-1"></i> UPI (Digital)</span>
+                        <strong>₹@Model.UpiTotal.ToString("N2")</strong>
+                    </div>
+                    <div class="d-flex justify-content-between small mb-1">
+                        <span><i class="bi bi-circle-fill text-primary me-1"></i> Cash Counter</span>
+                        <strong>₹@Model.CashTotal.ToString("N2")</strong>
+                    </div>
+                    <div class="d-flex justify-content-between small">
+                        <span><i class="bi bi-circle-fill text-warning me-1"></i> Debit / Credit Card</span>
+                        <strong>₹@Model.CardTotal.ToString("N2")</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Breakdown Tables: Top Items & Category Splits -->
+    <div class="row g-4 mb-4">
+        <!-- Top 10 Dishes of the Month -->
+        <div class="col-12 col-lg-7">
+            <div class="card shadow-sm border-0 rounded-4 bg-white h-100 overflow-hidden">
+                <div class="card-header bg-white p-4 pb-3 border-0 d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="fw-bold mb-0">
+                            <i class="bi bi-trophy-fill me-2 text-warning"></i>Top Selling Dishes of @Model.MonthName
+                        </h5>
+                        <small class="text-muted">Highest customer-demanded menu items by volume and revenue</small>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    @if (Model.TopSellingItems.Any())
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light small text-uppercase text-muted">
+                                    <tr>
+                                        <th style="width: 50px;">Rank</th>
+                                        <th>Dish Name</th>
+                                        <th class="text-center">Qty Sold</th>
+                                        <th class="text-end">Revenue</th>
+                                        <th class="text-end pe-4">Volume Share</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @{ int rank = 1; }
+                                    @foreach (var item in Model.TopSellingItems)
+                                    {
+                                        <tr>
+                                            <td>
+                                                @if (rank == 1)
+                                                {
+                                                    <span class="badge bg-warning text-dark rounded-circle p-2">🥇</span>
+                                                }
+                                                else if (rank == 2)
+                                                {
+                                                    <span class="badge bg-secondary-subtle text-dark rounded-circle p-2">🥈</span>
+                                                }
+                                                else if (rank == 3)
+                                                {
+                                                    <span class="badge bg-danger-subtle text-danger rounded-circle p-2">🥉</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-light text-muted border rounded-circle p-2">@rank</span>
+                                                }
+                                            </td>
+                                            <td class="fw-bold text-dark">@item.ItemName</td>
+                                            <td class="text-center">
+                                                <span class="badge bg-dark rounded-pill px-3 py-1">@item.Quantity</span>
+                                            </td>
+                                            <td class="text-end fw-bold text-success">₹@item.Revenue.ToString("N2")</td>
+                                            <td class="text-end pe-4">
+                                                <span class="small text-muted">@item.PercentageOfTotal.ToString("0.1")%</span>
+                                                <div class="progress mt-1" style="height: 4px;">
+                                                    <div class="progress-bar bg-success" style="width: @item.PercentageOfTotal.ToString("0")%;"></div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        rank++;
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="p-4 text-center text-muted">
+                            <i class="bi bi-inbox fs-2 d-block mb-2 text-muted"></i>
+                            No sales recorded for @Model.MonthName yet.
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Category Sales Share -->
+        <div class="col-12 col-lg-5">
+            <div class="card shadow-sm border-0 rounded-4 bg-white h-100 overflow-hidden">
+                <div class="card-header bg-white p-4 pb-3 border-0">
+                    <h5 class="fw-bold mb-0">
+                        <i class="bi bi-tags-fill me-2 text-info"></i>Category Revenue Contribution
+                    </h5>
+                    <small class="text-muted">Revenue distribution across menu categories</small>
+                </div>
+                <div class="card-body p-0">
+                    @if (Model.CategoryBreakdowns.Any())
+                    {
+                        <ul class="list-group list-group-flush">
+                            @foreach (var cat in Model.CategoryBreakdowns)
+                            {
+                                <li class="list-group-item p-3 px-4">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <strong class="text-dark">@cat.CategoryName</strong>
+                                        <span class="fw-bold text-success">₹@cat.Revenue.ToString("N2")</span>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center small text-muted mb-1">
+                                        <span>@cat.Quantity items ordered</span>
+                                        <span>@cat.PercentageOfTotal.ToString("0.1")% of revenue</span>
+                                    </div>
+                                    <div class="progress" style="height: 6px;">
+                                        <div class="progress-bar bg-cafe-primary" style="width: @cat.PercentageOfTotal.ToString("0")%;"></div>
+                                    </div>
+                                </li>
+                            }
+                        </ul>
+                    }
+                    else
+                    {
+                        <div class="p-4 text-center text-muted">No category data recorded for this month.</div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Day-by-Day Settlement Table -->
+    <div class="card shadow-sm border-0 rounded-4 bg-white overflow-hidden mb-4">
+        <div class="card-header bg-white p-4 pb-3 border-0 d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <h5 class="fw-bold mb-0">
+                    <i class="bi bi-calendar3 me-2 text-primary"></i>Day-by-Day Settlement Ledger (@Model.MonthName)
+                </h5>
+                <small class="text-muted">Daily breakdown of transactions, taxes, and payment channels</small>
+            </div>
+            <span class="badge bg-light text-dark border rounded-pill px-3 py-1">@Model.DailyBreakdowns.Count Days Total</span>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light small text-uppercase text-muted">
+                    <tr>
+                        <th class="ps-4">Date &amp; Day</th>
+                        <th class="text-center">Orders</th>
+                        <th class="text-end">Tax / GST</th>
+                        <th class="text-end">Net Revenue</th>
+                        <th class="text-end">UPI</th>
+                        <th class="text-end">Cash</th>
+                        <th class="text-end">Card</th>
+                        <th class="text-center pe-4">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var day in Model.DailyBreakdowns)
+                    {
+                        var isPeak = day.NetSales > 0 && day.NetSales == Model.HighestDaySales;
+                        var isWeekend = day.Date.DayOfWeek == DayOfWeek.Saturday || day.Date.DayOfWeek == DayOfWeek.Sunday;
+                        <tr class="@(isPeak ? "table-warning bg-opacity-25" : (day.OrdersCount == 0 ? "text-muted" : ""))">
+                            <td class="ps-4">
+                                <strong class="@(isWeekend ? "text-danger" : "text-dark")">@day.Date.ToString("dd MMM yyyy")</strong>
+                                <small class="text-muted d-block" style="font-size: 0.75rem;">@day.Date.ToString("dddd")</small>
+                            </td>
+                            <td class="text-center">
+                                @if (day.OrdersCount > 0)
+                                {
+                                    <span class="badge bg-primary-subtle text-primary rounded-pill px-3 py-1">@day.OrdersCount</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">&ndash;</span>
+                                }
+                            </td>
+                            <td class="text-end small">
+                                @(day.TaxAmount > 0 ? "₹" + day.TaxAmount.ToString("N2") : "₹0.00")
+                            </td>
+                            <td class="text-end fw-bold @(day.NetSales > 0 ? "text-success" : "text-muted")">
+                                ₹@day.NetSales.ToString("N2")
+                                @if (isPeak)
+                                {
+                                    <span class="badge bg-warning text-dark ms-1" style="font-size: 0.65rem;">PEAK</span>
+                                }
+                            </td>
+                            <td class="text-end small @(day.UpiAmount > 0 ? "text-success fw-semibold" : "text-muted")">
+                                ₹@day.UpiAmount.ToString("N2")
+                            </td>
+                            <td class="text-end small @(day.CashAmount > 0 ? "text-primary fw-semibold" : "text-muted")">
+                                ₹@day.CashAmount.ToString("N2")
+                            </td>
+                            <td class="text-end small @(day.CardAmount > 0 ? "text-warning-emphasis fw-semibold" : "text-muted")">
+                                ₹@day.CardAmount.ToString("N2")
+                            </td>
+                            <td class="text-center pe-4">
+                                @if (day.OrdersCount > 0)
+                                {
+                                    <a asp-action="DailySales" asp-route-date="@day.Date.ToString("yyyy-MM-dd")" class="btn btn-outline-dark btn-sm rounded-pill px-3 py-1" style="font-size: 0.75rem;" title="View hourly rush and detailed bills for this day">
+                                        <i class="bi bi-eye me-1"></i> View Day
+                                    </a>
+                                }
+                                else
+                                {
+                                    <span class="text-muted small fst-italic">&ndash;</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot class="table-light fw-bold">
+                    <tr>
+                        <td class="ps-4">TOTAL / MONTH SUMMARY</td>
+                        <td class="text-center"><span class="badge bg-dark rounded-pill px-3 py-1">@Model.TotalBills</span></td>
+                        <td class="text-end">₹@Model.TotalTax.ToString("N2")</td>
+                        <td class="text-end text-success fs-6">₹@Model.TotalSales.ToString("N2")</td>
+                        <td class="text-end text-success">₹@Model.UpiTotal.ToString("N2")</td>
+                        <td class="text-end text-primary">₹@Model.CashTotal.ToString("N2")</td>
+                        <td class="text-end text-warning-emphasis">₹@Model.CardTotal.ToString("N2")</td>
+                        <td class="text-center pe-4">&ndash;</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Month-End WhatsApp Summary Modal -->
+<div class="modal fade" id="monthEndWhatsAppModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content rounded-4 border-0 shadow-lg overflow-hidden">
+            <div class="modal-header bg-success text-white py-3">
+                <h5 class="modal-title fw-bold mb-0">
+                    <i class="bi bi-whatsapp me-2"></i>Monthly Sales WhatsApp Report
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="mb-3 text-start">
+                    <label class="form-label small fw-bold text-muted text-uppercase">Owner / Manager WhatsApp Number:</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light fw-bold text-muted">+91</span>
+                        <input type="tel" id="monthOwnerWpPhoneInput" class="form-control font-monospace fw-bold fs-6" 
+                               placeholder="10-digit mobile number" maxlength="10" 
+                               oninput="refreshMonthlyReportPreview()"
+                               value="@(restaurant.Phone?.StartsWith("+91") == true ? restaurant.Phone.Replace("+91", "").Trim() : (restaurant.Phone ?? ""))" />
+                    </div>
+                    <small class="text-muted d-block mt-1" style="font-size: 11px;">
+                        <i class="bi bi-info-circle me-1"></i>Monthly settlement summary will be pre-formatted and ready to send.
+                    </small>
+                </div>
+
+                <div class="mb-3 text-start">
+                    <label class="form-label small fw-bold text-muted text-uppercase">Message Preview (Auto-generated):</label>
+                    <div class="p-3 bg-light rounded-3 border font-monospace small" id="monthEndReportPreview" style="white-space: pre-wrap; max-height: 240px; overflow-y: auto; font-size: 12px;">
+Loading monthly report preview...
+                    </div>
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button type="button" class="btn btn-success py-3 fw-bold rounded-pill shadow-sm d-flex align-items-center justify-content-center gap-2" id="btnSendMonthOwnerWp" onclick="sendMonthOwnerWhatsAppReport()">
+                        <i class="bi bi-whatsapp fs-5"></i> Open WhatsApp Web &amp; Send Summary
+                    </button>
+                    <button type="button" class="btn btn-outline-dark py-2 rounded-pill small fw-semibold" onclick="copyMonthlyReportText()">
+                        <i class="bi bi-copy me-1"></i> Copy Text to Clipboard
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script>
+        // 1. Daily Sales Trend Chart
+        const dayLabels = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.DayLabels));
+        const daySalesValues = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.DaySalesData));
+        const dayOrdersValues = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.DayOrdersData));
+
+        const trendCtx = document.getElementById('monthlySalesTrendChart').getContext('2d');
+        new Chart(trendCtx, {
+            type: 'bar',
+            data: {
+                labels: dayLabels,
+                datasets: [
+                    {
+                        type: 'bar',
+                        label: 'Daily Revenue (₹)',
+                        data: daySalesValues,
+                        backgroundColor: 'rgba(179, 104, 60, 0.75)',
+                        borderColor: '#B3683C',
+                        borderWidth: 1.5,
+                        borderRadius: 4,
+                        yAxisID: 'y'
+                    },
+                    {
+                        type: 'line',
+                        label: 'Orders Count',
+                        data: dayOrdersValues,
+                        borderColor: '#0d6efd',
+                        backgroundColor: '#0d6efd',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        pointRadius: 3,
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: { boxWidth: 12, font: { weight: 'bold' } }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                if (context.dataset.type === 'bar') {
+                                    return ` Revenue: ₹${context.parsed.y.toFixed(2)}`;
+                                }
+                                return ` Orders: ${context.parsed.y}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) { return '₹' + value; }
+                        },
+                        grid: { color: 'rgba(0,0,0,0.05)' }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        beginAtZero: true,
+                        grid: { drawOnChartArea: false },
+                        ticks: { precision: 0 }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { maxRotation: 45, minRotation: 0 }
+                    }
+                }
+            }
+        });
+
+        // 2. Payment Method Donut Chart
+        const paymentDonutCtx = document.getElementById('monthlyPaymentDonut').getContext('2d');
+        const upiVal = @Model.UpiTotal;
+        const cashVal = @Model.CashTotal;
+        const cardVal = @Model.CardTotal;
+        const totalPayments = upiVal + cashVal + cardVal;
+
+        new Chart(paymentDonutCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['UPI (Digital)', 'Cash', 'Card'],
+                datasets: [{
+                    data: totalPayments === 0 ? [1, 1, 1] : [upiVal, cashVal, cardVal],
+                    backgroundColor: ['#28a745', '#0d6efd', '#ffc107'],
+                    hoverOffset: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return ` ${context.label}: ₹${context.parsed.toFixed(2)}`;
+                            }
+                        }
+                    }
+                },
+                cutout: '70%'
+            }
+        });
+
+        // 3. WhatsApp Integration
+        let monthEndData = null;
+        const reportYear = @Model.Year;
+        const reportMonth = @Model.Month;
+
+        async function openMonthEndWhatsAppModal() {
+            const modalEl = document.getElementById('monthEndWhatsAppModal');
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modal.show();
+
+            const phoneInput = document.getElementById('monthOwnerWpPhoneInput');
+            const phone = phoneInput ? phoneInput.value.trim() : '';
+
+            try {
+                const res = await fetch(`/api/reports/monthly-sales-summary?year=${reportYear}&month=${reportMonth}&phone=${encodeURIComponent(phone)}`);
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    monthEndData = data;
+                    const preview = document.getElementById('monthEndReportPreview');
+                    if (preview) preview.innerText = data.summaryText;
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function refreshMonthlyReportPreview() {
+            const phoneInput = document.getElementById('monthOwnerWpPhoneInput');
+            const phone = phoneInput ? phoneInput.value.trim() : '';
+            try {
+                const res = await fetch(`/api/reports/monthly-sales-summary?year=${reportYear}&month=${reportMonth}&phone=${encodeURIComponent(phone)}`);
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    monthEndData = data;
+                    const preview = document.getElementById('monthEndReportPreview');
+                    if (preview) preview.innerText = data.summaryText;
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function sendMonthOwnerWhatsAppReport() {
+            const phoneInput = document.getElementById('monthOwnerWpPhoneInput');
+            const phone = phoneInput ? phoneInput.value.trim() : '';
+            if (!phone || phone.length < 10) {
+                alert("Please enter a valid 10-digit mobile number.");
+                return;
+            }
+
+            if (monthEndData && monthEndData.summaryText) {
+                const clean = phone.replace(/\D/g, '');
+                const cleanPhone = clean.length === 10 ? `91${clean}` : clean;
+                const url = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(monthEndData.summaryText)}`;
+                window.open(url, '_blank');
+                const modalEl = document.getElementById('monthEndWhatsAppModal');
+                if (modalEl) bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+            }
+        }
+
+        function copyMonthlyReportText() {
+            if (monthEndData && monthEndData.summaryText) {
+                navigator.clipboard.writeText(monthEndData.summaryText).then(() => {
+                    alert("Monthly sales summary copied to clipboard!");
+                });
+            }
+        }
+    </script>
+}

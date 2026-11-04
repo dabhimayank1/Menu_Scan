@@ -2,128 +2,245 @@
 @{
     Layout = null;
     var restaurant = (MenuScan.Models.Entities.Restaurant)ViewBag.Restaurant;
+    var allTables = (dynamic)ViewBag.AllTables;
+    var selectedTableId = (Guid?)ViewBag.SelectedTableId;
+    var host = (string)(ViewBag.Host ?? "localhost:5073");
 }
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Print Table Tent Cards - @restaurant.Name</title>
+    <title>Table Standees &amp; QR Tent Cards - @restaurant.Name</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
     <style>
+        :root {
+            --primary-color: #3D291F;
+            --accent-color: #B3683C;
+            --bg-card: #FAF5F0;
+            --border-card: #3D291F;
+            --text-title: #241812;
+            --badge-bg: #B3683C;
+            --badge-text: #ffffff;
+        }
+
+        body.theme-dark {
+            --primary-color: #111827;
+            --accent-color: #D97706;
+            --bg-card: #F9FAFB;
+            --border-card: #111827;
+            --text-title: #111827;
+            --badge-bg: #111827;
+            --badge-text: #FBBF24;
+        }
+
+        body.theme-crimson {
+            --primary-color: #5B131D;
+            --accent-color: #991B1B;
+            --bg-card: #FFF5F5;
+            --border-card: #5B131D;
+            --text-title: #4A0E17;
+            --badge-bg: #991B1B;
+            --badge-text: #ffffff;
+        }
+
+        body.theme-emerald {
+            --primary-color: #064E3B;
+            --accent-color: #047857;
+            --bg-card: #F0FDF4;
+            --border-card: #064E3B;
+            --text-title: #064E3B;
+            --badge-bg: #047857;
+            --badge-text: #ffffff;
+        }
+
         body {
             font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
-            background-color: #F4F1EA;
+            background-color: #ECE7DE;
             color: #241812;
             margin: 0;
             padding: 0;
+            -webkit-font-smoothing: antialiased;
         }
 
+        /* Sticky Control Bar */
         .no-print {
             position: sticky;
             top: 0;
             z-index: 9999;
-            background: #241812;
+            background: #1A130F;
             color: #fff;
-            padding: 12px 20px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            padding: 12px 24px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.25);
         }
 
+        /* Printable A4 Sheets */
         .tent-sheet {
             width: 210mm;
             min-height: 297mm;
-            margin: 20px auto;
+            margin: 24px auto;
             background: #ffffff;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-            padding: 15mm;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+            padding: 10mm 12mm;
             box-sizing: border-box;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
+            position: relative;
         }
 
         .tent-card {
-            border: 2.5px solid #3D291F;
-            border-radius: 16px;
-            padding: 24px;
+            border: 2.5px solid var(--border-card);
+            border-radius: 20px;
+            padding: 20px 24px;
             text-align: center;
-            background: #FAF5F0;
+            background: var(--bg-card);
             position: relative;
             box-sizing: border-box;
             height: 48%;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
+            overflow: hidden;
         }
 
-        .fold-divider {
-            border-top: 2px dashed #999;
-            position: relative;
-            margin: 10px 0;
-            text-align: center;
-        }
-        .fold-divider span {
-            position: absolute;
-            top: -12px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #fff;
-            padding: 0 14px;
-            font-size: 11px;
-            font-weight: 700;
-            color: #777;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+        /* Top Bar inside Card */
+        .tent-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1.5px solid rgba(0,0,0,0.08);
+            padding-bottom: 10px;
         }
 
-        .tent-brand {
+        .tent-brand-title {
             font-size: 20px;
             font-weight: 800;
-            color: #241812;
+            color: var(--text-title);
             letter-spacing: -0.5px;
+            line-height: 1.1;
+        }
+
+        .tent-brand-sub {
+            font-size: 11px;
+            font-weight: 600;
+            color: #7A6B63;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
         }
 
         .tent-table-badge {
-            background-color: #B3683C;
-            color: #ffffff;
-            font-size: 15px;
-            font-weight: 800;
-            padding: 6px 18px;
+            background-color: var(--badge-bg);
+            color: var(--badge-text);
+            font-size: 17px;
+            font-weight: 900;
+            padding: 6px 20px;
             border-radius: 50px;
             display: inline-block;
             letter-spacing: 0.5px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.15);
+        }
+
+        /* Middle QR Block */
+        .tent-body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 28px;
             margin: 8px 0;
         }
 
         .tent-qr-box {
             background: #ffffff;
-            border: 2px solid #E6DCD2;
-            border-radius: 16px;
-            padding: 14px;
+            border: 2.5px solid var(--border-card);
+            border-radius: 18px;
+            padding: 12px;
             display: inline-block;
-            margin: 6px auto;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+            flex-shrink: 0;
         }
 
         .tent-qr-box img {
-            width: 175px;
-            height: 175px;
+            width: 170px;
+            height: 170px;
             display: block;
+            border-radius: 6px;
         }
 
-        .tent-instruction {
-            font-size: 13px;
-            font-weight: 700;
-            color: #241812;
-            margin-top: 6px;
-            margin-bottom: 2px;
+        .tent-instructions-col {
+            text-align: left;
+            flex-grow: 1;
+            max-width: 280px;
         }
 
-        .tent-subtext {
+        .tent-instruction-heading {
+            font-size: 17px;
+            font-weight: 900;
+            color: var(--text-title);
+            letter-spacing: -0.3px;
+            line-height: 1.2;
+            margin-bottom: 4px;
+        }
+
+        .tent-steps {
+            list-style: none;
+            padding: 0;
+            margin: 8px 0;
+            font-size: 12px;
+            font-weight: 600;
+            color: #3D291F;
+        }
+
+        .tent-steps li {
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tent-step-num {
+            background: var(--accent-color);
+            color: #fff;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             font-size: 11px;
-            color: #7A6B63;
+            font-weight: 800;
+            flex-shrink: 0;
+        }
+
+        .upi-icons-row {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            margin-top: 8px;
+        }
+
+        .upi-pill {
+            background: #ffffff;
+            border: 1px solid #D9C8BA;
+            border-radius: 6px;
+            padding: 2px 8px;
+            font-size: 10px;
+            font-weight: 800;
+            color: #444;
+            letter-spacing: 0.3px;
+        }
+
+        /* Bottom Footer Bar */
+        .tent-footer {
+            border-top: 1.5px solid rgba(0,0,0,0.08);
+            padding-top: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 11px;
+            font-weight: 600;
         }
 
         .wifi-pill {
@@ -131,105 +248,395 @@
             border: 1px solid #D9C8BA;
             border-radius: 50px;
             padding: 4px 14px;
-            font-size: 11px;
             display: inline-flex;
-            gap: 12px;
-            font-weight: 600;
-            color: #555;
-            margin-top: 8px;
+            align-items: center;
+            gap: 10px;
+            color: #444;
         }
 
+        .fold-divider {
+            border-top: 2.5px dashed #888;
+            position: relative;
+            margin: 8px 0;
+            text-align: center;
+        }
+
+        .fold-divider span {
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #ffffff;
+            padding: 0 16px;
+            font-size: 11px;
+            font-weight: 800;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+        }
+
+        /* 4-per-page Mini Cards / Stickers Grid */
+        .mini-sheet {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 24px auto;
+            background: #ffffff;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+            padding: 10mm;
+            box-sizing: border-box;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 8mm;
+        }
+
+        .mini-card {
+            border: 2px dashed #999;
+            border-radius: 16px;
+            padding: 16px;
+            text-align: center;
+            background: var(--bg-card);
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+        }
+
+        .mini-card .tent-qr-box img {
+            width: 140px;
+            height: 140px;
+        }
+
+        .scissors-icon {
+            position: absolute;
+            top: -10px;
+            left: 14px;
+            background: #fff;
+            padding: 0 6px;
+            font-size: 12px;
+            color: #888;
+        }
+
+        /* Print Media Styles */
         @@media print {
+            @@page {
+                size: A4 portrait;
+                margin: 0;
+            }
             body {
-                background: none;
+                background: #ffffff !important;
+                color: #000000 !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
             }
             .no-print {
                 display: none !important;
             }
             .tent-sheet {
-                margin: 0;
-                padding: 12mm;
-                box-shadow: none;
-                page-break-after: always;
-                height: 100vh;
+                width: 100vw !important;
+                height: 100vh !important;
+                min-height: 100vh !important;
+                max-height: 100vh !important;
+                margin: 0 !important;
+                padding: 8mm 10mm !important;
+                box-shadow: none !important;
+                page-break-after: always !important;
+                page-break-inside: avoid !important;
+                box-sizing: border-box !important;
+            }
+            .mini-sheet {
+                width: 100vw !important;
+                height: 100vh !important;
+                min-height: 100vh !important;
+                max-height: 100vh !important;
+                margin: 0 !important;
+                padding: 8mm !important;
+                box-shadow: none !important;
+                page-break-after: always !important;
+                page-break-inside: avoid !important;
+                box-sizing: border-box !important;
             }
         }
     </style>
 </head>
-<body>
+<body class="theme-amber">
 
-    <!-- Print Control Bar -->
-    <div class="no-print d-flex justify-content-between align-items-center">
-        <div>
-            <h5 class="fw-bold mb-0 text-white"><i class="bi bi-qr-code-scan me-2 text-warning"></i>Table Tent Card Printable Sheets</h5>
-            <small class="text-white-50">@restaurant.Name &mdash; @Model.Count Active Tables</small>
+    <!-- Top Sticky Control Toolbar (Excluded from Print) -->
+    <div class="no-print">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+            <div class="d-flex align-items-center gap-3">
+                <a href="/Admin/Tables" class="btn btn-outline-light btn-sm rounded-pill px-3">
+                    <i class="bi bi-arrow-left me-1"></i> Tables
+                </a>
+                <div>
+                    <h5 class="fw-bold mb-0 text-white d-flex align-items-center gap-2">
+                        <span class="text-warning">🍽️</span> Table Standees &amp; QR Tent Cards
+                    </h5>
+                    <small class="text-white-50">@restaurant.Name &bull; Ready-to-print vector QR tent cards</small>
+                </div>
+            </div>
+
+            <!-- Controls: Table Selector, Layout Mode, Wi-Fi, Theme -->
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <!-- Table Filter -->
+                <div class="d-flex align-items-center bg-dark border border-secondary rounded-pill px-2 py-1">
+                    <span class="text-white-50 small me-1 ps-1"><i class="bi bi-funnel"></i></span>
+                    <select class="form-select form-select-sm bg-transparent text-white border-0 py-0" style="width: auto; cursor: pointer;" onchange="onTableFilterChange(this.value)">
+                        <option value="" class="bg-dark text-white" selected="@(selectedTableId == null)">🪑 All Tables (@Model.Count)</option>
+                        @if (allTables != null)
+                        {
+                            foreach (var t in allTables)
+                            {
+                                <option value="@t.Id" class="bg-dark text-white" selected="@(selectedTableId == t.Id)">@t.TableNumber</option>
+                            }
+                        }
+                    </select>
+                </div>
+
+                <!-- Layout Mode -->
+                <div class="btn-group btn-group-sm" role="group">
+                    <button type="button" class="btn btn-outline-light active" id="btnModeTent" onclick="switchLayoutMode('tent')">
+                        <i class="bi bi-file-earmark-break me-1"></i> Foldable Tent Card (A4)
+                    </button>
+                    <button type="button" class="btn btn-outline-light" id="btnModeMini" onclick="switchLayoutMode('mini')">
+                        <i class="bi bi-grid-2x2 me-1"></i> Mini Stickers (4/page)
+                    </button>
+                </div>
+
+                <!-- Theme Selector -->
+                <select class="form-select form-select-sm bg-dark text-white border-secondary rounded-pill py-1 px-3" style="width: auto;" onchange="changeTheme(this.value)">
+                    <option value="theme-amber">☕ Warm Amber</option>
+                    <option value="theme-dark">🎩 Slate &amp; Gold</option>
+                    <option value="theme-crimson">🍷 Royal Crimson</option>
+                    <option value="theme-emerald">🌿 Forest Bistro</option>
+                </select>
+
+                <!-- Wi-Fi Inputs -->
+                <div class="d-none d-xl-flex align-items-center gap-1 bg-dark border border-secondary rounded-pill px-3 py-1">
+                    <i class="bi bi-wifi text-warning small"></i>
+                    <input type="text" id="wifiNameInput" class="form-control form-control-sm bg-transparent text-white border-0 py-0 px-1" style="width: 120px; font-size: 11px;" value="@(restaurant.Slug)-Guest" placeholder="Wi-Fi SSID" oninput="updateWifi()" />
+                    <span class="text-white-50 small">|</span>
+                    <i class="bi bi-key text-warning small"></i>
+                    <input type="text" id="wifiPassInput" class="form-control form-control-sm bg-transparent text-white border-0 py-0 px-1" style="width: 100px; font-size: 11px;" value="coffee2026" placeholder="Password" oninput="updateWifi()" />
+                </div>
+
+                <!-- Print Button -->
+                <button class="btn btn-warning btn-sm fw-bold px-4 rounded-pill shadow-sm" onclick="window.print()">
+                    <i class="bi bi-printer-fill me-1"></i> Print / Save PDF
+                </button>
+            </div>
         </div>
-        <div class="d-flex gap-2">
-            <a href="/Admin/Tables" class="btn btn-outline-light btn-sm px-3 rounded-pill">
-                <i class="bi bi-arrow-left me-1"></i> Back to Tables
-            </a>
-            <button class="btn btn-warning btn-sm px-4 fw-bold rounded-pill" onclick="window.print()">
-                <i class="bi bi-printer-fill me-1"></i> Print All Stands
-            </button>
+        
+        <!-- Helpful print tips -->
+        <div class="mt-2 text-white-50 small d-flex align-items-center justify-content-between pt-1 border-top border-secondary border-opacity-50">
+            <span>
+                <i class="bi bi-info-circle me-1 text-warning"></i>
+                <strong>Print Settings Tip:</strong> Set Destination to <em>"Save as PDF"</em> or your printer, Margins to <em>"None"</em>, and check <em>"Background graphics"</em> for crisp color rendering.
+            </span>
+            <span class="d-none d-md-inline text-white-50">
+                Host resolved: <code>http://@host</code>
+            </span>
         </div>
     </div>
 
-    <!-- Printable Sheets (1 A4 sheet per table with front/back fold) -->
-    @foreach (var stand in Model)
-    {
-        <div class="tent-sheet">
-            <!-- Top Card (Faces Guest Side 1) -->
-            <div class="tent-card">
-                <div>
-                    <div class="tent-brand"><span class="text-warning">☕</span> @restaurant.Name</div>
-                    <div class="tent-table-badge">@stand.TableNumber.ToUpper()</div>
+    <!-- ========================================== -->
+    <!-- VIEW MODE 1: FOLDABLE TENT CARDS (A4)     -->
+    <!-- ========================================== -->
+    <div id="tentViewContainer">
+        @foreach (var stand in Model)
+        {
+            <div class="tent-sheet" data-table-id="@stand.TableId">
+                
+                <!-- TOP CARD (Faces Guest Side 1) -->
+                <div class="tent-card">
+                    <!-- Header -->
+                    <div class="tent-header">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="fs-3">☕</span>
+                            <div>
+                                <div class="tent-brand-title">@restaurant.Name</div>
+                                <div class="tent-brand-sub">Smart Contactless Dining</div>
+                            </div>
+                        </div>
+                        <div class="text-end">
+                            <div class="tent-table-badge">@stand.TableNumber.ToUpper()</div>
+                            <div class="small text-muted mt-1 fw-bold"><i class="bi bi-people me-1"></i>@stand.Capacity Seats</div>
+                        </div>
+                    </div>
+
+                    <!-- Body / QR -->
+                    <div class="tent-body">
+                        <div class="tent-qr-box">
+                            <img src="@stand.QrDataUri" alt="QR Code for @stand.TableNumber" />
+                        </div>
+                        <div class="tent-instructions-col">
+                            <div class="tent-instruction-heading">SCAN CAMERA TO ORDER &amp; PAY</div>
+                            <p class="text-muted small mb-2">No app download needed. Scan with any smartphone camera or UPI app:</p>
+                            
+                            <ul class="tent-steps">
+                                <li><span class="tent-step-num">1</span> Scan QR code with Phone Camera</li>
+                                <li><span class="tent-step-num">2</span> Browse menu &amp; customize dishes</li>
+                                <li><span class="tent-step-num">3</span> Order directly to kitchen &amp; pay via UPI</li>
+                            </ul>
+
+                            <div class="upi-icons-row">
+                                <span class="upi-pill text-primary">GPay</span>
+                                <span class="upi-pill" style="color: #5f259f;">PhonePe</span>
+                                <span class="upi-pill text-info">Paytm</span>
+                                <span class="upi-pill text-success">BHIM UPI</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div class="tent-footer">
+                        <div class="wifi-pill">
+                            <span><i class="bi bi-wifi text-primary me-1"></i>Guest Wi-Fi: <strong class="lbl-wifi-name">@(restaurant.Slug)-Guest</strong></span>
+                            <span><i class="bi bi-key text-muted me-1"></i>Pass: <strong class="lbl-wifi-pass">coffee2026</strong></span>
+                        </div>
+                        <div class="text-muted">
+                            <i class="bi bi-shield-check text-success me-1"></i>Verified Merchant: <strong>@(restaurant.PayeeName ?? restaurant.Name)</strong>
+                        </div>
+                    </div>
                 </div>
 
-                <div>
-                    <div class="tent-qr-box">
-                        <img src="@stand.QrDataUri" alt="QR Code for @stand.TableNumber" />
-                    </div>
-                    <div class="tent-instruction">SCAN CAMERA TO ORDER &amp; CALL WAITER</div>
-                    <div class="tent-subtext">No app download needed &bull; Instant kitchen ordering</div>
+                <!-- Fold Line -->
+                <div class="fold-divider">
+                    <span>&bull; ✂ FOLD HERE TO STAND ON TABLE ✂ &bull;</span>
                 </div>
 
-                <div>
-                    <div class="wifi-pill">
-                        <span><i class="bi bi-wifi me-1 text-primary"></i>Guest Wi-Fi: <strong>@(restaurant.Slug)-Guest</strong></span>
-                        <span>Pass: <strong>coffee2026</strong></span>
+                <!-- BOTTOM CARD (Faces Guest Side 2) -->
+                <div class="tent-card">
+                    <!-- Header -->
+                    <div class="tent-header">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="fs-3">☕</span>
+                            <div>
+                                <div class="tent-brand-title">@restaurant.Name</div>
+                                <div class="tent-brand-sub">Fast Table Ordering &amp; Waiter Call</div>
+                            </div>
+                        </div>
+                        <div class="text-end">
+                            <div class="tent-table-badge">@stand.TableNumber.ToUpper()</div>
+                            <div class="small text-muted mt-1 fw-bold"><i class="bi bi-shield-check text-success me-1"></i>Verified Table</div>
+                        </div>
+                    </div>
+
+                    <!-- Body / QR -->
+                    <div class="tent-body">
+                        <div class="tent-qr-box">
+                            <img src="@stand.QrDataUri" alt="QR Code for @stand.TableNumber" />
+                        </div>
+                        <div class="tent-instructions-col">
+                            <div class="tent-instruction-heading">NEED ASSISTANCE OR BILL?</div>
+                            <p class="text-muted small mb-2">Scan this QR code anytime during your meal to:</p>
+                            
+                            <ul class="tent-steps">
+                                <li><span class="tent-step-num">🔔</span> <strong>Call Waiter</strong> to your table with 1 tap</li>
+                                <li><span class="tent-step-num">💧</span> <strong>Request Water</strong> or cutlery instantly</li>
+                                <li><span class="tent-step-num">💳</span> <strong>View Live Bill &amp; Pay</strong> without waiting</li>
+                            </ul>
+
+                            <div class="small text-muted mt-2">
+                                <code class="text-dark bg-white px-2 py-1 rounded border">@stand.CustomerUrl</code>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div class="tent-footer">
+                        <div class="wifi-pill">
+                            <span><i class="bi bi-lightning-charge-fill text-warning me-1"></i>Instant Kitchen Dispatch &bull; 0 Wait Time</span>
+                        </div>
+                        <div class="text-muted">
+                            <a href="/Admin/DownloadTableQrPng?id=@stand.TableId" target="_blank" class="btn btn-outline-dark btn-sm py-0 px-2 no-print" title="Download standalone PNG for graphic printing">
+                                <i class="bi bi-download me-1"></i> Download PNG
+                            </a>
+                        </div>
                     </div>
                 </div>
+
             </div>
+        }
+    </div>
 
-            <!-- Fold Line -->
-            <div class="fold-divider">
-                <span>&bull; Fold Down Center &bull;</span>
-            </div>
-
-            <!-- Bottom Card (Faces Guest Side 2) -->
-            <div class="tent-card">
-                <div>
-                    <div class="tent-brand"><span class="text-warning">☕</span> @restaurant.Name</div>
-                    <div class="tent-table-badge">@stand.TableNumber.ToUpper()</div>
-                </div>
-
-                <div>
-                    <div class="tent-qr-box">
-                        <img src="@stand.QrDataUri" alt="QR Code for @stand.TableNumber" />
+    <!-- ========================================== -->
+    <!-- VIEW MODE 2: MINI STICKERS (4 PER A4 PAGE) -->
+    <!-- ========================================== -->
+    <div id="miniViewContainer" style="display: none;">
+        @{
+            var chunks = Model.Chunk(4).ToList();
+        }
+        @foreach (var chunk in chunks)
+        {
+            <div class="mini-sheet">
+                @foreach (var stand in chunk)
+                {
+                    <div class="mini-card" data-table-id="@stand.TableId">
+                        <span class="scissors-icon"><i class="bi bi-scissors"></i> Cut</span>
+                        <div>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="fw-bold small text-truncate" style="max-width: 140px;">@restaurant.Name</span>
+                                <span class="tent-table-badge py-1 px-3" style="font-size: 13px;">@stand.TableNumber.ToUpper()</span>
+                            </div>
+                            <div class="tent-qr-box my-2">
+                                <img src="@stand.QrDataUri" alt="QR Code for @stand.TableNumber" />
+                            </div>
+                            <div class="fw-bold small text-dark mt-1">SCAN TO ORDER &amp; PAY</div>
+                            <small class="text-muted d-block" style="font-size: 10px;">Camera &bull; GPay &bull; PhonePe &bull; Paytm</small>
+                        </div>
+                        <div class="pt-2 border-top border-secondary border-opacity-25 mt-2 d-flex justify-content-between align-items-center" style="font-size: 10px;">
+                            <span class="text-muted"><i class="bi bi-wifi"></i> <span class="lbl-wifi-name">@(restaurant.Slug)-Guest</span></span>
+                            <span class="text-muted"><i class="bi bi-shield-check text-success"></i> Table Verified</span>
+                        </div>
                     </div>
-                    <div class="tent-instruction">SCAN CAMERA TO ORDER &amp; CALL WAITER</div>
-                    <div class="tent-subtext">No app download needed &bull; Pay at table with UPI / Card</div>
-                </div>
-
-                <div>
-                    <div class="wifi-pill">
-                        <span><i class="bi bi-people me-1 text-success"></i>Capacity: <strong>@stand.Capacity Seats</strong></span>
-                        <span><i class="bi bi-shield-check me-1 text-primary"></i>Verified Dine-in</span>
-                    </div>
-                </div>
+                }
             </div>
-        </div>
-    }
+        }
+    </div>
 
+    <script>
+        function onTableFilterChange(tableId) {
+            if (tableId) {
+                window.location.href = `/Admin/PrintTableStands?tableId=${tableId}`;
+            } else {
+                window.location.href = `/Admin/PrintTableStands`;
+            }
+        }
+
+        function switchLayoutMode(mode) {
+            const tentContainer = document.getElementById('tentViewContainer');
+            const miniContainer = document.getElementById('miniViewContainer');
+            const btnTent = document.getElementById('btnModeTent');
+            const btnMini = document.getElementById('btnModeMini');
+
+            if (mode === 'mini') {
+                tentContainer.style.display = 'none';
+                miniContainer.style.display = 'block';
+                btnMini.classList.add('active');
+                btnTent.classList.remove('active');
+            } else {
+                tentContainer.style.display = 'block';
+                miniContainer.style.display = 'none';
+                btnTent.classList.add('active');
+                btnMini.classList.remove('active');
+            }
+        }
+
+        function changeTheme(themeClass) {
+            document.body.className = themeClass;
+        }
+
+        function updateWifi() {
+            const name = document.getElementById('wifiNameInput').value || 'Guest-WiFi';
+            const pass = document.getElementById('wifiPassInput').value || '';
+
+            document.querySelectorAll('.lbl-wifi-name').forEach(el => el.innerText = name);
+            document.querySelectorAll('.lbl-wifi-pass').forEach(el => el.innerText = pass);
+        }
+    </script>
 </body>
 </html>

@@ -28,26 +28,42 @@ namespace MenuScan.Models.ViewModels
     public class OrderSubmissionDto
     {
         [Required]
+        [MaxLength(120)]
         public string RestaurantSlug { get; set; } = string.Empty;
 
         [Required]
+        [MaxLength(64)]
         public string TableToken { get; set; } = string.Empty;
 
+        [MaxLength(500)]
         public string? CustomerNotes { get; set; }
+
+        [MaxLength(100)]
         public string? CustomerName { get; set; }
+
+        [MaxLength(25)]
         public string? CustomerPhone { get; set; }
 
         [Required]
+        [MaxLength(100)]
         public string IdempotencyKey { get; set; } = string.Empty;
 
+        [Required]
+        [MaxLength(100)]
         public List<OrderItemRequestDto> Items { get; set; } = new();
     }
 
     public class OrderItemRequestDto
     {
+        [Required]
         public Guid MenuItemId { get; set; }
+
+        [Range(1, 100, ErrorMessage = "Quantity must be between 1 and 100.")]
         public int Quantity { get; set; }
+
         public List<Guid> CustomizationIds { get; set; } = new();
+
+        [MaxLength(250)]
         public string? CustomizationSummary { get; set; }
     }
 

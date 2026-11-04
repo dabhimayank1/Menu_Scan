@@ -559,8 +559,47 @@
         // Build items data catalog safely serialized without quote/escaping vulnerabilities
         const menuCatalog = @Html.Raw(catalogJson);
 
-        // Active orders for this table (passed initially and kept fresh via SignalR / AJAX)
-        let currentActiveOrders = @Html.Raw(activeOrdersJson);
+        // Session order tokens management (persists diner orders for this table)
+        const sessionOrdersKey = `menuscan_session_orders_${tableToken}`;
+
+        function getSessionOrderTokens() {
+            try {
+                const raw = localStorage.getItem(sessionOrdersKey);
+                return raw ? JSON.parse(raw) : [];
+            } catch (e) {
+                return [];
+            }
+        }
+
+        function saveSessionOrderToken(token) {
+            if (!token) return;
+            try {
+                let tokens = getSessionOrderTokens();
+                if (!tokens.includes(token)) {
+                    tokens.push(token);
+                    localStorage.setItem(sessionOrdersKey, JSON.stringify(tokens));
+                }
+            } catch (e) {}
+        }
+
+        function removeSessionOrderToken(token) {
+            try {
+                let tokens = getSessionOrderTokens();
+                tokens = tokens.filter(t => t !== token);
+                localStorage.setItem(sessionOrdersKey, JSON.stringify(tokens));
+            } catch (e) {}
+        }
+
+        // Active orders for this table (initially filtered to this diner's session tokens)
+        const initialServerOrders = @Html.Raw(activeOrdersJson);
+        const myInitialTokens = getSessionOrderTokens();
+        let currentActiveOrders = [];
+
+        if (myInitialTokens && myInitialTokens.length > 0) {
+            currentActiveOrders = (initialServerOrders || []).filter(o => 
+                myInitialTokens.includes(o.orderToken) && !o.isPaid && o.statusCode !== 6
+            );
+        }
 
         let cart = {}; // key -> { menuItemId, name, price, qty, img, customizationIds, customizationSummary }
         let isVegOnly = false;
@@ -573,39 +612,46 @@
             let desc = "Received by kitchen & barista";
             let badgeClass = "bg-warning text-dark";
             let icon = '<i class="bi bi-hourglass-split"></i>';
-            let pct = 25;
+            let pct = 20;
             let step = 0;
 
-            if (statusCode === 1 || status === "Preparing" || status === "Accepted") {
+            if (statusCode === 1 || status === "Accepted") {
+                title = "Order Accepted";
+                desc = "Kitchen accepted your order";
+                badgeClass = "bg-info text-dark";
+                icon = '<i class="bi bi-person-check"></i>';
+                pct = 35;
+                step = 1;
+            } else if (statusCode === 2 || status === "Preparing") {
                 title = "Cooking in Kitchen";
                 desc = "Barista & Chef preparing your order";
                 badgeClass = "bg-info text-dark";
                 icon = '<i class="bi bi-fire"></i>';
-                pct = 50;
-                step = 1;
-            } else if (statusCode === 2 || status === "Ready") {
+                pct = 65;
+                step = 2;
+            } else if (statusCode === 3 || status === "Ready") {
                 title = "Ready to Serve";
                 desc = "Dishes hot & ready to bring";
                 badgeClass = "bg-primary text-white";
                 icon = '<i class="bi bi-bell-fill"></i>';
-                pct = 75;
-                step = 2;
-            } else if (statusCode === 3 || status === "Served") {
+                pct = 90;
+                step = 3;
+            } else if (statusCode === 4 || status === "Served") {
                 title = "Food Served";
                 desc = "Enjoy your meal & drinks!";
                 badgeClass = "bg-success text-white";
                 icon = '<i class="bi bi-check-circle-fill"></i>';
                 pct = 100;
-                step = 3;
+                step = 4;
             }
 
-            if (isPaid || statusCode === 4 || status === "Completed") {
+            if (isPaid || statusCode === 6 || status === "Completed") {
                 title = "✓ Paid & Settled";
                 desc = "Payment confirmed. Thank you!";
                 badgeClass = "bg-dark text-white";
                 icon = '<i class="bi bi-check2-circle text-success"></i>';
                 pct = 100;
-                step = 4;
+                step = 5;
             }
 
             return { title, desc, badgeClass, icon, pct, step };
@@ -621,7 +667,10 @@
             const btnDesktop = document.getElementById('btnDesktopPlaceOrder');
             const btnModal = document.getElementById('btnModalPlaceOrder');
 
-            if (!orders || orders.length === 0) {
+            // Security & UX Rule: Paid bills MUST NOT be shown in active cart! Only pending unpaid orders show.
+            const pendingOrders = (orders || []).filter(ord => !ord.isPaid && ord.status !== "Completed" && ord.statusCode !== 6);
+
+            if (!pendingOrders || pendingOrders.length === 0) {
                 if (dtContainer) dtContainer.innerHTML = '';
                 if (modalContainer) modalContainer.innerHTML = '';
                 if (dtDusraHeader) dtDusraHeader.classList.add('d-none');
@@ -644,7 +693,7 @@
             let html = `
                 <div class="d-flex align-items-center justify-content-between mb-2 pb-1">
                     <h6 class="fw-bold mb-0 text-success" style="font-size: 14px;">
-                        <i class="bi bi-clock-history me-1"></i> Active Placed Orders (${orders.length})
+                        <i class="bi bi-clock-history me-1"></i> Active Placed Orders (${pendingOrders.length})
                     </h6>
                     <span class="badge bg-success-subtle text-success border border-success px-2 py-1" style="font-size: 11px;">
                         <span class="spinner-grow spinner-grow-sm me-1" style="width: 7px; height: 7px;" role="status"></span> Live Status
@@ -652,8 +701,8 @@
                 </div>
             `;
 
-            orders.forEach((ord, index) => {
-                const roundNum = orders.length - index;
+            pendingOrders.forEach((ord, index) => {
+                const roundNum = pendingOrders.length - index;
                 const st = getOrderStatusDetails(ord.status, ord.statusCode, ord.isPaid);
 
                 let itemsHtml = '';
@@ -688,13 +737,14 @@
                             <!-- Mini Stepper Bar -->
                             <div class="my-2">
                                 <div class="progress" style="height: 6px; background-color: #ECECEC;">
-                                    <div class="progress-bar ${st.step >= 3 ? 'bg-success' : 'bg-primary'}" role="progressbar" style="width: ${st.pct}%;"></div>
+                                    <div class="progress-bar ${st.step >= 4 ? 'bg-success' : 'bg-primary'}" role="progressbar" style="width: ${st.pct}%;"></div>
                                 </div>
                                 <div class="d-flex justify-content-between mt-1 text-muted" style="font-size: 10px;">
                                     <span class="${st.step >= 0 ? 'text-dark fw-bold' : ''}">Placed</span>
-                                    <span class="${st.step >= 1 ? 'text-dark fw-bold' : ''}">Cooking</span>
-                                    <span class="${st.step >= 2 ? 'text-dark fw-bold' : ''}">Ready</span>
-                                    <span class="${st.step >= 3 ? 'text-dark fw-bold' : ''}">Served</span>
+                                    <span class="${st.step >= 1 ? 'text-dark fw-bold' : ''}">Accepted</span>
+                                    <span class="${st.step >= 2 ? 'text-dark fw-bold' : ''}">Cooking</span>
+                                    <span class="${st.step >= 3 ? 'text-dark fw-bold' : ''}">Ready</span>
+                                    <span class="${st.step >= 4 ? 'text-dark fw-bold' : ''}">Served</span>
                                 </div>
                             </div>
 
@@ -711,7 +761,7 @@
                             <!-- Action Buttons -->
                             <div class="mt-2 pt-1 border-top">
                                 <a href="/order/track/${ord.orderToken}" class="btn btn-outline-dark btn-sm w-100 rounded-pill fw-semibold py-1 d-flex align-items-center justify-content-center gap-1" style="font-size: 12px;">
-                                    <i class="bi bi-receipt text-primary"></i> ${ord.isPaid ? 'View Tax Receipt & Bill' : 'View Bill & Pay Online (UPI)'}
+                                    <i class="bi bi-wallet2 text-primary"></i> View Bill &amp; Pay Online (UPI)
                                 </a>
                             </div>
                         </div>
@@ -725,10 +775,24 @@
 
         async function loadActiveOrders() {
             try {
-                const res = await fetch(`/api/table/active-orders?tableToken=${encodeURIComponent(tableToken)}&restaurantSlug=${encodeURIComponent(restaurantSlug)}`);
+                const myTokens = getSessionOrderTokens();
+                if (!myTokens || myTokens.length === 0) {
+                    currentActiveOrders = [];
+                    renderActiveOrdersUI([]);
+                    updateCartUI();
+                    return;
+                }
+
+                const res = await fetch(`/api/table/active-orders?tableToken=${encodeURIComponent(tableToken)}&restaurantSlug=${encodeURIComponent(restaurantSlug)}&tokens=${encodeURIComponent(myTokens.join(','))}`);
                 if (res.ok) {
                     const orders = await res.json();
-                    currentActiveOrders = orders;
+                    // Filter out any settled/paid orders (paid bills should not show in cart)
+                    currentActiveOrders = (orders || []).filter(o => !o.isPaid && o.statusCode !== 6);
+
+                    // Sync active tokens in session: prune any tokens that are now paid/completed
+                    const activeTokens = currentActiveOrders.map(o => o.orderToken);
+                    localStorage.setItem(sessionOrdersKey, JSON.stringify(activeTokens));
+
                     renderActiveOrdersUI(currentActiveOrders);
                     updateCartUI();
                 }
@@ -1107,6 +1171,11 @@
 
                 const result = await response.json();
                 if (response.ok && result.success) {
+                    // Save new order token into this diner's session
+                    if (result.orderToken) {
+                        saveSessionOrderToken(result.orderToken);
+                    }
+
                     // Order submitted successfully!
                     // Clear the draft cart & notes
                     cart = {};

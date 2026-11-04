@@ -169,7 +169,10 @@
     <script>
         async function toggleStatus(restaurantId) {
             try {
-                const response = await fetch(`/SuperAdmin/ToggleRestaurantStatus?id=${restaurantId}`, { method: 'POST' });
+                const response = await fetch(`/SuperAdmin/ToggleRestaurantStatus?id=${restaurantId}`, {
+                    method: 'POST',
+                    headers: { 'RequestVerificationToken': getAntiForgeryToken() }
+                });
                 const data = await response.json();
                 if (data.success) {
                     const label = document.getElementById(`label-${restaurantId}`);

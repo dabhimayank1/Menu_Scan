@@ -1,139 +1,446 @@
 @inject MenuScan.Services.ITenantService TenantService
 @inject MenuScan.Data.ApplicationDbContext AppDb
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
 @using Microsoft.EntityFrameworkCore
 @{
     var tenantId = TenantService.CurrentRestaurantId;
     var currentRestaurant = tenantId.HasValue 
         ? AppDb.Restaurants.IgnoreQueryFilters().FirstOrDefault(r => r.Id == tenantId.Value) 
         : null;
-    var brandName = currentRestaurant?.Name ?? "Brew & Bliss";
-    var primaryTableToken = currentRestaurant != null
-        ? AppDb.DiningTables.IgnoreQueryFilters().Where(t => t.RestaurantId == currentRestaurant.Id).Select(t => t.Token).FirstOrDefault() ?? "TAB-01"
-        : "TAB-01";
+    if (currentRestaurant == null)
+    {
+        currentRestaurant = AppDb.Restaurants.IgnoreQueryFilters().FirstOrDefault(r => r.Slug == "spice-symphony" && r.IsActive)
+            ?? AppDb.Restaurants.IgnoreQueryFilters().FirstOrDefault(r => r.IsActive);
+    }
+    var allRestaurants = AppDb.Restaurants.IgnoreQueryFilters().Where(r => r.IsActive).OrderBy(r => r.Name).ToList();
+
+    var brandName = currentRestaurant?.Name ?? "Brew & Bliss Coffee House";
+    var primaryTable = currentRestaurant != null
+        ? AppDb.DiningTables.IgnoreQueryFilters().Where(t => t.RestaurantId == currentRestaurant.Id).OrderBy(t => t.TableNumber).FirstOrDefault()
+        : null;
+    var primaryTableToken = primaryTable?.Token ?? "TAB-01";
+    var primaryTableName = primaryTable?.TableNumber ?? "Table 1";
     var primarySlug = currentRestaurant?.Slug ?? "spice-symphony";
     var customerMenuUrl = $"/r/{primarySlug}/t/{primaryTableToken}";
+
+    var currentController = ViewContext.RouteData.Values["controller"]?.ToString() ?? "";
+    var currentAction = ViewContext.RouteData.Values["action"]?.ToString() ?? "";
+    var isAuth = User.Identity?.IsAuthenticated == true;
 }
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="antiforgery-token" content="@Antiforgery.GetAndStoreTokens(Context).RequestToken" />
     <title>@ViewData["Title"] - @brandName</title>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <style>
+        /* Admin Sidebar Layout */
+        .app-sidebar {
+            width: 260px;
+            height: 100vh;
+            position: fixed;
+            top: 0;
+            left: 0;
+            background: #18120E;
+            color: #E6DCD2;
+            border-right: 1px solid rgba(255, 255, 255, 0.08);
+            z-index: 1045;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        .app-sidebar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .app-sidebar::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+        }
+
+        .sidebar-brand-box {
+            padding: 20px 18px 14px 18px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(0, 0, 0, 0.15);
+        }
+
+        .sidebar-nav-section {
+            padding: 14px 12px 6px 12px;
+        }
+
+        .sidebar-section-title {
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: rgba(255, 255, 255, 0.4);
+            padding: 0 12px;
+            margin-bottom: 6px;
+        }
+
+        .sidebar-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 9px 12px;
+            margin-bottom: 3px;
+            border-radius: 10px;
+            color: #CFC5BC;
+            font-size: 13.5px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.15s ease-in-out;
+        }
+
+        .sidebar-link i {
+            font-size: 16px;
+            width: 20px;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.55);
+            transition: color 0.15s ease;
+        }
+
+        .sidebar-link:hover {
+            background: rgba(255, 255, 255, 0.07);
+            color: #FFFFFF;
+        }
+
+        .sidebar-link:hover i {
+            color: #EBB37D;
+        }
+
+        .sidebar-link.active {
+            background: var(--cafe-primary, #B3683C);
+            color: #FFFFFF;
+            box-shadow: 0 4px 14px rgba(179, 104, 60, 0.35);
+        }
+
+        .sidebar-link.active i {
+            color: #FFFFFF;
+        }
+
+        .sidebar-footer {
+            margin-top: auto;
+            padding: 14px 16px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(0, 0, 0, 0.25);
+        }
+
+        /* Content Wrapper */
+        .app-main-wrapper {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            transition: margin-left 0.25s ease;
+        }
+
+        @@media (min-width: 992px) {
+            .app-main-wrapper.has-sidebar {
+                margin-left: 260px;
+            }
+        }
+
+        @@media (max-width: 991.98px) {
+            .app-sidebar {
+                transform: translateX(-100%);
+            }
+            .app-sidebar.show {
+                transform: translateX(0);
+                box-shadow: 10px 0 30px rgba(0, 0, 0, 0.6);
+            }
+            .sidebar-backdrop {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.65);
+                z-index: 1040;
+                backdrop-filter: blur(2px);
+            }
+            .sidebar-backdrop.show {
+                display: block;
+            }
+        }
+
+        /* Top Slim Bar */
+        .app-topbar {
+            background: #FFFFFF;
+            border-bottom: 1px solid var(--cafe-border, #EFE4D8);
+            padding: 10px 24px;
+            position: sticky;
+            top: 0;
+            z-index: 1030;
+        }
+    </style>
 </head>
 <body class="d-flex flex-column min-vh-100" style="background-color: var(--cafe-bg);">
+
+@if (isAuth)
+{
+    <!-- Mobile Backdrop -->
+    <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="toggleSidebar()"></div>
+
+    <!-- ========================================== -->
+    <!-- LEFT SIDEBAR NAVIGATION                    -->
+    <!-- ========================================== -->
+    <aside class="app-sidebar" id="appSidebar">
+        <!-- Brand & Active Shop Switcher -->
+        <div class="sidebar-brand-box">
+            @if (User.IsInRole("SuperAdmin"))
+            {
+                <a asp-controller="SuperAdmin" asp-action="Index" class="d-flex align-items-center text-white text-decoration-none mb-1">
+                    <span class="fs-4 me-2">🏢</span>
+                    <div class="text-truncate">
+                        <span class="fw-bold fs-5 text-truncate d-block" style="letter-spacing: -0.5px;">MenuScan SaaS</span>
+                        <small class="badge bg-warning text-dark py-0 px-2 fw-semibold" style="font-size: 0.65rem;">Platform Super Admin</small>
+                    </div>
+                </a>
+
+                @if (allRestaurants.Count > 1)
+                {
+                    <div class="dropdown w-100 mt-2">
+                        <button class="btn btn-dark btn-sm w-100 rounded-3 border border-secondary border-opacity-50 py-2 px-3 text-start d-flex justify-content-between align-items-center" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Switch Active Shop">
+                            <div class="text-truncate" style="max-width: 180px;">
+                                <i class="bi bi-shop text-warning me-2"></i>
+                                <span class="small fw-bold">@brandName</span>
+                            </div>
+                            <i class="bi bi-chevron-expand small text-white-50"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-dark shadow-lg rounded-3 w-100 py-2 border-secondary">
+                            <li class="dropdown-header text-uppercase text-white-50 small fw-bold px-3 py-1">
+                                <i class="bi bi-buildings me-1"></i> Switch Active Shop
+                            </li>
+                            @foreach (var rest in allRestaurants)
+                            {
+                                var isSel = currentRestaurant != null && rest.Id == currentRestaurant.Id;
+                                <li>
+                                    <form asp-controller="Account" asp-action="SwitchRestaurant" method="post" class="m-0 p-0">
+                                        <input type="hidden" name="id" value="@rest.Id" />
+                                        <input type="hidden" name="returnUrl" value="@Context.Request.Path@Context.Request.QueryString" />
+                                        <button type="submit" class="dropdown-item d-flex justify-content-between align-items-center py-2 px-3 @(isSel ? "active fw-bold text-warning" : "")">
+                                            <span class="small text-truncate"><i class="bi bi-cup-hot me-2 text-warning"></i>@rest.Name</span>
+                                            @if (isSel)
+                                            {
+                                                <i class="bi bi-check2 text-warning ms-1"></i>
+                                            }
+                                        </button>
+                                    </form>
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                }
+            }
+            else
+            {
+                <a asp-controller="Home" asp-action="Index" class="d-flex align-items-center text-white text-decoration-none mb-1">
+                    <span class="fs-4 me-2">☕</span>
+                    <span class="fw-bold fs-5 text-truncate" style="letter-spacing: -0.5px;">@brandName</span>
+                </a>
+                <div class="text-white-50 small px-1" style="font-size: 0.75rem;">
+                    <i class="bi bi-geo-alt-fill text-warning me-1"></i> Store Staff Portal
+                </div>
+            }
+        </div>
+
+        <!-- Navigation Links -->
+        <div class="flex-grow-1">
+            <!-- 1. Operations Group -->
+            <div class="sidebar-nav-section">
+                <div class="sidebar-section-title">Live Operations</div>
+                
+                @if (User.IsInRole("RestaurantAdmin") || User.IsInRole("SuperAdmin"))
+                {
+                    <a asp-controller="Admin" asp-action="Index" class="sidebar-link @(currentController == "Admin" && currentAction == "Index" ? "active" : "")">
+                        <i class="bi bi-speedometer2"></i>
+                        <span>Dashboard</span>
+                    </a>
+                }
+
+                @if (User.IsInRole("RestaurantAdmin") || User.IsInRole("Cashier") || User.IsInRole("KitchenStaff") || User.IsInRole("SuperAdmin"))
+                {
+                    <a asp-controller="FloorPlan" asp-action="Index" class="sidebar-link @(currentController == "FloorPlan" ? "active" : "")">
+                        <i class="bi bi-diagram-3"></i>
+                        <span>Floor Plan &amp; Tables</span>
+                    </a>
+                }
+
+                @if (User.IsInRole("KitchenStaff") || User.IsInRole("RestaurantAdmin") || User.IsInRole("SuperAdmin"))
+                {
+                    <a asp-controller="Kitchen" asp-action="Index" class="sidebar-link @(currentController == "Kitchen" ? "active" : "")">
+                        <i class="bi bi-fire text-warning"></i>
+                        <span>Kitchen KDS</span>
+                    </a>
+                }
+
+                @if (User.IsInRole("Cashier") || User.IsInRole("RestaurantAdmin") || User.IsInRole("SuperAdmin"))
+                {
+                    <a asp-controller="Billing" asp-action="Index" class="sidebar-link @(currentController == "Billing" ? "active" : "")">
+                        <i class="bi bi-cash-stack text-success"></i>
+                        <span>Billing &amp; Cashier</span>
+                    </a>
+                }
+            </div>
+
+            <!-- 2. Store & Catalog Management -->
+            @if (User.IsInRole("RestaurantAdmin") || User.IsInRole("SuperAdmin"))
+            {
+                <div class="sidebar-nav-section">
+                    <div class="sidebar-section-title">Store Management</div>
+
+                    <a asp-controller="Admin" asp-action="Menu" class="sidebar-link @(currentController == "Admin" && currentAction == "Menu" ? "active" : "")">
+                        <i class="bi bi-menu-button-wide"></i>
+                        <span>Menu Catalog</span>
+                    </a>
+
+                    <a asp-controller="Admin" asp-action="Tables" class="sidebar-link @(currentController == "Admin" && (currentAction == "Tables" || currentAction == "PrintTableStands") ? "active" : "")">
+                        <i class="bi bi-grid-3x3-gap"></i>
+                        <span>Tables &amp; QRs</span>
+                    </a>
+
+                    <a asp-controller="Admin" asp-action="Staff" class="sidebar-link @(currentController == "Admin" && currentAction == "Staff" ? "active" : "")">
+                        <i class="bi bi-people"></i>
+                        <span>Staff &amp; Roles</span>
+                    </a>
+                </div>
+
+                <!-- 3. Reports & Analytics -->
+                <div class="sidebar-nav-section">
+                    <div class="sidebar-section-title">Reports &amp; Reviews</div>
+
+                    <a asp-controller="Reports" asp-action="DailySales" class="sidebar-link @(currentController == "Reports" && currentAction == "DailySales" ? "active" : "")">
+                        <i class="bi bi-calendar-check"></i>
+                        <span>Daily Sales Report</span>
+                    </a>
+
+                    <a asp-controller="Reports" asp-action="MonthlySales" class="sidebar-link @(currentController == "Reports" && currentAction == "MonthlySales" ? "active" : "")">
+                        <i class="bi bi-calendar-month text-warning"></i>
+                        <span>Monthly Sales Report</span>
+                    </a>
+
+                    <a asp-controller="Admin" asp-action="Feedback" class="sidebar-link @(currentController == "Admin" && currentAction == "Feedback" ? "active" : "")">
+                        <i class="bi bi-star"></i>
+                        <span>Customer Feedback</span>
+                    </a>
+                </div>
+            }
+
+            <!-- 4. SuperAdmin SaaS Group -->
+            @if (User.IsInRole("SuperAdmin"))
+            {
+                <div class="sidebar-nav-section">
+                    <div class="sidebar-section-title text-warning">Platform SaaS</div>
+
+                    <a asp-controller="SuperAdmin" asp-action="Index" class="sidebar-link @(currentController == "SuperAdmin" && currentAction == "Index" ? "active" : "")">
+                        <i class="bi bi-buildings text-warning"></i>
+                        <span>SaaS Overview</span>
+                    </a>
+
+                    <a asp-controller="SuperAdmin" asp-action="CreateRestaurant" class="sidebar-link @(currentController == "SuperAdmin" && currentAction == "CreateRestaurant" ? "active" : "")">
+                        <i class="bi bi-plus-circle text-success"></i>
+                        <span>Register New Shop</span>
+                    </a>
+                </div>
+            }
+        </div>
+
+        <!-- Sidebar Footer -->
+        <div class="sidebar-footer">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+                <div class="text-truncate me-2">
+                    <div class="text-white small fw-bold text-truncate" style="max-width: 140px;">@(User.Identity?.Name ?? "User")</div>
+                    <small class="text-white-50" style="font-size: 0.72rem;">@(User.IsInRole("SuperAdmin") ? "Super Admin" : "Store Staff")</small>
+                </div>
+                <form asp-controller="Account" asp-action="Logout" method="post" class="d-inline">
+                    <button type="submit" class="btn btn-outline-light btn-sm rounded-circle p-1" style="width: 32px; height: 32px;" title="Sign Out">
+                        <i class="bi bi-box-arrow-right"></i>
+                    </button>
+                </form>
+            </div>
+            <a href="@customerMenuUrl" target="_blank" class="btn btn-dark btn-sm w-100 rounded-pill border border-secondary border-opacity-50 text-white-50 text-truncate" style="font-size: 0.75rem;">
+                <i class="bi bi-phone me-1 text-warning"></i> Diner Menu (@primaryTableName)
+            </a>
+        </div>
+    </aside>
+
+    <!-- ========================================== -->
+    <!-- MAIN CONTENT WRAPPER                       -->
+    <!-- ========================================== -->
+    <div class="app-main-wrapper has-sidebar">
+        <!-- Top Slim Bar -->
+        <header class="app-topbar d-flex justify-content-between align-items-center shadow-sm">
+            <div class="d-flex align-items-center gap-3">
+                <button type="button" class="btn btn-light d-lg-none border rounded-3 p-1 px-2" onclick="toggleSidebar()" title="Toggle Menu">
+                    <i class="bi bi-list fs-5"></i>
+                </button>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-dark rounded-pill px-3 py-1">@brandName</span>
+                    <span class="text-muted small d-none d-md-inline">&bull; @ViewData["Title"]</span>
+                </div>
+            </div>
+
+            <!-- Topbar Right Actions -->
+            <div class="d-flex align-items-center gap-2">
+                <!-- Soundbox Voice Pill -->
+                <div class="d-flex align-items-center gap-1 bg-light border rounded-pill px-2 py-1 shadow-sm">
+                    <button type="button" class="btn btn-link text-dark p-0 text-decoration-none d-flex align-items-center" onclick="MenuScanSoundbox.toggle()" title="Toggle Voice Soundbox">
+                        <i class="bi bi-volume-up-fill text-success fs-6 soundbox-status-icon"></i>
+                        <span class="small ms-1 soundbox-status-text text-muted" style="font-size: 0.75rem;">Soundbox: ON</span>
+                    </button>
+                    <span class="text-muted">|</span>
+                    <select class="form-select form-select-sm bg-transparent border-0 py-0 px-1 soundbox-lang-select" style="width: auto; font-size: 0.75rem; cursor: pointer;" onchange="MenuScanSoundbox.setLanguage(this.value)">
+                        <option value="hi">🇮🇳 हिन्दी</option>
+                        <option value="en">🇬🇧 English</option>
+                    </select>
+                    <button type="button" class="btn btn-outline-dark btn-sm rounded-pill py-0 px-2 border-0" style="font-size: 0.7rem;" onclick="MenuScanSoundbox.testSoundbox()" title="Test Voice Output">
+                        <i class="bi bi-play-fill"></i> Test
+                    </button>
+                </div>
+
+                <!-- Customer QR Menu Shortcut -->
+                <a href="@customerMenuUrl" target="_blank" class="btn btn-cafe-primary btn-sm rounded-pill px-3 fw-bold shadow-sm d-none d-sm-inline-flex align-items-center">
+                    <i class="bi bi-phone me-1"></i> Customer View
+                </a>
+            </div>
+        </header>
+
+        <!-- Body Render -->
+        <main role="main" class="flex-grow-1">
+            @RenderBody()
+        </main>
+
+        <footer class="footer mt-auto py-3 border-top text-center text-muted small bg-white">
+            <div class="container-fluid">
+                &copy; @DateTime.UtcNow.Year @brandName &bull; Powered by MenuScan
+            </div>
+        </footer>
+    </div>
+}
+else
+{
+    <!-- Public Minimal Navigation for Guests / Login -->
     <header>
-        <nav class="navbar navbar-expand-lg navbar-dark shadow-sm py-2" style="background-color: #241812; border-bottom: 2px solid #3D291F;">
+        <nav class="navbar navbar-expand-lg navbar-dark shadow-sm py-2" style="background-color: #18120E;">
             <div class="container-fluid px-3 px-lg-4">
                 <a class="navbar-brand fw-bold d-flex align-items-center" asp-controller="Home" asp-action="Index">
                     <span class="fs-4 me-2">☕</span>
                     <span style="letter-spacing: -0.5px;">@brandName</span>
                 </a>
-                <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
-                <div class="collapse navbar-collapse" id="navbarContent">
-                    <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                        <li class="nav-item">
-                            <a class="nav-link" href="@customerMenuUrl"><i class="bi bi-phone me-1"></i>Customer QR Menu</a>
-                        </li>
-                        @if (User.Identity?.IsAuthenticated == true)
-                        {
-                            @if (User.IsInRole("SuperAdmin"))
-                            {
-                                <li class="nav-item">
-                                    <a class="nav-link text-warning fw-bold" asp-controller="SuperAdmin" asp-action="Index">
-                                        <i class="bi bi-buildings me-1"></i>Platform SaaS
-                                    </a>
-                                </li>
-                            }
-                            @if (User.IsInRole("RestaurantAdmin") || User.IsInRole("SuperAdmin"))
-                            {
-                                <li class="nav-item">
-                                    <a class="nav-link" asp-controller="Admin" asp-action="Index"><i class="bi bi-speedometer2 me-1"></i>Dashboard</a>
-                                </li>
-                                <li class="nav-item">
-                                    <a class="nav-link" asp-controller="Admin" asp-action="Tables"><i class="bi bi-grid-3x3-gap me-1"></i>Tables & QRs</a>
-                                </li>
-                                <li class="nav-item">
-                                    <a class="nav-link" asp-controller="Admin" asp-action="Menu"><i class="bi bi-menu-button-wide me-1"></i>Menu</a>
-                                </li>
-                                <li class="nav-item">
-                                    <a class="nav-link" asp-controller="Reports" asp-action="DailySales"><i class="bi bi-graph-up me-1"></i>Reports</a>
-                                </li>
-                                <li class="nav-item">
-                                    <a class="nav-link" asp-controller="Admin" asp-action="Feedback"><i class="bi bi-star me-1"></i>Feedback</a>
-                                </li>
-                            }
-                            @if (User.IsInRole("RestaurantAdmin") || User.IsInRole("Cashier") || User.IsInRole("KitchenStaff") || User.IsInRole("SuperAdmin"))
-                            {
-                                <li class="nav-item">
-                                    <a class="nav-link text-info fw-semibold" asp-controller="FloorPlan" asp-action="Index">
-                                        <i class="bi bi-diagram-3 me-1"></i>Floor Plan
-                                    </a>
-                                </li>
-                            }
-                            @if (User.IsInRole("KitchenStaff") || User.IsInRole("RestaurantAdmin") || User.IsInRole("SuperAdmin"))
-                            {
-                                <li class="nav-item">
-                                    <a class="nav-link text-warning fw-semibold" asp-controller="Kitchen" asp-action="Index">
-                                        <i class="bi bi-fire me-1"></i>Kitchen KDS
-                                    </a>
-                                </li>
-                            }
-                            @if (User.IsInRole("Cashier") || User.IsInRole("RestaurantAdmin") || User.IsInRole("SuperAdmin"))
-                            {
-                                <li class="nav-item">
-                                    <a class="nav-link text-success fw-semibold" asp-controller="Billing" asp-action="Index">
-                                        <i class="bi bi-cash-stack me-1"></i>Billing & Cashier
-                                    </a>
-                                </li>
-                            }
-                        }
-                    </ul>
-
-                    <ul class="navbar-nav ms-auto align-items-center">
-                        @if (User.Identity?.IsAuthenticated == true)
-                        {
-                            <!-- Soundbox Quick Controls -->
-                            <li class="nav-item me-3 d-none d-md-flex align-items-center">
-                                <div class="d-flex align-items-center gap-1 bg-white bg-opacity-10 border border-secondary rounded-pill px-2 py-1 shadow-sm">
-                                    <button type="button" class="btn btn-link text-white p-0 text-decoration-none d-flex align-items-center" onclick="MenuScanSoundbox.toggle()" title="Toggle Voice Soundbox">
-                                        <i class="bi bi-volume-up-fill text-success fs-6 soundbox-status-icon"></i>
-                                        <span class="small ms-1 soundbox-status-text text-white-50" style="font-size: 0.75rem;">Soundbox: ON</span>
-                                    </button>
-                                    <span class="text-white-50">|</span>
-                                    <select class="form-select form-select-sm bg-transparent text-white border-0 py-0 px-1 soundbox-lang-select" style="width: auto; font-size: 0.75rem; cursor: pointer;" onchange="MenuScanSoundbox.setLanguage(this.value)">
-                                        <option value="hi" class="text-dark">🇮🇳 हिन्दी</option>
-                                        <option value="en" class="text-dark">🇬🇧 English</option>
-                                    </select>
-                                    <button type="button" class="btn btn-outline-warning btn-sm rounded-pill py-0 px-2 text-warning border-0" style="font-size: 0.7rem;" onclick="MenuScanSoundbox.testSoundbox()" title="Test Voice Output">
-                                        <i class="bi bi-play-fill"></i> Test
-                                    </button>
-                                </div>
-                            </li>
-                            <li class="nav-item me-3 text-white small">
-                                <i class="bi bi-person-circle me-1" style="color: var(--cafe-primary);"></i> @User.Identity.Name
-                            </li>
-                            <li class="nav-item">
-                                <form asp-controller="Account" asp-action="Logout" method="post" class="d-inline">
-                                    <button type="submit" class="btn btn-outline-light btn-sm rounded-pill px-3">
-                                        <i class="bi bi-box-arrow-right me-1"></i> Sign Out
-                                    </button>
-                                </form>
-                            </li>
-                        }
-                        else
-                        {
-                            <li class="nav-item">
-                                <a class="btn btn-cafe-primary btn-sm px-3" asp-controller="Account" asp-action="Login">
-                                    <i class="bi bi-shield-lock me-1"></i> Staff Portal
-                                </a>
-                            </li>
-                        }
-                    </ul>
+                <div class="ms-auto d-flex align-items-center gap-2">
+                    <a href="@customerMenuUrl" class="btn btn-outline-light btn-sm rounded-pill px-3">
+                        <i class="bi bi-phone me-1"></i> Customer Menu
+                    </a>
+                    <a asp-controller="Account" asp-action="Login" class="btn btn-cafe-primary btn-sm rounded-pill px-3 fw-bold">
+                        <i class="bi bi-shield-lock me-1"></i> Staff Login
+                    </a>
                 </div>
             </div>
         </nav>
@@ -143,14 +450,31 @@
         @RenderBody()
     </main>
 
-    <footer class="footer mt-auto py-3 border-top text-center text-muted small" style="background-color: #FFFFFF; border-color: var(--cafe-border) !important;">
+    <footer class="footer mt-auto py-3 border-top text-center text-muted small bg-white">
         <div class="container">
-            &copy; @DateTime.UtcNow.Year Brew &amp; Bliss Coffee House • Powered by MenuScan
+            &copy; @DateTime.UtcNow.Year @brandName &bull; Powered by MenuScan
         </div>
     </footer>
+}
 
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/soundbox.js" asp-append-version="true"></script>
+    <script>
+        function getAntiForgeryToken() {
+            const meta = document.querySelector('meta[name="antiforgery-token"]');
+            return meta ? meta.getAttribute('content') : '';
+        }
+        window.getAntiForgeryToken = getAntiForgeryToken;
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('appSidebar');
+            const backdrop = document.getElementById('sidebarBackdrop');
+            if (sidebar && backdrop) {
+                sidebar.classList.toggle('show');
+                backdrop.classList.toggle('show');
+            }
+        }
+    </script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

@@ -1,7 +1,7 @@
 @model MenuScan.Models.Entities.Order
 @{
     Layout = null;
-    var restaurant = (MenuScan.Models.Entities.Restaurant)ViewBag.Restaurant;
+    var restaurant = ViewBag.Restaurant as MenuScan.Models.Entities.Restaurant;
     var bill = Model.Bill;
     var payment = bill?.Payments.FirstOrDefault();
 }

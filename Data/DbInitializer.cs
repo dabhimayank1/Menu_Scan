@@ -2,6 +2,8 @@ using System.Security.Claims;
 using MenuScan.Models.Entities;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 
 namespace MenuScan.Data
 {
@@ -13,6 +15,9 @@ namespace MenuScan.Data
             var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
             var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var env = scope.ServiceProvider.GetRequiredService<IHostEnvironment>();
+            var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+            var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DbInitializer");
 
             await context.Database.MigrateAsync();
 
@@ -27,25 +32,119 @@ namespace MenuScan.Data
             }
 
             // 2. Seed Super Admin
-            const string superAdminEmail = "admin@menuscan.com";
-            var superAdmin = await userManager.FindByEmailAsync(superAdminEmail);
-            if (superAdmin == null)
+            if (env.IsDevelopment())
             {
-                superAdmin = new ApplicationUser
+                var configuredAdminPassword = configuration["Seed:AdminPassword"];
+                const string superAdminEmail = "admin@menuscan.com";
+                var superAdmin = await userManager.FindByEmailAsync(superAdminEmail);
+                if (superAdmin == null)
                 {
-                    UserName = superAdminEmail,
-                    Email = superAdminEmail,
-                    FullName = "Platform Super Admin",
-                    EmailConfirmed = true
-                };
-                var createResult = await userManager.CreateAsync(superAdmin, "Admin@123");
-                if (createResult.Succeeded)
+                    if (!string.IsNullOrWhiteSpace(configuredAdminPassword))
+                    {
+                        superAdmin = new ApplicationUser
+                        {
+                            UserName = superAdminEmail,
+                            Email = superAdminEmail,
+                            FullName = "Platform Super Admin",
+                            EmailConfirmed = true
+                        };
+                        var createResult = await userManager.CreateAsync(superAdmin, configuredAdminPassword);
+                        if (createResult.Succeeded)
+                        {
+                            await userManager.AddToRoleAsync(superAdmin, AppRoles.SuperAdmin);
+                        }
+                    }
+                    else
+                    {
+                        logger.LogWarning("SuperAdmin account not seeded because 'Seed:AdminPassword' is not configured.");
+                    }
+                }
+                else
                 {
-                    await userManager.AddToRoleAsync(superAdmin, AppRoles.SuperAdmin);
+                    // Detect known-weak passwords blocklist (for detection only, never to set)
+                    string[] knownWeakAdminPasswords = ["Admin@123", "Admin@Secure2026!"];
+                    bool hasLegacyPassword = false;
+                    foreach (var weakPw in knownWeakAdminPasswords)
+                    {
+                        if (await userManager.CheckPasswordAsync(superAdmin, weakPw))
+                        {
+                            hasLegacyPassword = true;
+                            break;
+                        }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(configuredAdminPassword))
+                    {
+                        if (hasLegacyPassword || (superAdmin.LockoutEnd.HasValue && superAdmin.LockoutEnd.Value > DateTimeOffset.UtcNow))
+                        {
+                            var resetToken = await userManager.GeneratePasswordResetTokenAsync(superAdmin);
+                            await userManager.ResetPasswordAsync(superAdmin, resetToken, configuredAdminPassword);
+                            superAdmin.LockoutEnd = null;
+                            await userManager.UpdateAsync(superAdmin);
+                            logger.LogInformation("SuperAdmin password was successfully updated to configured Seed:AdminPassword and lockout cleared.");
+                            await userManager.UpdateSecurityStampAsync(superAdmin);
+                        }
+                    }
+                    else if (hasLegacyPassword)
+                    {
+                        var resetToken = await userManager.GeneratePasswordResetTokenAsync(superAdmin);
+                        var randomPassword = $"A1!{Guid.NewGuid():N}{Guid.NewGuid():N}";
+                        await userManager.ResetPasswordAsync(superAdmin, resetToken, randomPassword);
+                        superAdmin.LockoutEnd = DateTimeOffset.UtcNow.AddYears(100);
+                        await userManager.UpdateAsync(superAdmin);
+                        logger.LogWarning("SuperAdmin account was using a known-weak password. It has been reset to an unlogged random password and locked out. Configure 'Seed:AdminPassword' or reset the password manually.");
+                        await userManager.UpdateSecurityStampAsync(superAdmin);
+                    }
+                }
+            }
+            else
+            {
+                // Production: Provision initial SuperAdmin if none exists and credentials provided via configuration/environment variables
+                var existingSuperAdmins = await userManager.GetUsersInRoleAsync(AppRoles.SuperAdmin);
+                if (!existingSuperAdmins.Any())
+                {
+                    var prodEmail = configuration["Seed:AdminEmail"] ?? configuration["SuperAdmin:Email"];
+                    var prodPassword = configuration["Seed:AdminPassword"] ?? configuration["SuperAdmin:Password"];
+
+                    if (!string.IsNullOrWhiteSpace(prodEmail) && !string.IsNullOrWhiteSpace(prodPassword))
+                    {
+                        var prodAdmin = await userManager.FindByEmailAsync(prodEmail);
+                        if (prodAdmin == null)
+                        {
+                            prodAdmin = new ApplicationUser
+                            {
+                                UserName = prodEmail,
+                                Email = prodEmail,
+                                FullName = "System Super Admin",
+                                EmailConfirmed = true,
+                                IsActive = true
+                            };
+                            var res = await userManager.CreateAsync(prodAdmin, prodPassword);
+                            if (res.Succeeded)
+                            {
+                                await userManager.AddToRoleAsync(prodAdmin, AppRoles.SuperAdmin);
+                                logger.LogInformation("Initial SuperAdmin account created successfully in production: {Email}", prodEmail);
+                            }
+                            else
+                            {
+                                logger.LogError("Failed to create initial SuperAdmin in production: {Errors}",
+                                    string.Join("; ", res.Errors.Select(e => e.Description)));
+                            }
+                        }
+                        else if (!await userManager.IsInRoleAsync(prodAdmin, AppRoles.SuperAdmin))
+                        {
+                            await userManager.AddToRoleAsync(prodAdmin, AppRoles.SuperAdmin);
+                            logger.LogInformation("Promoted existing user {Email} to SuperAdmin role in production.", prodEmail);
+                        }
+                    }
+                    else
+                    {
+                        logger.LogWarning("No SuperAdmin account exists in database. To create the initial SuperAdmin in production, supply 'Seed:AdminEmail' and 'Seed:AdminPassword' via configuration or environment variables.");
+                    }
                 }
             }
 
-            // 3. Seed Demo Restaurant if none exists
+            // 3. Seed Demo Restaurants if none exists
             var restaurant = await context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.Slug == "spice-symphony");
             if (restaurant == null)
             {
@@ -63,52 +162,113 @@ namespace MenuScan.Data
                 context.Restaurants.Add(restaurant);
                 await context.SaveChangesAsync();
             }
-            else
-            {
-                bool changed = false;
-                if (restaurant.Name != "Brew & Bliss Coffee House")
-                {
-                    restaurant.Name = "Brew & Bliss Coffee House";
-                    restaurant.LogoUrl = "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=150&q=80";
-                    changed = true;
-                }
-                if (restaurant.Phone != "+91 8799020418")
-                {
-                    restaurant.Phone = "+91 8799020418";
-                    changed = true;
-                }
-                if (changed)
-                {
-                    await context.SaveChangesAsync();
-                }
-            }
 
-            // 4. Seed Restaurant Staff
-            async Task SeedStaffUser(string email, string name, string role)
+            // Seed Restaurant B for multi-tenant isolation testing & demo ONLY when configured; clean up if disabled
+            if (env.IsDevelopment())
             {
-                var user = await userManager.FindByEmailAsync(email);
-                if (user == null)
+                var restaurantB = await context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.Slug == "tandoori-nights");
+                if (configuration.GetValue<bool>("Seed:CreateTestRestaurant"))
                 {
-                    user = new ApplicationUser
+                    if (restaurantB == null)
                     {
-                        UserName = email,
-                        Email = email,
-                        FullName = name,
-                        RestaurantId = restaurant.Id,
-                        EmailConfirmed = true
-                    };
-                    var res = await userManager.CreateAsync(user, "Staff@123");
-                    if (res.Succeeded)
-                    {
-                        await userManager.AddToRoleAsync(user, role);
-                        await userManager.AddClaimAsync(user, new Claim("RestaurantId", restaurant.Id.ToString()));
+                        restaurantB = new Restaurant
+                        {
+                            Name = "Tandoori Nights Grill",
+                            Slug = "tandoori-nights",
+                            Address = "42 Residency Road, Bengaluru",
+                            Phone = "+91 9876543210",
+                            TaxNumber = "29ZYXWV9876A1Z3",
+                            DefaultTaxRate = 5.0m,
+                            IsActive = true
+                        };
+                        context.Restaurants.Add(restaurantB);
+                        await context.SaveChangesAsync();
                     }
                 }
+                else if (restaurantB != null)
+                {
+                    context.Restaurants.Remove(restaurantB);
+                    await context.SaveChangesAsync();
+                    logger.LogInformation("Cleaned up temporary test restaurant 'tandoori-nights' from development database.");
+                }
             }
 
-            await SeedStaffUser("manager@spicesymphony.com", "Cafe Manager", AppRoles.RestaurantAdmin);
-            await SeedStaffUser("cashier@spicesymphony.com", "Main Cashier", AppRoles.Cashier);
-            await SeedStaffUser("kitchen@spicesymphony.com", "Head Chef", AppRoles.KitchenStaff);
+            // 4. Seed Restaurant Staff (Development only; passwords from config)
+            if (env.IsDevelopment())
+            {
+                var configuredStaffPassword = configuration["Seed:StaffPassword"];
+
+                async Task SeedStaffUser(string email, string name, string role)
+                {
+                    var user = await userManager.FindByEmailAsync(email);
+                    if (user == null)
+                    {
+                        if (!string.IsNullOrWhiteSpace(configuredStaffPassword))
+                        {
+                            user = new ApplicationUser
+                            {
+                                UserName = email,
+                                Email = email,
+                                FullName = name,
+                                RestaurantId = restaurant.Id,
+                                EmailConfirmed = true,
+                                IsActive = true
+                            };
+                            var res = await userManager.CreateAsync(user, configuredStaffPassword);
+                            if (res.Succeeded)
+                            {
+                                await userManager.AddToRoleAsync(user, role);
+                                await userManager.AddClaimAsync(user, new Claim("RestaurantId", restaurant.Id.ToString()));
+                            }
+                        }
+                        else
+                        {
+                            logger.LogWarning("Staff user '{Email}' not seeded because 'Seed:StaffPassword' is not configured.", email);
+                        }
+                    }
+                    else
+                    {
+                        // Detect known-weak passwords blocklist (for detection only, never to set)
+                        string[] knownWeakStaffPasswords = ["Staff@123", "Staff@Secure2026!"];
+                        bool hasLegacyPassword = false;
+                        foreach (var weakPw in knownWeakStaffPasswords)
+                        {
+                            if (await userManager.CheckPasswordAsync(user, weakPw))
+                            {
+                                hasLegacyPassword = true;
+                                break;
+                            }
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(configuredStaffPassword))
+                        {
+                            if (hasLegacyPassword || !user.IsActive)
+                            {
+                                var resetToken = await userManager.GeneratePasswordResetTokenAsync(user);
+                                await userManager.ResetPasswordAsync(user, resetToken, configuredStaffPassword);
+                                user.IsActive = true;
+                                await userManager.UpdateAsync(user);
+                                logger.LogInformation("Staff '{Email}' password was successfully updated to configured Seed:StaffPassword and reactivated.", email);
+                                await userManager.UpdateSecurityStampAsync(user);
+                            }
+                        }
+                        else if (hasLegacyPassword)
+                        {
+                            var resetToken = await userManager.GeneratePasswordResetTokenAsync(user);
+                            var randomPassword = $"S1!{Guid.NewGuid():N}{Guid.NewGuid():N}";
+                            await userManager.ResetPasswordAsync(user, resetToken, randomPassword);
+                            user.IsActive = false;
+                            await userManager.UpdateAsync(user);
+                            logger.LogWarning("Staff account '{Email}' was using a known-weak password. It has been reset to an unlogged random password and deactivated. Configure 'Seed:StaffPassword' or activate and reset the password manually.", email);
+                            await userManager.UpdateSecurityStampAsync(user);
+                        }
+                    }
+                }
+
+                await SeedStaffUser("manager@spicesymphony.com", "Cafe Manager", AppRoles.RestaurantAdmin);
+                await SeedStaffUser("cashier@spicesymphony.com", "Main Cashier", AppRoles.Cashier);
+                await SeedStaffUser("kitchen@spicesymphony.com", "Head Chef", AppRoles.KitchenStaff);
+            }
 
             // 5. Seed Tables
             var existingTables = await context.DiningTables.IgnoreQueryFilters()
@@ -119,10 +279,10 @@ namespace MenuScan.Data
             {
                 var tables = new List<DiningTable>
                 {
-                    new() { RestaurantId = restaurant.Id, TableNumber = "Table 1", Token = "TAB-01", Capacity = 2 },
-                    new() { RestaurantId = restaurant.Id, TableNumber = "Table 2", Token = "TAB-02", Capacity = 4 },
-                    new() { RestaurantId = restaurant.Id, TableNumber = "Table 3", Token = "TAB-03", Capacity = 4 },
-                    new() { RestaurantId = restaurant.Id, TableNumber = "Table 4", Token = "TAB-04", Capacity = 6 }
+                    new() { RestaurantId = restaurant.Id, TableNumber = "Table 1", Token = Guid.NewGuid().ToString("N")[..12].ToUpperInvariant(), Capacity = 2 },
+                    new() { RestaurantId = restaurant.Id, TableNumber = "Table 2", Token = Guid.NewGuid().ToString("N")[..12].ToUpperInvariant(), Capacity = 4 },
+                    new() { RestaurantId = restaurant.Id, TableNumber = "Table 3", Token = Guid.NewGuid().ToString("N")[..12].ToUpperInvariant(), Capacity = 4 },
+                    new() { RestaurantId = restaurant.Id, TableNumber = "Table 4", Token = Guid.NewGuid().ToString("N")[..12].ToUpperInvariant(), Capacity = 6 }
                 };
                 context.DiningTables.AddRange(tables);
                 await context.SaveChangesAsync();

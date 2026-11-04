@@ -130,17 +130,19 @@
             @{
                 var isOrderPaid = Model.Order.Status == MenuScan.Models.Entities.OrderStatus.Completed || 
                                   (Model.Order.Bill != null && Model.Order.Bill.Status == MenuScan.Models.Entities.BillStatus.Paid);
+                var isAwaitingCashier = !isOrderPaid && (ViewBag.AwaitingCashierApproval == true);
             }
             <div class="card shadow-sm border-0 rounded-4 mb-4 bg-white overflow-hidden" id="onlinePaymentCard">
                 <div class="card-header text-white py-3 d-flex justify-content-between align-items-center" style="background-color: #241812;">
                     <h6 class="fw-bold mb-0 text-white"><i class="bi bi-wallet2 text-success me-2"></i>Table Bill &amp; Payment</h6>
-                    <span class="badge @(isOrderPaid ? "bg-success" : "bg-warning text-dark") rounded-pill px-3 py-1" id="badgePaymentStatus">
-                        @(isOrderPaid ? "✓ Paid & Settled" : "Unpaid")
+                    <span class="badge @(isOrderPaid ? "bg-success text-white" : isAwaitingCashier ? "bg-warning text-dark" : "bg-warning text-dark") rounded-pill px-3 py-1" id="badgePaymentStatus">
+                        @(isOrderPaid ? "✓ Paid & Settled" : isAwaitingCashier ? "⏳ Verification Pending" : "Unpaid")
                     </span>
                 </div>
                 
                 <div class="card-body p-4 text-center">
-                    <div id="paymentUnpaidSection" class="@(isOrderPaid ? "d-none" : "")">
+                    <!-- 1. Unpaid state (before diner reports payment) -->
+                    <div id="paymentUnpaidSection" class="@(isOrderPaid || isAwaitingCashier ? "d-none" : "")">
                         <span class="badge bg-light text-muted border px-3 py-1 rounded-pill small mb-2">Self-Checkout</span>
                         <h3 class="fw-bold mb-1" style="color: var(--cafe-primary);">₹@Model.Order.TotalAmount.ToString("0.00")</h3>
                         <p class="text-muted small mb-3">Pay securely at your table using Google Pay, PhonePe, Paytm, or any UPI app</p>
@@ -150,6 +152,30 @@
                         </button>
                     </div>
 
+                    <!-- 2. Awaiting Cashier Approval state (after diner clicks I Have Paid) -->
+                    <div id="paymentPendingVerificationSection" class="@(isAwaitingCashier ? "" : "d-none")">
+                        <div class="p-3 bg-warning-subtle border border-warning rounded-4 text-center">
+                            <div class="spinner-border spinner-border-sm text-warning mb-2" role="status"></div>
+                            <h5 class="fw-bold text-dark mb-1">⏳ Payment Verification Pending</h5>
+                            <p class="text-muted small mb-2">
+                                Cashier ko payment notification bhej di gayi hai. Cashier bank account me <strong>₹@Model.Order.TotalAmount.ToString("0.00")</strong> credit verify kar raha hai.
+                            </p>
+                            <div class="alert alert-light border small text-start py-2 px-3 mb-3">
+                                <i class="bi bi-shield-lock-fill text-warning me-1"></i>
+                                <strong>Cashier Approval Required:</strong> Official Tax Receipt cashier ke confirmation ke baad hi unlock hogi.
+                            </div>
+                            <div class="d-flex justify-content-center gap-2">
+                                <button type="button" class="btn btn-outline-dark btn-sm rounded-pill px-3" onclick="openUpiCheckoutModal()">
+                                    <i class="bi bi-qr-code-scan me-1"></i> Open QR Scanner
+                                </button>
+                                <button type="button" class="btn btn-warning btn-sm rounded-pill px-3 fw-bold text-dark" onclick="confirmDirectUpiPayment()">
+                                    <i class="bi bi-bell-fill me-1"></i> Remind Cashier
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. Settled & Paid state (ONLY when Cashier approves / settles) -->
                     <div id="paymentPaidSection" class="@(isOrderPaid ? "" : "d-none")">
                         <span class="display-4 text-success d-block mb-2">✅</span>
                         <h5 class="fw-bold mb-1 text-success">Bill Settled &amp; Paid</h5>
@@ -162,7 +188,7 @@
                     </div>
 
                     <div id="paymentSuccessAlert" class="alert alert-success d-none rounded-3 py-2 px-3 small mt-3">
-                        <i class="bi bi-check-circle-fill me-1"></i> Payment confirmed! Click <strong>View Tax Receipt</strong> above to inspect or print your official bill.
+                        <i class="bi bi-check-circle-fill me-1"></i> Payment verified &amp; approved by Cashier! Click <strong>View Tax Receipt</strong> above to inspect or print your official bill.
                     </div>
                 </div>
             </div>
@@ -373,136 +399,38 @@
                 <div class="spinner-border text-primary my-4" role="status" id="upiLoadingSpinner"></div>
                 
                 <div id="upiModalContent" class="d-none">
-                    <!-- QR View Mode Switcher -->
-                    <div class="d-flex justify-content-center gap-2 mb-3">
-                        <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 fw-bold" id="btnModeStandeeQr" onclick="switchQrMode('standee')">
-                            <i class="bi bi-qr-code me-1"></i> Official Google Pay QR
-                        </button>
-                        <button type="button" class="btn btn-sm btn-outline-dark rounded-pill px-3 fw-bold" id="btnModeDynamicQr" onclick="switchQrMode('dynamic')">
-                            <i class="bi bi-lightning-charge me-1"></i> Auto-Amount QR (PhonePe/Paytm)
-                        </button>
-                    </div>
-
-                    <!-- Standee / Uploaded Real QR Box (Default!) -->
-                    <div id="standeeQrContainer" class="mb-2">
+                    <!-- Verified Official Scanner Image -->
+                    <div id="standeeQrContainer" class="mb-3 text-center">
                         <div class="position-relative d-inline-block p-3 bg-white rounded-4 border shadow-sm" style="max-width: 290px;">
-                            <img id="standeeQrImage" src="/uploads/payment-qrs/dabhi-mayank-qr.jpeg" alt="Merchant Standee QR" class="img-fluid rounded-3" style="max-height: 260px; object-fit: contain;" />
+                            <img id="standeeQrImage" src="@(!string.IsNullOrWhiteSpace(Model.Restaurant.PaymentQrImageUrl) ? Model.Restaurant.PaymentQrImageUrl : "/uploads/payment-qrs/default-qr.png")" alt="Verified UPI Scanner QR" class="img-fluid rounded-3" style="max-height: 260px; object-fit: contain;" />
                             <div class="small fw-semibold text-success mt-2 d-flex align-items-center justify-content-center gap-1">
-                                <i class="bi bi-patch-check-fill"></i> Official Verified Google Pay Scanner
-                            </div>
-                        </div>
-                        <div id="noStandeeAlert" class="alert alert-warning py-2 px-3 small rounded-3 my-2 d-none">
-                            <i class="bi bi-info-circle me-1"></i> No standee image uploaded yet.
-                        </div>
-                    </div>
-
-                    <!-- Dynamic UPI QR Scanner Box (Alternate) -->
-                    <div id="dynamicQrContainer" class="d-none mb-2">
-                        <div class="position-relative d-inline-block p-3 bg-white rounded-4 border shadow-sm" style="max-width: 260px;">
-                            <img id="upiQrImage" src="" alt="Scan to Pay via UPI" class="img-fluid rounded-3" style="width: 210px; height: 210px; object-fit: contain; transition: opacity 0.2s;" />
-                            <div class="small fw-semibold text-muted mt-2 d-flex align-items-center justify-content-center gap-1">
-                                <i class="bi bi-camera text-primary"></i> Scan with PhonePe, Paytm or BHIM
+                                <i class="bi bi-patch-check-fill"></i> Official Payment Scanner
                             </div>
                         </div>
                     </div>
                     
+                    <!-- Payee & Bill Amount -->
                     <div class="mb-3">
-                        <span class="text-muted small d-block">Account / Payee Name</span>
-                        <h6 class="fw-bold my-1 text-dark" id="displayPayeeName">Dabhi Mayank</h6>
-                        <span class="text-muted small d-block mt-1">Total Bill to Pay</span>
-                        <div class="d-flex align-items-center justify-content-center gap-2 my-1">
-                            <h3 class="fw-bold mb-0" style="color: var(--cafe-primary);">₹<span id="upiAmountText">@Model.Order.TotalAmount.ToString("0.00")</span></h3>
-                            <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-2 py-0" onclick="copyUpiText('@Model.Order.TotalAmount.ToString("0.00")', this)" style="font-size: 11px;">
-                                <i class="bi bi-copy me-1"></i>Copy
-                            </button>
-                        </div>
-                        <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1 small">
-                            <i class="bi bi-shield-check text-success me-1"></i>Dabhi Mayank (dabhimayank086@@okhdfcbank)
+                        <span class="text-muted small d-block">Payee / Account Name</span>
+                        <h6 class="fw-bold my-1 text-dark" id="displayPayeeName">@(Model.Restaurant.PayeeName ?? Model.Restaurant.Name)</h6>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1 small" id="displayUpiBadge">
+                            <i class="bi bi-shield-check text-success me-1"></i>@(Model.Restaurant.UpiId ?? "UPI Scanner")
                         </span>
-                    </div>
 
-                    <!-- UPI Handle Switcher -->
-                    <div class="mb-3 text-start">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <label class="form-label small fw-bold text-uppercase text-muted mb-0">Select UPI App / Handle</label>
-                            <small class="text-muted">Updates QR instantly</small>
-                        </div>
-                        <div class="d-flex flex-wrap justify-content-center gap-1 mb-2" id="upiHandlePills">
-                            <button type="button" class="btn btn-sm btn-primary rounded-pill px-3 upi-handle-btn" data-handle="oksbi" onclick="switchUpiHandle('oksbi', this)">
-                                <i class="bi bi-google me-1"></i>@@oksbi (GPay SBI)
-                            </button>
-                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn" data-handle="okaxis" onclick="switchUpiHandle('okaxis', this)">
-                                @@okaxis (GPay)
-                            </button>
-                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn" data-handle="okhdfcbank" onclick="switchUpiHandle('okhdfcbank', this)">
-                                @@okhdfcbank (GPay HDFC)
-                            </button>
-                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn" data-handle="ybl" onclick="switchUpiHandle('ybl', this)">
-                                @@ybl (PhonePe)
-                            </button>
-                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn" data-handle="paytm" onclick="switchUpiHandle('paytm', this)">
-                                @@paytm (Paytm)
-                            </button>
-                            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn" data-handle="upi" onclick="switchUpiHandle('upi', this)">
-                                @@upi (BHIM)
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Merchant Payment Setup & Google Pay Fix Box -->
-                    <div class="card p-3 bg-light border rounded-4 mb-3 text-start">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="fw-bold small text-dark"><i class="bi bi-gear-wide-connected text-primary me-1"></i>Merchant Payment Setup</span>
-                            <span class="badge bg-white text-dark border font-monospace fw-bold" id="currentUpiDisplayBadge">8799020418@@oksbi</span>
-                        </div>
-
-                        <!-- Payee Name Input -->
-                        <div class="mb-2">
-                            <label class="form-label small text-muted mb-1 fw-semibold">Account Holder / Store Name (Shows on GPay/PhonePe):</label>
-                            <input type="text" id="customPayeeNameInput" class="form-control form-control-sm" placeholder="e.g. Your Real Name or Shop Name" />
-                        </div>
-
-                        <!-- UPI ID Input -->
-                        <div class="mb-2">
-                            <label class="form-label small text-muted mb-1 fw-semibold">UPI ID (VPA):</label>
-                            <input type="text" id="customUpiInput" class="form-control form-control-sm font-monospace" placeholder="e.g. 8799020418@@oksbi or yourname@@oksbi" />
-                        </div>
-
-                        <!-- Action Buttons -->
-                        <div class="d-flex gap-2 mb-2">
-                            <button class="btn btn-sm btn-primary flex-grow-1 fw-semibold" type="button" onclick="applyCustomUpi()">
-                                <i class="bi bi-arrow-repeat me-1"></i>Preview QR
-                            </button>
-                            <button class="btn btn-sm btn-success flex-grow-1 fw-semibold" type="button" onclick="saveAsRestaurantDefaultUpi()" title="Save as Restaurant Default">
-                                <i class="bi bi-floppy me-1"></i>Save as Default
-                            </button>
-                        </div>
-
-                        <!-- Real Standee Scanner Upload -->
-                        <div class="border-top pt-2 mt-2">
-                            <label class="form-label small text-muted mb-1 fw-semibold d-block"><i class="bi bi-camera me-1"></i>Or Upload Your Real Scanner Image (Standee/Screenshot):</label>
-                            <div class="input-group input-group-sm">
-                                <input type="file" id="uploadStandeeFileInput" accept="image/png, image/jpeg, image/jpg, image/webp" class="form-control" />
-                                <button class="btn btn-dark fw-semibold" type="button" onclick="uploadRealStandeeQr()">
-                                    <i class="bi bi-upload me-1"></i>Upload
+                        <div class="mt-2">
+                            <span class="text-muted small d-block">Total Bill to Pay</span>
+                            <div class="d-flex align-items-center justify-content-center gap-2 my-1">
+                                <h3 class="fw-bold mb-0" style="color: var(--cafe-primary);">₹<span id="upiAmountText">@Model.Order.TotalAmount.ToString("0.00")</span></h3>
+                                <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-2 py-0" onclick="copyUpiText('@Model.Order.TotalAmount.ToString("0.00")', this)" style="font-size: 11px;">
+                                    <i class="bi bi-copy me-1"></i>Copy
                                 </button>
                             </div>
-                            <div id="standeeUploadSuccessAlert" class="alert alert-success py-1 px-2 small mt-2 d-none">
-                                <i class="bi bi-check-circle-fill me-1"></i> Scanner image uploaded successfully!
-                            </div>
-                        </div>
-
-                        <div id="saveUpiSuccessAlert" class="alert alert-success py-1 px-2 small mt-2 d-none">
-                            <i class="bi bi-check-circle-fill me-1"></i> Settings saved! Your real name &amp; UPI ID will now be used.
-                        </div>
-                        <div class="text-muted mt-2" style="font-size: 11px;">
-                            💡 <strong>Google Pay Fix:</strong> Open Google Pay on phone ➔ tap Profile icon (top right) ➔ check your registered UPI ID under your name (e.g. <code>@@okaxis</code>, <code>@@okhdfcbank</code>, or <code>@@oksbi</code>). Enter it above and click <em>Save as Default</em>.
                         </div>
                     </div>
 
                     <!-- 1-Tap Mobile Intent Buttons -->
                     <div class="mb-3">
-                        <div class="small fw-bold text-muted mb-2 text-uppercase text-start">1-Tap Direct UPI App Pay</div>
+                        <div class="small fw-bold text-muted mb-2 text-uppercase text-start">Or Pay Directly with App:</div>
                         <div class="row g-2">
                             <div class="col-6">
                                 <a id="btnDirectGPay" href="#" class="btn btn-outline-dark w-100 rounded-pill py-2 small fw-bold d-flex align-items-center justify-content-center gap-1">
@@ -529,19 +457,14 @@
 
                     <hr class="my-3 text-muted" />
 
-                    <!-- Payment Completion Step -->
-                    <div class="bg-light p-3 rounded-4 border text-start">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
-                            <strong class="small text-dark"><i class="bi bi-check2-circle text-success me-1"></i>Completed Payment?</strong>
-                            <span class="badge bg-light text-muted border small">Step 2</span>
-                        </div>
-                        <small class="text-muted d-block mb-2">After scanning and paying via Google Pay, PhonePe, or Paytm, enter your UPI Reference (UTR) number to confirm:</small>
-                        <div class="mb-2">
-                            <input type="text" id="upiUtrNumberInput" class="form-control form-control-sm rounded-3 font-monospace text-center" placeholder="12-digit UPI UTR / Ref (Optional)" maxlength="16" />
-                        </div>
-                        <button type="button" class="btn btn-success w-100 rounded-pill py-2 fw-bold" id="btnSimulateUpiPay" onclick="simulateUpiPayment()">
-                            <i class="bi bi-check-circle-fill me-1"></i> I Have Paid via UPI
+                    <!-- 1-Click Direct Payment Confirmation -->
+                    <div class="mt-3">
+                        <button type="button" class="btn btn-success w-100 rounded-pill py-3 fw-bold fs-6 shadow-sm" id="btnConfirmUpiPaid" onclick="confirmDirectUpiPayment()">
+                            <i class="bi bi-bell-fill me-2"></i> I Have Paid via UPI - Notify Cashier
                         </button>
+                        <small class="text-muted d-block text-center mt-2" style="font-size: 11px;">
+                            <i class="bi bi-shield-check text-success me-1"></i> Cashier will verify bank credit &amp; approve your official receipt.
+                        </small>
                     </div>
                 </div>
             </div>
@@ -612,7 +535,26 @@
 @section Scripts {
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
     <script>
+        const tableToken = "@Model.Table.Token";
         const orderToken = "@Model.Order.OrderToken";
+        const isAlreadyPaid = @((Model.Order.Status == MenuScan.Models.Entities.OrderStatus.Completed || (Model.Order.Bill != null && Model.Order.Bill.Status == MenuScan.Models.Entities.BillStatus.Paid)).ToString().ToLower());
+        const sessionOrdersKey = `menuscan_session_orders_${tableToken}`;
+
+        // Sync session orders in localStorage (if unpaid, keep tracked; if paid, remove)
+        try {
+            const raw = localStorage.getItem(sessionOrdersKey);
+            let tokens = raw ? JSON.parse(raw) : [];
+            if (!isAlreadyPaid) {
+                if (!tokens.includes(orderToken)) {
+                    tokens.push(orderToken);
+                    localStorage.setItem(sessionOrdersKey, JSON.stringify(tokens));
+                }
+            } else {
+                tokens = tokens.filter(t => t !== orderToken);
+                localStorage.setItem(sessionOrdersKey, JSON.stringify(tokens));
+            }
+        } catch (e) {}
+
         const connection = new signalR.HubConnectionBuilder()
             .withUrl("/hubs/order")
             .withAutomaticReconnect()
@@ -633,20 +575,71 @@
             }
 
             if (newStatus === "Completed") {
-                const unpaidSec = document.getElementById('paymentUnpaidSection');
-                const paidSec = document.getElementById('paymentPaidSection');
-                const badge = document.getElementById('badgePaymentStatus');
-                if (unpaidSec) unpaidSec.classList.add('d-none');
-                if (paidSec) paidSec.classList.remove('d-none');
-                if (badge) {
-                    badge.className = "badge bg-success rounded-pill px-3 py-1";
-                    badge.innerText = "✓ Paid & Settled";
-                }
+                handlePaymentCompleted();
             }
 
             document.getElementById('statusProgressBar').style.width = pct + "%";
             document.getElementById('currentStatusDesc').innerText = `Your order status changed to ${newStatus}.`;
         });
+
+        connection.on("ReceivePaymentSettled", (data) => {
+            console.log("Payment settled event received:", data);
+            handlePaymentCompleted(data.billNumber);
+        });
+
+        function handlePaymentCompleted(billNumber) {
+            // Remove paid order from active session cart tokens so it doesn't show in My Cart
+            try {
+                const raw = localStorage.getItem(sessionOrdersKey);
+                if (raw) {
+                    let tokens = JSON.parse(raw);
+                    tokens = tokens.filter(t => t !== orderToken);
+                    localStorage.setItem(sessionOrdersKey, JSON.stringify(tokens));
+                }
+            } catch (e) {}
+
+            const unpaidSec = document.getElementById('paymentUnpaidSection');
+            const pendingSec = document.getElementById('paymentPendingVerificationSection');
+            const paidSec = document.getElementById('paymentPaidSection');
+            const badge = document.getElementById('badgePaymentStatus');
+            const billNumTxt = document.getElementById('paidBillNumberText');
+            const receiptNumTxt = document.getElementById('receiptBillNum');
+            const successAlert = document.getElementById('paymentSuccessAlert');
+            const wpReceiptBtn = document.getElementById('btnSendWpReceipt');
+
+            if (unpaidSec) unpaidSec.classList.add('d-none');
+            if (pendingSec) pendingSec.classList.add('d-none');
+            if (paidSec) paidSec.classList.remove('d-none');
+
+            if (billNumber) {
+                if (billNumTxt) billNumTxt.innerText = billNumber;
+                if (receiptNumTxt) receiptNumTxt.innerText = billNumber;
+            }
+
+            if (badge) {
+                badge.className = "badge bg-success text-white rounded-pill px-3 py-1";
+                badge.innerText = "✓ Paid & Settled";
+            }
+
+            if (successAlert) {
+                successAlert.classList.remove('d-none');
+            }
+
+            if (wpReceiptBtn) {
+                wpReceiptBtn.classList.remove('d-none');
+                fetch(`/api/order/whatsapp-link?orderToken=@Model.Order.OrderToken&type=bill`)
+                    .then(r => r.json())
+                    .then(d => {
+                        if (d && d.url) {
+                            wpReceiptBtn.href = d.url;
+                        }
+                    })
+                    .catch(e => console.warn("WhatsApp receipt url fetch:", e));
+            }
+
+            const feedbackCard = document.getElementById('customerFeedbackCard');
+            if (feedbackCard) feedbackCard.classList.remove('d-none');
+        }
 
         connection.start().then(() => {
             connection.invoke("JoinOrderGroup", orderToken);
@@ -791,63 +784,27 @@
         }
 
         let upiModalInstance = null;
-        let activeHandle = 'okhdfcbank';
-        let activeCustomUpi = null;
-        let activeQrMode = 'standee';
-        let currentStandeeUrl = null;
 
-        function switchQrMode(mode) {
-            activeQrMode = mode;
-            const dynBtn = document.getElementById('btnModeDynamicQr');
-            const standBtn = document.getElementById('btnModeStandeeQr');
-            const dynBox = document.getElementById('dynamicQrContainer');
-            const standBox = document.getElementById('standeeQrContainer');
-            const noStandeeAlert = document.getElementById('noStandeeAlert');
-
-            if (mode === 'standee') {
-                if (dynBtn) { dynBtn.className = "btn btn-sm btn-outline-dark rounded-pill px-3 fw-bold"; }
-                if (standBtn) { standBtn.className = "btn btn-sm btn-primary rounded-pill px-3 fw-bold"; }
-                if (dynBox) dynBox.classList.add('d-none');
-                if (standBox) standBox.classList.remove('d-none');
-
-                if (!currentStandeeUrl && noStandeeAlert) {
-                    noStandeeAlert.classList.remove('d-none');
-                } else if (noStandeeAlert) {
-                    noStandeeAlert.classList.add('d-none');
-                }
-            } else {
-                if (dynBtn) { dynBtn.className = "btn btn-sm btn-primary rounded-pill px-3 fw-bold"; }
-                if (standBtn) { standBtn.className = "btn btn-sm btn-outline-dark rounded-pill px-3 fw-bold"; }
-                if (dynBox) dynBox.classList.remove('d-none');
-                if (standBox) standBox.classList.add('d-none');
-            }
-        }
-
-        async function openUpiCheckoutModal(handle = 'okhdfcbank') {
-            activeHandle = handle;
+        function openUpiCheckoutModal() {
             if (!upiModalInstance) {
                 upiModalInstance = bootstrap.Modal.getOrCreateInstance(document.getElementById('upiCheckoutModal'));
             }
-            
+
             const spinner = document.getElementById('upiLoadingSpinner');
             const content = document.getElementById('upiModalContent');
             if (spinner) spinner.classList.remove('d-none');
             if (content) content.classList.add('d-none');
 
             upiModalInstance.show();
-            await fetchUpiDetails(activeHandle, activeCustomUpi);
+            fetchUpiDetails();
         }
 
-        async function fetchUpiDetails(handle, customUpi = null) {
+        async function fetchUpiDetails() {
             const spinner = document.getElementById('upiLoadingSpinner');
             const content = document.getElementById('upiModalContent');
 
             try {
-                let url = `/api/order/upi-payment-details/${orderToken}?handle=${encodeURIComponent(handle || 'okhdfcbank')}`;
-                if (customUpi) {
-                    url += `&customUpi=${encodeURIComponent(customUpi)}`;
-                }
-                const response = await fetch(url);
+                const response = await fetch(`/api/order/upi-payment-details/${orderToken}`);
                 const data = await response.json();
 
                 if (response.ok && data.success) {
@@ -858,48 +815,31 @@
                         return;
                     }
 
-                    const qrImage = document.getElementById('upiQrImage');
-                    if (qrImage) qrImage.src = data.upiQrDataUri;
-
-                    // Standee QR handling
-                    currentStandeeUrl = data.paymentQrImageUrl;
-                    const standeeImg = document.getElementById('standeeQrImage');
-                    const noStandeeAlert = document.getElementById('noStandeeAlert');
-                    if (standeeImg && currentStandeeUrl) {
-                        standeeImg.src = currentStandeeUrl;
-                        if (noStandeeAlert) noStandeeAlert.classList.add('d-none');
-                        switchQrMode('standee');
-                    } else if (noStandeeAlert) {
-                        noStandeeAlert.classList.remove('d-none');
-                        switchQrMode('dynamic');
-                    }
-
                     const amtText = document.getElementById('upiAmountText');
                     if (amtText) amtText.innerText = data.grandTotal.toFixed(2);
 
                     const payeeNameDisplay = document.getElementById('displayPayeeName');
-                    if (payeeNameDisplay) payeeNameDisplay.innerText = data.payeeName || data.restaurantName;
+                    if (payeeNameDisplay) payeeNameDisplay.innerText = data.payeeName || data.restaurantName || "Store Cashier";
 
-                    const customPayeeInput = document.getElementById('customPayeeNameInput');
-                    if (customPayeeInput && !customPayeeInput.value) {
-                        customPayeeInput.value = data.payeeName || data.restaurantName;
+                    const upiBadge = document.getElementById('displayUpiBadge');
+                    if (upiBadge && data.upiId) {
+                        upiBadge.textContent = '';
+                        const shieldIcon = document.createElement('i');
+                        shieldIcon.className = 'bi bi-shield-check text-success me-1';
+                        upiBadge.appendChild(shieldIcon);
+                        upiBadge.appendChild(document.createTextNode(data.upiId));
                     }
 
-                    const badge = document.getElementById('currentUpiDisplayBadge');
-                    if (badge) badge.innerText = data.upiId;
-
-                    const customInput = document.getElementById('customUpiInput');
-                    if (customInput && !customUpi) customInput.value = data.upiId;
-
-                    const idText = document.getElementById('upiIdText');
-                    if (idText) idText.innerText = data.upiId;
-
-                    const phoneText = document.getElementById('upiPhoneText');
-                    if (phoneText && data.phoneNumber) {
-                        phoneText.innerText = data.phoneNumber;
+                    const standeeImg = document.getElementById('standeeQrImage');
+                    if (standeeImg) {
+                        if (data.paymentQrImageUrl) {
+                            standeeImg.src = data.paymentQrImageUrl;
+                        } else if (data.upiQrDataUri) {
+                            standeeImg.src = data.upiQrDataUri;
+                        }
                     }
 
-                    // Direct App links
+                    // Set 1-Tap Mobile Intent links
                     const btnGeneric = document.getElementById('btnDirectUpiIntent');
                     if (btnGeneric) btnGeneric.href = data.upiUri;
 
@@ -912,137 +852,16 @@
                     const btnPaytm = document.getElementById('btnDirectPaytm');
                     if (btnPaytm) btnPaytm.href = data.appUris?.paytm || data.upiUri;
 
-                    // Update handle buttons active styling
-                    const buttons = document.querySelectorAll('.upi-handle-btn');
-                    buttons.forEach(btn => {
-                        if (btn.getAttribute('data-handle') === data.selectedHandle) {
-                            btn.className = "btn btn-sm btn-primary rounded-pill px-3 upi-handle-btn";
-                        } else {
-                            btn.className = "btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn";
-                        }
-                    });
-
                     if (spinner) spinner.classList.add('d-none');
                     if (content) content.classList.remove('d-none');
                 } else {
-                    alert(data.message || "Unable to fetch UPI details.");
+                    alert(data.message || "Unable to fetch payment details.");
                     if (upiModalInstance) upiModalInstance.hide();
                 }
             } catch (err) {
-                console.error("UPI Checkout fetch error:", err);
-                alert("Failed to load payment details: " + (err.message || "Network error"));
-                if (upiModalInstance) upiModalInstance.hide();
-            }
-        }
-
-        async function switchUpiHandle(handle, btnElem) {
-            activeHandle = handle;
-            activeCustomUpi = null; // Reset custom UPI when picking preset handle
-            const buttons = document.querySelectorAll('.upi-handle-btn');
-            buttons.forEach(btn => {
-                btn.className = "btn btn-sm btn-outline-secondary rounded-pill px-3 upi-handle-btn";
-            });
-            if (btnElem) {
-                btnElem.className = "btn btn-sm btn-primary rounded-pill px-3 upi-handle-btn";
-            }
-
-            const qrImg = document.getElementById('upiQrImage');
-            if (qrImg) qrImg.style.opacity = '0.4';
-
-            await fetchUpiDetails(handle);
-
-            if (qrImg) qrImg.style.opacity = '1.0';
-        }
-
-        async function applyCustomUpi() {
-            const input = document.getElementById('customUpiInput');
-            const val = input ? input.value.trim() : "";
-            if (!val || !val.includes('@@')) {
-                alert("Please enter a valid UPI ID (e.g. 8799020418@@okaxis or yourname@@okaxis)");
-                return;
-            }
-            activeCustomUpi = val;
-            const qrImg = document.getElementById('upiQrImage');
-            if (qrImg) qrImg.style.opacity = '0.4';
-
-            await fetchUpiDetails('custom', activeCustomUpi);
-
-            if (qrImg) qrImg.style.opacity = '1.0';
-        }
-
-        async function saveAsRestaurantDefaultUpi() {
-            const input = document.getElementById('customUpiInput');
-            const payeeInput = document.getElementById('customPayeeNameInput');
-            const val = input ? input.value.trim() : "";
-            const payeeVal = payeeInput ? payeeInput.value.trim() : "";
-
-            if (!val || !val.includes('@@')) {
-                alert("Please enter a valid UPI ID (e.g. 8799020418@@okaxis)");
-                return;
-            }
-            try {
-                const res = await fetch('/api/restaurant/save-upi-id', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        restaurantSlug: "@Model.Restaurant.Slug",
-                        upiId: val,
-                        payeeName: payeeVal
-                    })
-                });
-                const data = await res.json();
-                if (res.ok && data.success) {
-                    const alertEl = document.getElementById('saveUpiSuccessAlert');
-                    if (alertEl) {
-                        alertEl.classList.remove('d-none');
-                        setTimeout(() => alertEl.classList.add('d-none'), 3500);
-                    }
-                    activeCustomUpi = val;
-                    await fetchUpiDetails('custom', val);
-                } else {
-                    alert(data.message || "Failed to save settings.");
-                }
-            } catch (e) {
-                console.error(e);
-                alert("Network error saving payment settings.");
-            }
-        }
-
-        async function uploadRealStandeeQr() {
-            const fileInput = document.getElementById('uploadStandeeFileInput');
-            if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
-                alert("Please choose a scanner image (screenshot or standee photo) first.");
-                return;
-            }
-
-            const file = fileInput.files[0];
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('restaurantSlug', "@Model.Restaurant.Slug");
-
-            try {
-                const res = await fetch('/api/restaurant/upload-payment-qr', {
-                    method: 'POST',
-                    body: formData
-                });
-                const data = await res.json();
-                if (res.ok && data.success) {
-                    currentStandeeUrl = data.imageUrl;
-                    const standeeImg = document.getElementById('standeeQrImage');
-                    if (standeeImg) standeeImg.src = data.imageUrl;
-                    const alertBox = document.getElementById('standeeUploadSuccessAlert');
-                    if (alertBox) {
-                        alertBox.classList.remove('d-none');
-                        setTimeout(() => alertBox.classList.add('d-none'), 4000);
-                    }
-                    // Switch to standee mode so merchant sees the new scanner
-                    switchQrMode('standee');
-                } else {
-                    alert(data.message || "Failed to upload image.");
-                }
-            } catch (e) {
-                console.error(e);
-                alert("Upload failed due to network error.");
+                console.error("UPI details fetch error:", err);
+                if (spinner) spinner.classList.add('d-none');
+                if (content) content.classList.remove('d-none');
             }
         }
 
@@ -1062,13 +881,12 @@
             });
         }
 
-        async function simulateUpiPayment() {
-            const btn = document.getElementById('btnSimulateUpiPay');
-            if (btn) btn.disabled = true;
-
-            const utrInput = document.getElementById('upiUtrNumberInput');
-            const utrVal = utrInput ? utrInput.value.trim() : '';
-            const paymentRef = utrVal ? `UTR-${utrVal}` : `UPI-APP-${Date.now()}`;
+        async function confirmDirectUpiPayment() {
+            const btn = document.getElementById('btnConfirmUpiPaid');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status"></span>Notifying Cashier...`;
+            }
 
             try {
                 const response = await fetch('/api/order/confirm-online-payment', {
@@ -1076,8 +894,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         orderToken: orderToken,
-                        paymentMethod: "UPI",
-                        paymentReference: paymentRef
+                        paymentMethod: "UPI"
                     })
                 });
 
@@ -1085,39 +902,43 @@
                 if (response.ok && data.success) {
                     if (upiModalInstance) upiModalInstance.hide();
 
+                    if (data.alreadyPaid) {
+                        handlePaymentCompleted(data.billNumber);
+                        return;
+                    }
+
+                    // Show Verification Pending state on diner UI
                     const unpaidSec = document.getElementById('paymentUnpaidSection');
+                    const pendingSec = document.getElementById('paymentPendingVerificationSection');
                     const paidSec = document.getElementById('paymentPaidSection');
                     const badge = document.getElementById('badgePaymentStatus');
-                    const billNumTxt = document.getElementById('paidBillNumberText');
-                    const receiptNumTxt = document.getElementById('receiptBillNum');
-                    const successAlert = document.getElementById('paymentSuccessAlert');
 
                     if (unpaidSec) unpaidSec.classList.add('d-none');
-                    if (paidSec) paidSec.classList.remove('d-none');
-                    if (billNumTxt) billNumTxt.innerText = data.billNumber;
-                    if (receiptNumTxt) receiptNumTxt.innerText = data.billNumber;
-
+                    if (paidSec) paidSec.classList.add('d-none');
+                    if (pendingSec) pendingSec.classList.remove('d-none');
                     if (badge) {
-                        badge.className = "badge bg-success rounded-pill px-3 py-1";
-                        badge.innerText = "✓ Paid & Settled";
+                        badge.className = "badge bg-warning text-dark rounded-pill px-3 py-1";
+                        badge.innerText = "⏳ Verification Pending";
                     }
 
-                    if (successAlert) {
-                        successAlert.classList.remove('d-none');
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = `<i class="bi bi-bell-fill me-2"></i> I Have Paid via UPI - Notify Cashier`;
                     }
-
-                    const feedbackCard = document.getElementById('customerFeedbackCard');
-                    if (feedbackCard) feedbackCard.classList.remove('d-none');
-
-                    // Receipt is NOT auto-opened. Diner can click 'View Tax Receipt' when ready.
                 } else {
-                    alert(data.message || "Payment verification failed.");
-                    if (btn) btn.disabled = false;
+                    alert(data.message || "Failed to notify cashier.");
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = `<i class="bi bi-bell-fill me-2"></i> I Have Paid via UPI - Notify Cashier`;
+                    }
                 }
             } catch (err) {
                 console.error(err);
-                alert("Network error confirming payment.");
-                if (btn) btn.disabled = false;
+                alert("Network error notifying cashier.");
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = `<i class="bi bi-bell-fill me-2"></i> I Have Paid via UPI - Notify Cashier`;
+                }
             }
         }
 

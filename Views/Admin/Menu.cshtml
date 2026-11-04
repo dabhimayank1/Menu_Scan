@@ -6,78 +6,129 @@
 }
 
 <div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <!-- Header -->
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
         <div>
-            <h3 class="fw-bold mb-0">Menu & Category Management</h3>
-            <p class="text-muted mb-0">@restaurant.Name - Menu Catalog</p>
+            <h3 class="fw-bold mb-0" style="letter-spacing: -0.5px;">Menu &amp; Category Management</h3>
+            <p class="text-muted mb-0">@restaurant.Name &bull; Food item catalog &amp; photo manager</p>
         </div>
         <div class="d-flex gap-2">
-            <button class="btn btn-outline-dark fw-semibold" data-bs-toggle="modal" data-bs-target="#addCategoryModal">
+            <button class="btn btn-outline-dark fw-semibold rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#addCategoryModal">
                 <i class="bi bi-folder-plus me-1"></i> Add Category
             </button>
-            <button class="btn btn-danger fw-bold" data-bs-toggle="modal" data-bs-target="#addItemModal">
+            <button class="btn btn-danger fw-bold rounded-pill px-3 shadow-sm" data-bs-toggle="modal" data-bs-target="#addItemModal">
                 <i class="bi bi-plus-circle me-1"></i> Add Menu Item
             </button>
         </div>
     </div>
 
+    <!-- Feedback Alerts -->
     @if (TempData["Success"] != null)
     {
-        <div class="alert alert-success alert-dismissible fade show" role="alert">
-            <i class="bi bi-check-circle me-1"></i> @TempData["Success"]
+        <div class="alert alert-success alert-dismissible fade show rounded-3 shadow-sm" role="alert">
+            <i class="bi bi-check-circle-fill me-2"></i> @TempData["Success"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show rounded-3 shadow-sm" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i> @TempData["Error"]
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
     }
 
-    <!-- Categories & Items Accordion -->
+    <!-- Categories & Items Grid -->
     <div class="row g-4">
         @foreach (var cat in Model)
         {
             <div class="col-12">
-                <div class="card shadow-sm border-0 rounded-3">
-                    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-                        <h5 class="fw-bold mb-0 text-dark">
-                            <i class="bi bi-tag-fill text-danger me-2"></i>@cat.Name
-                        </h5>
-                        <span class="badge bg-secondary">@cat.MenuItems.Count Items</span>
+                <div class="card shadow-sm border-0 rounded-4 overflow-hidden">
+                    <div class="card-header bg-white py-3 px-4 d-flex justify-content-between align-items-center border-bottom">
+                        <div class="d-flex align-items-center gap-2">
+                            <h5 class="fw-bold mb-0 text-dark">
+                                <i class="bi bi-tag-fill text-danger me-2"></i>@cat.Name
+                            </h5>
+                            <span class="badge bg-secondary rounded-pill">@cat.MenuItems.Count Items</span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            @if (!cat.MenuItems.Any())
+                            {
+                                <form asp-action="DeleteCategory" method="post" class="d-inline" onsubmit="return confirm('Are you sure you want to remove empty category \'@cat.Name\'?');">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@cat.Id" />
+                                    <button type="submit" class="btn btn-outline-danger btn-sm py-1 px-3 rounded-pill fw-semibold" title="Delete Category">
+                                        <i class="bi bi-trash3 me-1"></i> Remove Category
+                                    </button>
+                                </form>
+                            }
+                            else
+                            {
+                                <button type="button" class="btn btn-outline-secondary btn-sm py-1 px-3 rounded-pill" onclick="alert('Cannot remove category \'@cat.Name\' because it has @cat.MenuItems.Count items. Please remove or move items first.');" title="Category has items">
+                                    <i class="bi bi-trash3 me-1"></i> Delete Category
+                                </button>
+                            }
+                        </div>
                     </div>
                     <div class="card-body p-0">
                         @if (!cat.MenuItems.Any())
                         {
-                            <div class="text-center py-4 text-muted small">No items added to this category yet.</div>
+                            <div class="text-center py-5 text-muted">
+                                <i class="bi bi-egg-fried display-6 text-muted mb-2 d-block"></i>
+                                <span class="small">No items added to this category yet.</span>
+                                <div class="mt-2">
+                                    <button class="btn btn-sm btn-outline-danger rounded-pill" data-bs-toggle="modal" data-bs-target="#addItemModal" onclick="selectCategoryForAdd('@cat.Id')">
+                                        <i class="bi bi-plus me-1"></i> Add Item to @cat.Name
+                                    </button>
+                                </div>
+                            </div>
                         }
                         else
                         {
                             <div class="table-responsive">
                                 <table class="table table-hover align-middle mb-0">
-                                    <thead class="table-light">
+                                    <thead class="table-light text-muted small text-uppercase">
                                         <tr>
-                                            <th>Type</th>
-                                            <th>Item Name</th>
-                                            <th>Description</th>
-                                            <th>Price (₹)</th>
-                                            <th>Live Availability</th>
+                                            <th style="width: 70px;">Type</th>
+                                            <th style="width: 90px;">Photo</th>
+                                            <th>Item Name &amp; Description</th>
+                                            <th style="width: 120px;">Price</th>
+                                            <th style="width: 180px;">Availability</th>
+                                            <th style="width: 80px;" class="text-center">Action</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         @foreach (var item in cat.MenuItems)
                                         {
                                             <tr>
-                                                <td style="width: 50px;">
+                                                <td>
                                                     @if (item.IsVeg)
                                                     {
-                                                        <span class="badge bg-success-subtle text-success border border-success">VEG</span>
+                                                        <span class="badge bg-success-subtle text-success border border-success fw-bold">VEG</span>
                                                     }
                                                     else
                                                     {
-                                                        <span class="badge bg-danger-subtle text-danger border border-danger">NON-VEG</span>
+                                                        <span class="badge bg-danger-subtle text-danger border border-danger fw-bold">NON-VEG</span>
                                                     }
                                                 </td>
                                                 <td>
-                                                    <span class="fw-bold">@item.Name</span>
+                                                    @if (!string.IsNullOrEmpty(item.ImageUrl))
+                                                    {
+                                                        <img src="@item.ImageUrl" alt="@item.Name" class="rounded-3 border object-fit-cover shadow-sm" style="width: 54px; height: 54px; cursor: pointer;" onclick="openImageModal('@item.ImageUrl', '@item.Name')" title="Click to view full photo" />
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="rounded-3 border bg-light d-flex align-items-center justify-content-center text-muted" style="width: 54px; height: 54px;" title="No photo uploaded">
+                                                            <i class="bi bi-image fs-5"></i>
+                                                        </div>
+                                                    }
                                                 </td>
-                                                <td class="text-muted small" style="max-width: 350px;">
-                                                    @item.Description
+                                                <td>
+                                                    <div class="fw-bold text-dark fs-6">@item.Name</div>
+                                                    @if (!string.IsNullOrWhiteSpace(item.Description))
+                                                    {
+                                                        <div class="text-muted small" style="max-width: 450px;">@item.Description</div>
+                                                    }
                                                 </td>
                                                 <td>
                                                     <span class="fw-bold text-dark fs-6">₹@item.Price.ToString("0.00")</span>
@@ -89,6 +140,15 @@
                                                             @(item.IsAvailable ? "Available" : "Sold Out (86)")
                                                         </label>
                                                     </div>
+                                                </td>
+                                                <td class="text-center">
+                                                    <form asp-action="DeleteMenuItem" method="post" class="d-inline" onsubmit="return confirm('Delete \'@item.Name\' from menu?');">
+                                                        @Html.AntiForgeryToken()
+                                                        <input type="hidden" name="id" value="@item.Id" />
+                                                        <button type="submit" class="btn btn-link text-danger p-0" title="Delete Item">
+                                                            <i class="bi bi-trash3 fs-6"></i>
+                                                        </button>
+                                                    </form>
                                                 </td>
                                             </tr>
                                         }
@@ -103,80 +163,152 @@
     </div>
 </div>
 
-<!-- Add Category Modal -->
+<!-- ========================================== -->
+<!-- ADD CATEGORY MODAL                         -->
+<!-- ========================================== -->
 <div class="modal fade" id="addCategoryModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content border-0 shadow">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
             <form asp-action="AddCategory" method="post">
-                <div class="modal-header bg-dark text-white">
-                    <h5 class="modal-title fw-bold">Create New Category</h5>
+                @Html.AntiForgeryToken()
+                <div class="modal-header bg-dark text-white p-3">
+                    <h5 class="modal-title fw-bold"><i class="bi bi-folder-plus me-2 text-warning"></i>Create New Category</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body p-4">
                     <div class="mb-3">
                         <label class="form-label fw-semibold">Category Name</label>
-                        <input type="text" name="name" class="form-control" placeholder="e.g. Desserts or Pizzas" required />
+                        <input type="text" name="name" class="form-control rounded-3" placeholder="e.g. Desserts, Burgers, South Indian" required />
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-semibold">Display Sort Order</label>
-                        <input type="number" name="displayOrder" class="form-control" value="1" min="1" required />
+                        <input type="number" name="displayOrder" class="form-control rounded-3" value="1" min="1" required />
                     </div>
                 </div>
-                <div class="modal-footer bg-light">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary fw-bold">Save Category</button>
+                <div class="modal-footer bg-light p-3">
+                    <button type="button" class="btn btn-secondary rounded-pill px-3" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-dark fw-bold rounded-pill px-4">Save Category</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
 
-<!-- Add Menu Item Modal -->
+<!-- ========================================== -->
+<!-- ADD MENU ITEM MODAL (WITH PHOTO UPLOAD)    -->
+<!-- ========================================== -->
 <div class="modal fade" id="addItemModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content border-0 shadow">
-            <form asp-action="AddMenuItem" method="post">
-                <div class="modal-header bg-danger text-white">
-                    <h5 class="modal-title fw-bold">Add Menu Item</h5>
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <form asp-action="AddMenuItem" method="post" enctype="multipart/form-data">
+                @Html.AntiForgeryToken()
+                <div class="modal-header bg-danger text-white p-3">
+                    <h5 class="modal-title fw-bold"><i class="bi bi-plus-circle me-2"></i>Add Food Menu Item</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body p-4">
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Category</label>
-                        <select name="categoryId" class="form-select" required>
-                            @foreach (var cat in Model)
-                            {
-                                <option value="@cat.Id">@cat.Name</option>
-                            }
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Item Name</label>
-                        <input type="text" name="name" class="form-control" placeholder="e.g. Paneer Butter Masala" required />
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label fw-semibold">Description</label>
-                        <textarea name="description" class="form-control" rows="2" placeholder="Ingredients, taste, cooking style..."></textarea>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label fw-semibold">Price (₹)</label>
-                            <input type="number" name="price" step="0.5" class="form-control" placeholder="250.00" required />
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label fw-semibold">Dietary Type</label>
-                            <select name="isVeg" class="form-select">
-                                <option value="true">Pure Vegetarian (Veg)</option>
-                                <option value="false">Non-Vegetarian</option>
+                    <div class="row g-3">
+                        <!-- Category Selector -->
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Category <span class="text-danger">*</span></label>
+                            <select name="categoryId" id="addItemCategorySelect" class="form-select rounded-3" required>
+                                @foreach (var cat in Model)
+                                {
+                                    <option value="@cat.Id">@cat.Name</option>
+                                }
                             </select>
                         </div>
+
+                        <!-- Item Name -->
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Food Item Name <span class="text-danger">*</span></label>
+                            <input type="text" name="name" class="form-control rounded-3" placeholder="e.g. Paneer Butter Masala, Cold Brew" required />
+                        </div>
+
+                        <!-- Description -->
+                        <div class="col-12">
+                            <label class="form-label fw-semibold">Description</label>
+                            <textarea name="description" class="form-control rounded-3" rows="2" placeholder="Key ingredients, taste profile, chef's notes..."></textarea>
+                        </div>
+
+                        <!-- Price & Type -->
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Price (₹) <span class="text-danger">*</span></label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light fw-bold">₹</span>
+                                <input type="number" name="price" step="0.5" class="form-control rounded-end-3" placeholder="250.00" required />
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Dietary Type</label>
+                            <select name="isVeg" class="form-select rounded-3">
+                                <option value="true">🟢 Pure Vegetarian (Veg)</option>
+                                <option value="false">🔴 Non-Vegetarian</option>
+                            </select>
+                        </div>
+
+                        <!-- Photo Upload Section -->
+                        <div class="col-12 pt-2 border-top">
+                            <label class="form-label fw-bold d-flex align-items-center gap-2">
+                                <i class="bi bi-camera-fill text-danger fs-5"></i>
+                                <span>Upload Food Picture / Photo</span>
+                                <span class="badge bg-light text-muted border small">Recommended</span>
+                            </label>
+                            
+                            <input type="file" name="imageFile" id="itemImageFileInput" class="form-control rounded-3" accept="image/png, image/jpeg, image/jpg, image/webp" onchange="previewUploadImage(this)" />
+                            <div class="form-text small text-muted">
+                                Supported formats: JPG, PNG, WEBP (Max 10MB). Photos uploaded here will be displayed to diners in mobile menus.
+                            </div>
+
+                            <!-- Live Image Preview Box -->
+                            <div id="imagePreviewContainer" class="mt-3 p-3 border rounded-3 bg-light text-center" style="display: none;">
+                                <div class="position-relative d-inline-block">
+                                    <img id="itemImagePreview" src="" alt="Selected Food Item" class="img-fluid rounded-3 border shadow-sm" style="max-height: 180px; object-fit: cover;" />
+                                    <button type="button" class="btn btn-sm btn-dark position-absolute top-0 end-0 m-1 rounded-circle" onclick="clearSelectedImage()" title="Remove image">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
+                                <div class="small text-success fw-bold mt-2">
+                                    <i class="bi bi-check-circle-fill me-1"></i> Picture ready for upload
+                                </div>
+                            </div>
+
+                            <!-- Optional Image URL Fallback -->
+                            <div class="mt-2">
+                                <a class="small text-decoration-none text-muted" data-bs-toggle="collapse" href="#orUrlCollapse">
+                                    <i class="bi bi-link-45deg"></i> Or enter web photo URL instead
+                                </a>
+                                <div class="collapse mt-2" id="orUrlCollapse">
+                                    <input type="url" name="imageUrl" class="form-control form-control-sm rounded-3" placeholder="https://images.unsplash.com/..." />
+                                </div>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
-                <div class="modal-footer bg-light">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-danger fw-bold">Add to Menu</button>
+                <div class="modal-footer bg-light p-3">
+                    <button type="button" class="btn btn-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger fw-bold rounded-pill px-4 shadow-sm">
+                        <i class="bi bi-cloud-arrow-up-fill me-1"></i> Add to Menu
+                    </button>
                 </div>
             </form>
+        </div>
+    </div>
+</div>
+
+<!-- Lightbox Modal for Photo Preview -->
+<div class="modal fade" id="photoViewModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden bg-dark text-white">
+            <div class="modal-header border-0 pb-0">
+                <h6 class="modal-title fw-bold" id="photoModalTitle">Item Photo</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center p-3">
+                <img id="photoModalImage" src="" alt="Dish Preview" class="img-fluid rounded-3 shadow" style="max-height: 400px; object-fit: cover;" />
+            </div>
         </div>
     </div>
 </div>
@@ -185,7 +317,10 @@
     <script>
         async function toggleAvailability(itemId) {
             try {
-                const response = await fetch(`/Admin/ToggleItemAvailability?id=${itemId}`, { method: 'POST' });
+                const response = await fetch(`/Admin/ToggleItemAvailability?id=${itemId}`, {
+                    method: 'POST',
+                    headers: { 'RequestVerificationToken': getAntiForgeryToken() }
+                });
                 const data = await response.json();
                 if (data.success) {
                     const label = document.getElementById(`label-${itemId}`);
@@ -195,6 +330,43 @@
                 console.error(e);
                 alert("Failed to update item availability.");
             }
+        }
+
+        function selectCategoryForAdd(catId) {
+            const select = document.getElementById('addItemCategorySelect');
+            if (select) {
+                select.value = catId;
+            }
+        }
+
+        function previewUploadImage(input) {
+            const previewContainer = document.getElementById('imagePreviewContainer');
+            const previewImg = document.getElementById('itemImagePreview');
+
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    previewImg.src = e.target.result;
+                    previewContainer.style.display = 'block';
+                };
+                reader.readAsDataURL(input.files[0]);
+            } else {
+                previewContainer.style.display = 'none';
+                previewImg.src = '';
+            }
+        }
+
+        function clearSelectedImage() {
+            const fileInput = document.getElementById('itemImageFileInput');
+            fileInput.value = '';
+            document.getElementById('imagePreviewContainer').style.display = 'none';
+            document.getElementById('itemImagePreview').src = '';
+        }
+
+        function openImageModal(imgUrl, title) {
+            document.getElementById('photoModalTitle').innerText = title;
+            document.getElementById('photoModalImage').src = imgUrl;
+            new bootstrap.Modal(document.getElementById('photoViewModal')).show();
         }
     </script>
 }

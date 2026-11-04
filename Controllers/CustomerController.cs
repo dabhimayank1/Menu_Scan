@@ -4,6 +4,7 @@ using MenuScan.Models.Entities;
 using MenuScan.Models.ViewModels;
 using MenuScan.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
@@ -16,19 +17,22 @@ namespace MenuScan.Controllers
         private readonly IQRService _qrService;
         private readonly ILogger<CustomerController> _logger;
         private readonly IWebHostEnvironment _env;
+        private readonly IConfiguration _configuration;
 
         public CustomerController(
             ApplicationDbContext context,
             IHubContext<OrderHub> hubContext,
             IQRService qrService,
             ILogger<CustomerController> logger,
-            IWebHostEnvironment env)
+            IWebHostEnvironment env,
+            IConfiguration configuration)
         {
             _context = context;
             _hubContext = hubContext;
             _qrService = qrService;
             _logger = logger;
             _env = env;
+            _configuration = configuration;
         }
 
         [HttpGet("r/{slug}/t/{token}")]
@@ -60,11 +64,17 @@ namespace MenuScan.Controllers
                     .ThenInclude(m => m.Customizations.Where(cu => cu.IsAvailable))
                 .ToListAsync();
 
+            var cutoffUtc = DateTime.UtcNow.AddHours(-24);
             var activeOrders = await _context.Orders
                 .IgnoreQueryFilters()
                 .Include(o => o.OrderItems)
                 .Include(o => o.Bill)
-                .Where(o => o.RestaurantId == restaurant.Id && o.TableId == table.Id && o.Status != OrderStatus.Cancelled && (o.Status != OrderStatus.Completed || o.CreatedAtUtc >= DateTime.UtcNow.AddMinutes(-60)))
+                .Where(o => o.RestaurantId == restaurant.Id 
+                         && o.TableId == table.Id 
+                         && o.Status != OrderStatus.Cancelled 
+                         && o.Status != OrderStatus.Completed 
+                         && (o.Bill == null || o.Bill.Status != BillStatus.Paid)
+                         && o.CreatedAtUtc >= cutoffUtc)
                 .OrderByDescending(o => o.CreatedAtUtc)
                 .ToListAsync();
 
@@ -80,7 +90,10 @@ namespace MenuScan.Controllers
         }
 
         [HttpGet("api/table/active-orders")]
-        public async Task<IActionResult> GetTableActiveOrders([FromQuery] string tableToken, [FromQuery] string restaurantSlug)
+        public async Task<IActionResult> GetTableActiveOrders(
+            [FromQuery] string tableToken, 
+            [FromQuery] string restaurantSlug,
+            [FromQuery] string? tokens = null)
         {
             var restaurant = await _context.Restaurants.IgnoreQueryFilters()
                 .FirstOrDefaultAsync(r => r.Slug == restaurantSlug && r.IsActive);
@@ -90,12 +103,29 @@ namespace MenuScan.Controllers
                 .FirstOrDefaultAsync(t => t.RestaurantId == restaurant.Id && t.Token == tableToken && t.IsActive);
             if (table == null) return NotFound();
 
-            var orders = await _context.Orders.IgnoreQueryFilters()
+            var cutoffUtc = DateTime.UtcNow.AddHours(-24);
+            var query = _context.Orders.IgnoreQueryFilters()
                 .Include(o => o.OrderItems)
                 .Include(o => o.Bill)
-                .Where(o => o.RestaurantId == restaurant.Id && o.TableId == table.Id && o.Status != OrderStatus.Cancelled && (o.Status != OrderStatus.Completed || o.CreatedAtUtc >= DateTime.UtcNow.AddMinutes(-60)))
+                .Where(o => o.RestaurantId == restaurant.Id 
+                         && o.TableId == table.Id 
+                         && o.Status != OrderStatus.Cancelled 
+                         && o.Status != OrderStatus.Completed 
+                         && (o.Bill == null || o.Bill.Status != BillStatus.Paid)
+                         && o.CreatedAtUtc >= cutoffUtc);
+
+            if (!string.IsNullOrWhiteSpace(tokens))
+            {
+                var tokenList = tokens.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                if (tokenList.Any())
+                {
+                    query = query.Where(o => tokenList.Contains(o.OrderToken));
+                }
+            }
+
+            var orders = await query
                 .OrderByDescending(o => o.CreatedAtUtc)
-                .Take(5)
+                .Take(10)
                 .Select(o => new
                 {
                     orderId = o.Id,
@@ -119,6 +149,7 @@ namespace MenuScan.Controllers
 
         [HttpPost("api/orders/submit")]
         [IgnoreAntiforgeryToken] // Allow API fetch call from mobile cart
+        [EnableRateLimiting("diner-api-policy")]
         public async Task<IActionResult> SubmitOrder([FromBody] OrderSubmissionDto dto)
         {
             if (!ModelState.IsValid || dto.Items == null || !dto.Items.Any())
@@ -126,24 +157,7 @@ namespace MenuScan.Controllers
                 return BadRequest(new { message = "Invalid order submission. Cart cannot be empty." });
             }
 
-            // 1. Check Idempotency to prevent duplicate submissions
-            var existingOrder = await _context.Orders
-                .IgnoreQueryFilters()
-                .FirstOrDefaultAsync(o => o.IdempotencyKey == dto.IdempotencyKey);
-
-            if (existingOrder != null)
-            {
-                return Ok(new
-                {
-                    success = true,
-                    isDuplicate = true,
-                    orderNumber = existingOrder.OrderNumber,
-                    orderToken = existingOrder.OrderToken,
-                    redirectUrl = $"/order/track/{existingOrder.OrderToken}"
-                });
-            }
-
-            // 2. Validate Restaurant & Table
+            // 1. Validate Restaurant & Table
             var restaurant = await _context.Restaurants
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(r => r.Slug == dto.RestaurantSlug && r.IsActive);
@@ -160,6 +174,25 @@ namespace MenuScan.Controllers
             if (table == null)
             {
                 return BadRequest(new { message = "Table verification failed." });
+            }
+
+            // 2. Check Idempotency within restaurant to prevent duplicate submissions
+            var existingOrder = !string.IsNullOrWhiteSpace(dto.IdempotencyKey)
+                ? await _context.Orders
+                    .IgnoreQueryFilters()
+                    .FirstOrDefaultAsync(o => o.RestaurantId == restaurant.Id && o.IdempotencyKey == dto.IdempotencyKey)
+                : null;
+
+            if (existingOrder != null)
+            {
+                return Ok(new
+                {
+                    success = true,
+                    isDuplicate = true,
+                    orderNumber = existingOrder.OrderNumber,
+                    orderToken = existingOrder.OrderToken,
+                    redirectUrl = $"/order/track/{existingOrder.OrderToken}"
+                });
             }
 
             // 3. Validate Menu Items & Authoritative Prices with Customizations
@@ -183,7 +216,7 @@ namespace MenuScan.Controllers
                 {
                     RestaurantId = restaurant.Id,
                     TableId = table.Id,
-                    OrderNumber = $"ORD-{DateTime.UtcNow:yyMMdd}-{Random.Shared.Next(1000, 9999)}",
+                    OrderNumber = $"ORD-{DateTime.UtcNow:yyMMddHHmmss}-{Random.Shared.Next(100, 999)}",
                     Status = OrderStatus.New,
                     CustomerNotes = dto.CustomerNotes,
                     CustomerName = dto.CustomerName,
@@ -295,6 +328,7 @@ namespace MenuScan.Controllers
                 .Include(o => o.Table)
                 .Include(o => o.OrderItems)
                 .Include(o => o.Bill)
+                    .ThenInclude(b => b!.Payments)
                 .Include(o => o.StatusHistory.OrderByDescending(s => s.ChangedAtUtc))
                 .FirstOrDefaultAsync(o => o.OrderToken == token);
 
@@ -311,12 +345,12 @@ namespace MenuScan.Controllers
                 .IgnoreQueryFilters()
                 .AnyAsync(f => f.OrderId == order.Id);
 
-            var host = NetworkHelper.ResolveReachableHost(Request);
-            var trackerUrl = $"http://{host}/order/track/{order.OrderToken}";
+            var baseUrl = NetworkHelper.ResolveBaseUrl(Request, _configuration);
+            var trackerUrl = $"{baseUrl}/order/track/{order.OrderToken}";
             var restName = restaurant?.Name ?? "Brew & Bliss Coffee House";
 
             ViewBag.TrackerUrl = trackerUrl;
-            ViewBag.Host = host;
+            ViewBag.Host = baseUrl;
             ViewBag.WhatsAppOrderConfirmedUrl = WhatsAppHelper.BuildWhatsAppUrl(
                 order.CustomerPhone,
                 WhatsAppHelper.BuildOrderConfirmedMessage(restName, order.OrderNumber, order.Table?.TableNumber ?? "Table", order.TotalAmount, trackerUrl)
@@ -324,12 +358,21 @@ namespace MenuScan.Controllers
 
             if (order.Bill != null)
             {
-                var receiptUrl = $"http://{host}/Billing/PrintReceipt?orderId={order.Id}";
+                var receiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={order.Id}";
+                var payMethod = order.Bill.Payments.FirstOrDefault()?.Method.ToString() ?? "Settled";
                 ViewBag.WhatsAppReceiptUrl = WhatsAppHelper.BuildWhatsAppUrl(
                     order.CustomerPhone,
-                    WhatsAppHelper.BuildBillReceiptMessage(restName, order.Bill.BillNumber, order.OrderNumber, order.Table?.TableNumber ?? "Table", order.Bill.GrandTotal, "UPI", receiptUrl)
+                    WhatsAppHelper.BuildBillReceiptMessage(restName, order.Bill.BillNumber, order.OrderNumber, order.Table?.TableNumber ?? "Table", order.Bill.GrandTotal, payMethod, receiptUrl)
                 );
             }
+
+            var pendingUpiRequest = await _context.ServiceRequests
+                .IgnoreQueryFilters()
+                .Where(s => s.TableId == order.TableId && s.RequestType == "UPI Payment" && !s.IsHandled)
+                .OrderByDescending(s => s.CreatedAtUtc)
+                .FirstOrDefaultAsync();
+
+            ViewBag.AwaitingCashierApproval = pendingUpiRequest != null;
 
             var viewModel = new OrderTrackingViewModel
             {
@@ -354,6 +397,7 @@ namespace MenuScan.Controllers
                 .Include(o => o.Table)
                 .Include(o => o.Restaurant)
                 .Include(o => o.Bill)
+                    .ThenInclude(b => b!.Payments)
                 .FirstOrDefaultAsync(o => o.OrderToken == dto.OrderToken);
 
             if (order == null) return NotFound(new { message = "Order not found." });
@@ -369,8 +413,8 @@ namespace MenuScan.Controllers
 
             await _context.SaveChangesAsync();
 
-            var host = NetworkHelper.ResolveReachableHost(Request);
-            var trackerUrl = $"http://{host}/order/track/{order.OrderToken}";
+            var baseUrl = NetworkHelper.ResolveBaseUrl(Request, _configuration);
+            var trackerUrl = $"{baseUrl}/order/track/{order.OrderToken}";
             var restName = order.Restaurant?.Name ?? "Brew & Bliss Coffee House";
             var wpOrderUrl = WhatsAppHelper.BuildWhatsAppUrl(
                 order.CustomerPhone,
@@ -380,10 +424,11 @@ namespace MenuScan.Controllers
             string? wpReceiptUrl = null;
             if (order.Bill != null)
             {
-                var receiptUrl = $"http://{host}/Billing/PrintReceipt?orderId={order.Id}";
+                var receiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={order.Id}";
+                var payMethod = order.Bill.Payments.FirstOrDefault()?.Method.ToString() ?? "Settled";
                 wpReceiptUrl = WhatsAppHelper.BuildWhatsAppUrl(
                     order.CustomerPhone,
-                    WhatsAppHelper.BuildBillReceiptMessage(restName, order.Bill.BillNumber, order.OrderNumber, order.Table?.TableNumber ?? "Table", order.Bill.GrandTotal, "UPI", receiptUrl)
+                    WhatsAppHelper.BuildBillReceiptMessage(restName, order.Bill.BillNumber, order.OrderNumber, order.Table?.TableNumber ?? "Table", order.Bill.GrandTotal, payMethod, receiptUrl)
                 );
             }
 
@@ -398,22 +443,34 @@ namespace MenuScan.Controllers
         }
 
         [HttpGet("api/order/whatsapp-link")]
-        public async Task<IActionResult> GetWhatsAppLink([FromQuery] string orderId, [FromQuery] string type = "confirm", [FromQuery] string? phone = null)
+        public async Task<IActionResult> GetWhatsAppLink([FromQuery] string orderToken, [FromQuery] string type = "confirm", [FromQuery] string? phone = null)
         {
-            if (!Guid.TryParse(orderId, out var id)) return BadRequest("Invalid order ID");
+            if (string.IsNullOrWhiteSpace(orderToken)) return BadRequest("Invalid order token");
 
             var order = await _context.Orders
                 .IgnoreQueryFilters()
                 .Include(o => o.Table)
                 .Include(o => o.Restaurant)
                 .Include(o => o.Bill)
-                .FirstOrDefaultAsync(o => o.Id == id);
+                    .ThenInclude(b => b!.Payments)
+                .FirstOrDefaultAsync(o => o.OrderToken == orderToken);
 
             if (order == null) return NotFound();
 
-            var targetPhone = !string.IsNullOrWhiteSpace(phone) ? phone : order.CustomerPhone;
-            var host = NetworkHelper.ResolveReachableHost(Request);
-            var trackerUrl = $"http://{host}/order/track/{order.OrderToken}";
+            // Ignore the phone query parameter unless the caller is authenticated staff of that order's restaurant
+            string? targetPhone = order.CustomerPhone;
+            if (User.Identity?.IsAuthenticated == true && !string.IsNullOrWhiteSpace(phone))
+            {
+                var isSuperAdmin = User.IsInRole(AppRoles.SuperAdmin);
+                var staffRestId = User.FindFirst("RestaurantId")?.Value;
+                if (isSuperAdmin || (staffRestId != null && Guid.TryParse(staffRestId, out var rid) && rid == order.RestaurantId))
+                {
+                    targetPhone = phone.Trim();
+                }
+            }
+
+            var baseUrl = NetworkHelper.ResolveBaseUrl(Request, _configuration);
+            var trackerUrl = $"{baseUrl}/order/track/{order.OrderToken}";
             var restName = order.Restaurant?.Name ?? "Brew & Bliss Coffee House";
 
             string message;
@@ -423,8 +480,9 @@ namespace MenuScan.Controllers
             }
             else if (type.Equals("bill", StringComparison.OrdinalIgnoreCase) && order.Bill != null)
             {
-                var receiptUrl = $"http://{host}/Billing/PrintReceipt?orderId={order.Id}";
-                message = WhatsAppHelper.BuildBillReceiptMessage(restName, order.Bill.BillNumber, order.OrderNumber, order.Table?.TableNumber ?? "Table", order.Bill.GrandTotal, "UPI", receiptUrl);
+                var receiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={order.Id}";
+                var payMethod = order.Bill.Payments.FirstOrDefault()?.Method.ToString() ?? "Settled";
+                message = WhatsAppHelper.BuildBillReceiptMessage(restName, order.Bill.BillNumber, order.OrderNumber, order.Table?.TableNumber ?? "Table", order.Bill.GrandTotal, payMethod, receiptUrl);
             }
             else
             {
@@ -442,6 +500,7 @@ namespace MenuScan.Controllers
 
         [HttpPost("api/table/call-waiter")]
         [IgnoreAntiforgeryToken]
+        [EnableRateLimiting("diner-api-policy")]
         public async Task<IActionResult> CallWaiter([FromBody] CallWaiterDto dto)
         {
             if (string.IsNullOrWhiteSpace(dto.TableToken) || string.IsNullOrWhiteSpace(dto.RestaurantSlug))
@@ -491,6 +550,8 @@ namespace MenuScan.Controllers
         }
 
         [HttpPost("api/order/feedback")]
+        [IgnoreAntiforgeryToken]
+        [EnableRateLimiting("diner-api-policy")]
         public async Task<IActionResult> SubmitFeedback([FromBody] FeedbackSubmissionDto dto)
         {
             if (string.IsNullOrWhiteSpace(dto.OrderToken))
@@ -540,7 +601,7 @@ namespace MenuScan.Controllers
         }
 
         [HttpGet("api/order/upi-payment-details/{token}")]
-        public async Task<IActionResult> GetUpiPaymentDetails(string token, [FromQuery] string? handle = null, [FromQuery] string? customUpi = null)
+        public async Task<IActionResult> GetUpiPaymentDetails(string token)
         {
             var order = await _context.Orders
                 .IgnoreQueryFilters()
@@ -556,8 +617,19 @@ namespace MenuScan.Controllers
 
             var restaurant = order.Restaurant;
 
-            // Target payee mobile number: default 8799020418 or restaurant phone digits
-            var targetMobile = "8799020418";
+            var upiRegex = new System.Text.RegularExpressions.Regex(@"^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$");
+            var rawUpi = restaurant?.UpiId?.Trim();
+            if (string.IsNullOrWhiteSpace(rawUpi) || !upiRegex.IsMatch(rawUpi))
+            {
+                return BadRequest(new { success = false, message = "Restaurant has not configured a valid UPI ID." });
+            }
+
+            var upiId = rawUpi.ToLowerInvariant();
+            var parts = upiId.Split('@');
+            var selectedHandle = parts.Length > 1 ? parts[1] : "upi";
+
+            // Target payee mobile number from restaurant phone digits
+            var targetMobile = string.Empty;
             if (!string.IsNullOrWhiteSpace(restaurant?.Phone))
             {
                 var digitsOnly = new string(restaurant.Phone.Where(char.IsDigit).ToArray());
@@ -571,50 +643,15 @@ namespace MenuScan.Controllers
                 }
             }
 
-            // Determine final Payee UPI ID
-            string upiId;
-            string selectedHandle;
-
-            if (!string.IsNullOrWhiteSpace(customUpi) && customUpi.Contains('@'))
-            {
-                upiId = customUpi.Trim().ToLowerInvariant();
-                var parts = upiId.Split('@');
-                selectedHandle = parts.Length > 1 ? parts[1] : "custom";
-            }
-            else if (!string.IsNullOrWhiteSpace(restaurant?.UpiId) && restaurant.UpiId.Contains('@'))
-            {
-                var savedUpi = restaurant.UpiId.Trim().ToLowerInvariant();
-                var savedParts = savedUpi.Split('@');
-                var savedHandle = savedParts.Length > 1 ? savedParts[1] : "okhdfcbank";
-
-                if (!string.IsNullOrWhiteSpace(handle) && handle != "default" && handle != savedHandle)
-                {
-                    var cleanHandle = handle.Trim().TrimStart('@').ToLowerInvariant();
-                    selectedHandle = cleanHandle;
-                    upiId = $"{targetMobile}@{cleanHandle}";
-                }
-                else
-                {
-                    upiId = savedUpi;
-                    selectedHandle = savedHandle;
-                }
-            }
-            else
-            {
-                var cleanHandle = string.IsNullOrWhiteSpace(handle) ? "okhdfcbank" : handle.Trim().TrimStart('@').ToLowerInvariant();
-                selectedHandle = cleanHandle;
-                upiId = $"{targetMobile}@{cleanHandle}";
-            }
-
             var grandTotalStr = order.TotalAmount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
             var restName = restaurant?.Name ?? "Spice Symphony Restaurant";
             var payeeDisplayName = !string.IsNullOrWhiteSpace(restaurant?.PayeeName) ? restaurant.PayeeName : restName;
             var cleanPayeeName = payeeDisplayName.Replace("&", "and").Replace("#", "").Replace("+", " ").Trim();
-            var safePayeeName = Uri.EscapeDataString(cleanPayeeName);
-            var safeNote = Uri.EscapeDataString($"Order {order.OrderNumber} Table {order.Table?.TableNumber ?? ""}".Trim());
+            var safePa = Uri.EscapeDataString(upiId);
+            var safePn = Uri.EscapeDataString(cleanPayeeName);
+            var safeTn = Uri.EscapeDataString($"Order {order.OrderNumber} Table {order.Table?.TableNumber ?? ""}".Trim());
 
-            var aidParam = upiId.Contains("dabhimayank") ? "&aid=uGICAgMCRn5uuCQ" : "";
-            var upiUri = $"upi://pay?pa={upiId}&pn={safePayeeName}&am={grandTotalStr}&cu=INR{aidParam}&tn={safeNote}";
+            var upiUri = $"upi://pay?pa={safePa}&pn={safePn}&am={grandTotalStr}&cu=INR&tn={safeTn}";
             var upiQr = _qrService.GenerateQrCodeDataUri(upiUri);
 
             var isPaid = order.Status == OrderStatus.Completed || (order.Bill != null && order.Bill.Status == BillStatus.Paid);
@@ -622,9 +659,9 @@ namespace MenuScan.Controllers
             var appUris = new Dictionary<string, string>
             {
                 { "generic", upiUri },
-                { "gpay", $"upi://pay?pa={upiId}&pn={safePayeeName}&am={grandTotalStr}&cu=INR{aidParam}&tn={safeNote}" },
-                { "phonepe", $"upi://pay?pa={(upiId.EndsWith("@ybl") || upiId.EndsWith("@ibl") ? upiId : $"{targetMobile}@ybl")}&pn={safePayeeName}&am={grandTotalStr}&cu=INR&tn={safeNote}" },
-                { "paytm", $"upi://pay?pa={(upiId.EndsWith("@paytm") ? upiId : $"{targetMobile}@paytm")}&pn={safePayeeName}&am={grandTotalStr}&cu=INR&tn={safeNote}" }
+                { "gpay", upiUri },
+                { "phonepe", upiUri },
+                { "paytm", upiUri }
             };
 
             return Ok(new UpiPaymentDetailsDto
@@ -651,6 +688,7 @@ namespace MenuScan.Controllers
         }
 
         [HttpPost("api/restaurant/save-upi-id")]
+        [Microsoft.AspNetCore.Authorization.Authorize(Roles = $"{AppRoles.RestaurantAdmin},{AppRoles.SuperAdmin}")]
         public async Task<IActionResult> SaveRestaurantUpiId([FromBody] SaveRestaurantUpiDto dto)
         {
             var restaurant = await _context.Restaurants.IgnoreQueryFilters()
@@ -658,19 +696,25 @@ namespace MenuScan.Controllers
 
             if (restaurant == null)
             {
-                restaurant = await _context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.IsActive);
+                return NotFound(new { success = false, message = "Restaurant not found." });
             }
 
-            if (restaurant == null)
+            // Tenant security check
+            if (!User.IsInRole(AppRoles.SuperAdmin))
             {
-                return NotFound(new { success = false, message = "Restaurant not found." });
+                var userClaim = User.FindFirst("RestaurantId");
+                if (userClaim == null || !Guid.TryParse(userClaim.Value, out var claimTenantId) || claimTenantId != restaurant.Id)
+                {
+                    return Forbid();
+                }
             }
 
             if (!string.IsNullOrWhiteSpace(dto.UpiId))
             {
-                if (!dto.UpiId.Contains('@'))
+                var upiRegex = new System.Text.RegularExpressions.Regex(@"^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$");
+                if (!upiRegex.IsMatch(dto.UpiId.Trim()))
                 {
-                    return BadRequest(new { success = false, message = "Invalid UPI ID format. Must contain '@' (e.g. 8799020418@okaxis)." });
+                    return BadRequest(new { success = false, message = "Invalid UPI ID format. Must match regex ^[a-zA-Z0-9.\\-_]{2,256}@[a-zA-Z]{2,64}$ (e.g. restaurant@okaxis)." });
                 }
                 restaurant.UpiId = dto.UpiId.Trim().ToLowerInvariant();
             }
@@ -696,11 +740,17 @@ namespace MenuScan.Controllers
         }
 
         [HttpPost("api/restaurant/upload-payment-qr")]
+        [Microsoft.AspNetCore.Authorization.Authorize(Roles = $"{AppRoles.RestaurantAdmin},{AppRoles.SuperAdmin}")]
         public async Task<IActionResult> UploadPaymentQr([FromForm] IFormFile file, [FromForm] string? restaurantSlug)
         {
             if (file == null || file.Length == 0)
             {
                 return BadRequest(new { success = false, message = "Please select a valid image file." });
+            }
+
+            if (file.Length > 2 * 1024 * 1024)
+            {
+                return BadRequest(new { success = false, message = "QR image file is too large (Maximum allowed size is 2MB)." });
             }
 
             var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp" };
@@ -710,15 +760,47 @@ namespace MenuScan.Controllers
                 return BadRequest(new { success = false, message = "Only JPG, PNG, and WEBP image files are allowed." });
             }
 
+            using (var checkStream = file.OpenReadStream())
+            {
+                if (!NetworkHelper.IsValidImageMagicBytes(checkStream))
+                {
+                    return BadRequest(new { success = false, message = "Invalid image file content." });
+                }
+            }
+
             var restaurant = await _context.Restaurants.IgnoreQueryFilters()
                 .FirstOrDefaultAsync(r => r.Slug == restaurantSlug && r.IsActive);
             if (restaurant == null)
             {
-                restaurant = await _context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.IsActive);
-            }
-            if (restaurant == null)
-            {
                 return NotFound(new { success = false, message = "Restaurant not found." });
+            }
+
+            // Tenant security check
+            if (!User.IsInRole(AppRoles.SuperAdmin))
+            {
+                var userClaim = User.FindFirst("RestaurantId");
+                if (userClaim == null || !Guid.TryParse(userClaim.Value, out var claimTenantId) || claimTenantId != restaurant.Id)
+                {
+                    return Forbid();
+                }
+            }
+
+            // Delete old file when replacing
+            if (!string.IsNullOrWhiteSpace(restaurant.PaymentQrImageUrl))
+            {
+                try
+                {
+                    var relative = restaurant.PaymentQrImageUrl.TrimStart('/', '\\').Replace('/', Path.DirectorySeparatorChar);
+                    var oldPath = Path.Combine(_env.WebRootPath, relative);
+                    if (System.IO.File.Exists(oldPath))
+                    {
+                        System.IO.File.Delete(oldPath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not delete old payment QR file: {Url}", restaurant.PaymentQrImageUrl);
+                }
             }
 
             var uploadFolder = Path.Combine(_env.WebRootPath, "uploads", "payment-qrs");
@@ -727,7 +809,7 @@ namespace MenuScan.Controllers
                 Directory.CreateDirectory(uploadFolder);
             }
 
-            var fileName = $"{restaurant.Slug}-qr-{DateTime.UtcNow.Ticks}{ext}";
+            var fileName = $"{Guid.NewGuid():N}{ext}";
             var filePath = Path.Combine(uploadFolder, fileName);
 
             using (var stream = new FileStream(filePath, FileMode.Create))
@@ -749,10 +831,12 @@ namespace MenuScan.Controllers
         }
 
         [HttpPost("api/order/confirm-online-payment")]
+        [IgnoreAntiforgeryToken]
+        [EnableRateLimiting("diner-api-policy")]
         public async Task<IActionResult> ConfirmOnlinePayment([FromBody] ConfirmOnlinePaymentDto dto)
         {
-            if (string.IsNullOrWhiteSpace(dto.OrderToken))
-                return BadRequest(new { success = false, message = "Invalid order token." });
+            if (dto == null || string.IsNullOrWhiteSpace(dto.OrderToken))
+                return BadRequest(new { success = false, message = "Invalid payment request or order token." });
 
             var order = await _context.Orders
                 .IgnoreQueryFilters()
@@ -771,127 +855,102 @@ namespace MenuScan.Controllers
                     success = true,
                     alreadyPaid = true,
                     billNumber = order.Bill.BillNumber,
-                    message = "This bill has already been settled."
+                    grandTotal = order.Bill.GrandTotal,
+                    message = "This bill has already been settled and paid."
                 });
             }
 
-            using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                var bill = order.Bill;
-                if (bill == null)
+                // Security rule: Diners cannot self-settle bills or unlock tax receipts.
+                // Cashier at /billing MUST verify bank credit and approve the settlement.
+                var pendingRequest = await _context.ServiceRequests
+                    .IgnoreQueryFilters()
+                    .Where(s => s.TableId == order.TableId && s.RequestType == "UPI Payment" && !s.IsHandled)
+                    .OrderByDescending(s => s.CreatedAtUtc)
+                    .FirstOrDefaultAsync();
+
+                if (pendingRequest == null)
                 {
-                    bill = new Bill
+                    pendingRequest = new ServiceRequest
                     {
                         RestaurantId = order.RestaurantId,
-                        OrderId = order.Id,
-                        BillNumber = $"BILL-{DateTime.UtcNow:yyMMdd}-{Random.Shared.Next(1000, 9999)}",
-                        SubTotal = order.SubTotal,
-                        TaxRate = order.TaxRate,
-                        TaxAmount = order.TaxAmount,
-                        GrandTotal = order.TotalAmount,
-                        Status = BillStatus.Paid,
-                        ClosedAtUtc = DateTime.UtcNow
+                        TableId = order.TableId,
+                        RequestType = "UPI Payment",
+                        Note = $"Table {order.Table?.TableNumber ?? "Table"} has reported UPI payment of ₹{order.TotalAmount:F2}. Verify bank SMS/Soundbox before approving.",
+                        CreatedAtUtc = DateTime.UtcNow
                     };
-                    _context.Bills.Add(bill);
+                    _context.ServiceRequests.Add(pendingRequest);
                 }
                 else
                 {
-                    bill.Status = BillStatus.Paid;
-                    bill.ClosedAtUtc = DateTime.UtcNow;
-                }
-
-                var paymentRef = string.IsNullOrWhiteSpace(dto.PaymentReference)
-                    ? $"UPI-{DateTime.UtcNow:yyMMddHHmmss}-{Random.Shared.Next(100, 999)}"
-                    : dto.PaymentReference.Trim();
-
-                var payment = new Payment
-                {
-                    BillId = bill.Id,
-                    Amount = bill.GrandTotal,
-                    Method = PaymentMethod.UPI,
-                    Reference = paymentRef,
-                    RecordedBy = "Customer (UPI Self-Checkout)",
-                    PaidAtUtc = DateTime.UtcNow
-                };
-                _context.Payments.Add(payment);
-
-                var oldStatus = order.Status;
-                order.Status = OrderStatus.Completed;
-
-                _context.OrderStatusHistories.Add(new OrderStatusHistory
-                {
-                    OrderId = order.Id,
-                    OldStatus = oldStatus,
-                    NewStatus = OrderStatus.Completed,
-                    ChangedBy = "Customer Online",
-                    ChangedAtUtc = DateTime.UtcNow,
-                    Notes = $"Self-Checkout via UPI ({bill.BillNumber}) Ref: {paymentRef}"
-                });
-
-                var pendingBillRequests = await _context.ServiceRequests
-                    .IgnoreQueryFilters()
-                    .Where(s => s.TableId == order.TableId && !s.IsHandled && s.RequestType == "Bill")
-                    .ToListAsync();
-
-                foreach (var req in pendingBillRequests)
-                {
-                    req.IsHandled = true;
-                    req.HandledAtUtc = DateTime.UtcNow;
-                    req.HandledBy = "Customer Self-Checkout";
+                    pendingRequest.Note = $"Table {order.Table?.TableNumber ?? "Table"} payment reminder: ₹{order.TotalAmount:F2} via UPI awaiting approval.";
+                    pendingRequest.CreatedAtUtc = DateTime.UtcNow;
                 }
 
                 await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
 
+                // Real-time broadcast to Cashier dashboard
                 await _hubContext.Clients.Group($"Restaurant_{order.RestaurantId}")
-                    .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Completed", order.Table?.TableNumber ?? "Unknown");
-
-                await _hubContext.Clients.Group($"Restaurant_{order.RestaurantId}")
-                    .SendAsync("ReceivePaymentSettled", new
+                    .SendAsync("ReceiveWaiterCall", new
                     {
-                        orderNumber = order.OrderNumber,
+                        requestId = pendingRequest.Id,
                         tableNumber = order.Table?.TableNumber ?? "Table",
-                        amount = bill.GrandTotal,
-                        method = "UPI",
-                        billNumber = bill.BillNumber
+                        requestType = "UPI Payment",
+                        notes = pendingRequest.Note,
+                        createdAt = pendingRequest.CreatedAtUtc.ToLocalTime().ToString("hh:mm tt"),
+                        orderId = order.Id,
+                        totalAmount = order.TotalAmount
                     });
 
-                await _hubContext.Clients.Group($"Order_{order.OrderToken}")
-                    .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Completed", order.Table?.TableNumber ?? "Unknown");
-
-                _logger.LogInformation("Order {OrderNumber} paid online by customer via UPI. Bill {BillNumber}",
-                    order.OrderNumber, bill.BillNumber);
+                _logger.LogInformation("Customer at Table {Table} (Order {OrderNumber}) reported UPI payment ₹{Amount}. Awaiting cashier approval.",
+                    order.Table?.TableNumber, order.OrderNumber, order.TotalAmount);
 
                 return Ok(new
                 {
                     success = true,
-                    billNumber = bill.BillNumber,
-                    grandTotal = bill.GrandTotal,
-                    message = "Payment confirmed successfully!"
+                    awaitingCashierApproval = true,
+                    orderNumber = order.OrderNumber,
+                    tableNumber = order.Table?.TableNumber ?? "Table",
+                    grandTotal = order.TotalAmount,
+                    message = "Notification sent to Cashier! Please wait for Cashier to verify payment in bank and approve your bill."
                 });
             }
             catch (Exception ex)
             {
-                await transaction.RollbackAsync();
-                _logger.LogError(ex, "Failed to confirm online payment for order {OrderToken}", dto.OrderToken);
-                return StatusCode(500, new { success = false, message = "Payment processing failed. Please ask staff for assistance." });
+                _logger.LogError(ex, "Failed to notify cashier of online payment for order {OrderToken}", dto.OrderToken);
+                return StatusCode(500, new { success = false, message = "Could not notify cashier. Please ask staff for assistance." });
             }
         }
     }
 
     public class CallWaiterDto
     {
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.MaxLength(120)]
         public string RestaurantSlug { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.MaxLength(64)]
         public string TableToken { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.MaxLength(50)]
         public string RequestType { get; set; } = "Assistance";
+
+        [System.ComponentModel.DataAnnotations.MaxLength(300)]
         public string? Notes { get; set; }
     }
 
     public class SaveRestaurantUpiDto
     {
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.MaxLength(120)]
         public string RestaurantSlug { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.MaxLength(100)]
         public string? UpiId { get; set; }
+
+        [System.ComponentModel.DataAnnotations.MaxLength(150)]
         public string? PayeeName { get; set; }
     }
 }

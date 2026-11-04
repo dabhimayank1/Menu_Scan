@@ -4,17 +4,82 @@
     Layout = "_Layout";
     var restaurant = (MenuScan.Models.Entities.Restaurant)ViewBag.Restaurant;
     var itemPopularity = (IEnumerable<dynamic>)ViewBag.ItemPopularity;
+    var selectedDate = (DateTime)(ViewBag.SelectedDate ?? DateTime.UtcNow.Date);
+    var prevDate = selectedDate.AddDays(-1);
+    var nextDate = selectedDate.AddDays(1);
+    var isToday = selectedDate.Date == DateTime.UtcNow.Date;
 }
 
-<div class="container-fluid py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
+<div class="container-fluid py-4 px-3 px-lg-4">
+    <!-- Navigation Tabs & Header -->
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
         <div>
-            <h3 class="fw-bold mb-0">Daily Sales & Settlement Report</h3>
-            <p class="text-muted mb-0">@restaurant.Name - @DateTime.Now.ToString("dddd, MMMM dd, yyyy")</p>
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="fs-4">📊</span>
+                <h3 class="fw-bold mb-0" style="letter-spacing: -0.5px;">Daily Sales &amp; Settlement Report</h3>
+                <span class="badge bg-dark rounded-pill px-3 py-1">@restaurant.Name</span>
+            </div>
+            <p class="text-muted small mb-0">Detailed hourly flow, table settlements, payment splits, and bestsellers</p>
         </div>
-        <button class="btn btn-outline-dark" onclick="window.print()">
-            <i class="bi bi-printer me-1"></i> Print Daily Summary
-        </button>
+
+        <!-- Report View Tabs -->
+        <div class="d-flex align-items-center gap-2">
+            <div class="btn-group p-1 bg-light rounded-pill border shadow-sm">
+                <a asp-action="DailySales" class="btn btn-sm btn-cafe-primary rounded-pill px-3 py-1 fw-bold shadow-sm">
+                    <i class="bi bi-calendar-check me-1"></i> Daily Report
+                </a>
+                <a asp-action="MonthlySales" asp-route-year="@selectedDate.Year" asp-route-month="@selectedDate.Month" class="btn btn-sm rounded-pill px-3 py-1 fw-semibold text-muted">
+                    <i class="bi bi-calendar-month me-1"></i> Monthly Report
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Date Navigation & Action Bar -->
+    <div class="card border-0 shadow-sm rounded-4 p-3 bg-white mb-4">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+            <!-- Prev/Next & Date Input Form -->
+            <form method="get" asp-action="DailySales" class="d-flex flex-wrap align-items-center gap-2 m-0" id="dateFilterForm">
+                <a asp-action="DailySales" asp-route-date="@prevDate.ToString("yyyy-MM-dd")" class="btn btn-outline-dark btn-sm rounded-pill px-3" title="Previous Day">
+                    <i class="bi bi-chevron-left me-1"></i> @prevDate.ToString("dd MMM")
+                </a>
+
+                <div class="d-flex align-items-center gap-1 bg-light p-1 px-2 rounded-pill border">
+                    <i class="bi bi-calendar-event text-muted me-1"></i>
+                    <input type="date" name="date" class="form-control form-control-sm border-0 bg-transparent fw-bold text-dark p-0" 
+                           value="@selectedDate.ToString("yyyy-MM-dd")" 
+                           onchange="document.getElementById('dateFilterForm').submit()" 
+                           style="width: 130px; cursor: pointer;" />
+                </div>
+
+                <a asp-action="DailySales" asp-route-date="@nextDate.ToString("yyyy-MM-dd")" class="btn btn-outline-dark btn-sm rounded-pill px-3" title="Next Day">
+                    @nextDate.ToString("dd MMM") <i class="bi bi-chevron-right ms-1"></i>
+                </a>
+
+                @if (!isToday)
+                {
+                    <a asp-action="DailySales" asp-route-date="@DateTime.UtcNow.ToString("yyyy-MM-dd")" class="badge bg-secondary-subtle text-secondary rounded-pill text-decoration-none px-3 py-2 ms-1">
+                        Go to Today
+                    </a>
+                }
+                else
+                {
+                    <span class="badge bg-success-subtle text-success rounded-pill px-3 py-2 ms-1">
+                        <i class="bi bi-circle-fill me-1" style="font-size: 0.5rem;"></i> Today (Live)
+                    </span>
+                }
+            </form>
+
+            <!-- Export & WhatsApp Actions -->
+            <div class="d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-success btn-sm rounded-pill px-3 fw-bold shadow-sm d-flex align-items-center gap-1" onclick="openDayEndWhatsAppModal()">
+                    <i class="bi bi-whatsapp fs-6"></i> Send WhatsApp Summary
+                </button>
+                <button type="button" class="btn btn-outline-dark btn-sm rounded-pill px-3 fw-semibold" onclick="window.print()">
+                    <i class="bi bi-printer me-1"></i> Print Daily Summary
+                </button>
+            </div>
+        </div>
     </div>
 
     <!-- Summary KPI cards -->
@@ -143,6 +208,165 @@
             </div>
         </div>
     </div>
+
+    <!-- Cashier Shift Reconciliation Table -->
+    @{
+        var cashierList = ViewBag.CashierBreakdown as List<MenuScan.Models.ViewModels.CashierSalesSummaryDto> ?? new List<MenuScan.Models.ViewModels.CashierSalesSummaryDto>();
+    }
+    <div class="card shadow-sm border-0 rounded-4 bg-white overflow-hidden mb-4">
+        <div class="card-header bg-white p-4 pb-3 border-0 d-flex justify-content-between align-items-center">
+            <div>
+                <h5 class="fw-bold mb-0">
+                    <i class="bi bi-person-badge-fill me-2 text-primary"></i>Cashier &amp; Counter Settlement
+                </h5>
+                <small class="text-muted">Day-end cash box reconciliation &mdash; how much cash &amp; UPI each cashier or counter collected</small>
+            </div>
+            <span class="badge bg-primary-subtle text-primary rounded-pill px-3 py-1">@cashierList.Count Active Cashiers</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light small text-uppercase text-muted">
+                    <tr>
+                        <th class="ps-4">Cashier / Source</th>
+                        <th class="text-center">Bills Settled</th>
+                        <th class="text-end text-primary">Cash in Drawer (₹)</th>
+                        <th class="text-end text-success">UPI Digital (₹)</th>
+                        <th class="text-end text-warning-emphasis">Card (₹)</th>
+                        <th class="text-end pe-4">Total Settled (₹)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (cashierList.Any())
+                    {
+                        @foreach (var c in cashierList)
+                        {
+                            <tr>
+                                <td class="ps-4">
+                                    <div class="d-flex align-items-center">
+                                        <div class="p-2 rounded-circle bg-light me-2 text-dark">
+                                            <i class="bi bi-person-fill"></i>
+                                        </div>
+                                        <div>
+                                            <strong class="text-dark">@c.CashierName</strong>
+                                            <small class="text-muted d-block" style="font-size: 0.72rem;">@c.PercentageOfTotal.ToString("0.1")% of day revenue</small>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge bg-dark rounded-pill px-3 py-1">@c.BillsCount</span>
+                                </td>
+                                <td class="text-end fw-bold text-primary">
+                                    ₹@c.CashCollected.ToString("N2")
+                                </td>
+                                <td class="text-end fw-bold text-success">
+                                    ₹@c.UpiCollected.ToString("N2")
+                                </td>
+                                <td class="text-end small text-muted">
+                                    @(c.CardCollected > 0 ? "₹" + c.CardCollected.ToString("N2") : "₹0.00")
+                                </td>
+                                <td class="text-end pe-4 fw-bold text-dark fs-6">
+                                    ₹@c.TotalRevenue.ToString("N2")
+                                </td>
+                            </tr>
+                        }
+                    }
+                    else
+                    {
+                        <tr>
+                            <td colspan="6" class="text-center py-4 text-muted">No settlements recorded for this day.</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Bill-by-Bill Audit & Invoices Ledger -->
+    <div class="card shadow-sm border-0 rounded-4 bg-white overflow-hidden mb-4">
+        <div class="card-header bg-white p-4 pb-3 border-0 d-flex justify-content-between align-items-center">
+            <div>
+                <h5 class="fw-bold mb-0">
+                    <i class="bi bi-receipt-cutoff me-2" style="color: var(--cafe-primary);"></i>Billing Invoices Ledger
+                </h5>
+                <small class="text-muted">All paid customer bills for @selectedDate.ToString("dd MMMM yyyy")</small>
+            </div>
+            <span class="badge bg-dark rounded-pill px-3 py-1">@Model.Count Invoices</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light small text-uppercase text-muted">
+                    <tr>
+                        <th class="ps-4">Bill No</th>
+                        <th>Table</th>
+                        <th>Order</th>
+                        <th>Settled Time</th>
+                        <th>Cashier / Collector</th>
+                        <th>Payment Mode</th>
+                        <th class="text-end">GST</th>
+                        <th class="text-end pe-4">Grand Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (Model.Any())
+                    {
+                        @foreach (var bill in Model)
+                        {
+                            var firstPayment = bill.Payments.FirstOrDefault();
+                            var pMethod = firstPayment?.Method.ToString() ?? "Settled";
+                            var cashierName = firstPayment?.RecordedBy ?? "Cashier";
+                            <tr>
+                                <td class="ps-4">
+                                    <strong class="text-dark font-monospace">@bill.BillNumber</strong>
+                                </td>
+                                <td>
+                                    <span class="badge bg-light text-dark border">
+                                        @(bill.Order?.Table?.TableNumber ?? "Table")
+                                    </span>
+                                </td>
+                                <td>
+                                    <small class="text-muted font-monospace">#@(bill.Order?.OrderNumber ?? "-")</small>
+                                </td>
+                                <td>
+                                    <small class="text-muted">@bill.CreatedAtUtc.ToLocalTime().ToString("hh:mm tt")</small>
+                                </td>
+                                <td>
+                                    <small class="fw-semibold text-secondary">
+                                        <i class="bi bi-person-check me-1"></i>@cashierName
+                                    </small>
+                                </td>
+                                <td>
+                                    @if (pMethod == "UPI")
+                                    {
+                                        <span class="badge bg-success-subtle text-success">UPI Digital</span>
+                                    }
+                                    else if (pMethod == "Cash")
+                                    {
+                                        <span class="badge bg-primary-subtle text-primary">Cash Counter</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-warning-subtle text-dark">@pMethod</span>
+                                    }
+                                </td>
+                                <td class="text-end small text-muted">
+                                    ₹@bill.TaxAmount.ToString("N2")
+                                </td>
+                                <td class="text-end pe-4 fw-bold text-success">
+                                    ₹@bill.GrandTotal.ToString("N2")
+                                </td>
+                            </tr>
+                        }
+                    }
+                    else
+                    {
+                        <tr>
+                            <td colspan="8" class="text-center py-4 text-muted">No bills settled on this date.</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
 </div>
 
 @section Scripts {
@@ -231,5 +455,116 @@
                 cutout: '65%'
             }
         });
+
+        let dayEndData = null;
+        const reportDateStr = '@selectedDate.ToString("yyyy-MM-dd")';
+
+        async function openDayEndWhatsAppModal() {
+            const modalEl = document.getElementById('dayEndWhatsAppModal');
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modal.show();
+
+            const phoneInput = document.getElementById('ownerWpPhoneInput');
+            const phone = phoneInput ? phoneInput.value.trim() : '';
+
+            try {
+                const res = await fetch(`/api/reports/daily-sales-summary?date=${reportDateStr}&phone=${encodeURIComponent(phone)}`);
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    dayEndData = data;
+                    const preview = document.getElementById('dayEndReportPreview');
+                    if (preview) preview.innerText = data.summaryText;
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function refreshReportPreview() {
+            const phoneInput = document.getElementById('ownerWpPhoneInput');
+            const phone = phoneInput ? phoneInput.value.trim() : '';
+            try {
+                const res = await fetch(`/api/reports/daily-sales-summary?date=${reportDateStr}&phone=${encodeURIComponent(phone)}`);
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    dayEndData = data;
+                    const preview = document.getElementById('dayEndReportPreview');
+                    if (preview) preview.innerText = data.summaryText;
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function sendOwnerWhatsAppReport() {
+            const phoneInput = document.getElementById('ownerWpPhoneInput');
+            const phone = phoneInput ? phoneInput.value.trim() : '';
+            if (!phone || phone.length < 10) {
+                alert("Please enter a valid 10-digit mobile number.");
+                return;
+            }
+
+            if (dayEndData && dayEndData.summaryText) {
+                const clean = phone.replace(/\D/g, '');
+                const cleanPhone = clean.length === 10 ? `91${clean}` : clean;
+                const url = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(dayEndData.summaryText)}`;
+                window.open(url, '_blank');
+                const modalEl = document.getElementById('dayEndWhatsAppModal');
+                if (modalEl) bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+            }
+        }
+
+        function copyReportText() {
+            if (dayEndData && dayEndData.summaryText) {
+                navigator.clipboard.writeText(dayEndData.summaryText).then(() => {
+                    alert("Daily sales summary copied to clipboard!");
+                });
+            }
+        }
     </script>
 }
+
+<!-- Day-End WhatsApp Summary Modal -->
+<div class="modal fade" id="dayEndWhatsAppModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content rounded-4 border-0 shadow-lg overflow-hidden">
+            <div class="modal-header bg-success text-white py-3">
+                <h5 class="modal-title fw-bold mb-0">
+                    <i class="bi bi-whatsapp me-2"></i>Daily Sales WhatsApp Report
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="mb-3 text-start">
+                    <label class="form-label small fw-bold text-muted text-uppercase">Owner / Manager WhatsApp Number:</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light fw-bold text-muted">+91</span>
+                        <input type="tel" id="ownerWpPhoneInput" class="form-control font-monospace fw-bold fs-6" 
+                               placeholder="10-digit mobile number" maxlength="10" 
+                               oninput="refreshReportPreview()"
+                               value="@(restaurant.Phone?.StartsWith("+91") == true ? restaurant.Phone.Replace("+91", "").Trim() : (restaurant.Phone ?? ""))" />
+                    </div>
+                    <small class="text-muted d-block mt-1" style="font-size: 11px;">
+                        <i class="bi bi-info-circle me-1"></i>You can edit the recipient number anytime before sending.
+                    </small>
+                </div>
+
+                <div class="mb-3 text-start">
+                    <label class="form-label small fw-bold text-muted text-uppercase">Message Preview (Auto-generated):</label>
+                    <div class="p-3 bg-light rounded-3 border font-monospace small" id="dayEndReportPreview" style="white-space: pre-wrap; max-height: 220px; overflow-y: auto; font-size: 12px;">
+Loading live report preview...
+                    </div>
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button type="button" class="btn btn-success py-3 fw-bold rounded-pill shadow-sm d-flex align-items-center justify-content-center gap-2" id="btnSendOwnerWp" onclick="sendOwnerWhatsAppReport()">
+                        <i class="bi bi-whatsapp fs-5"></i> Open WhatsApp Web &amp; Send Summary
+                    </button>
+                    <button type="button" class="btn btn-outline-dark py-2 rounded-pill small fw-semibold" onclick="copyReportText()">
+                        <i class="bi bi-copy me-1"></i> Copy Text to Clipboard
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

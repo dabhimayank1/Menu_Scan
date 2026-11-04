@@ -42,26 +42,6 @@
 
                     <button type="submit" class="btn btn-cafe-primary w-100 py-2 fw-bold">Sign In</button>
                 </form>
-
-                <hr class="my-4" />
-
-                <div>
-                    <h6 class="text-muted text-center small fw-bold mb-3">QUICK-FILL TEST ACCOUNTS</h6>
-                    <div class="d-grid gap-2">
-                        <button type="button" class="btn btn-outline-dark btn-sm text-start rounded-pill py-2" onclick="fillCreds('manager@spicesymphony.com', 'Staff@123')">
-                            <strong>Restaurant Admin</strong> <span class="badge bg-secondary ms-2">Full Store Access</span>
-                        </button>
-                        <button type="button" class="btn btn-outline-primary btn-sm text-start rounded-pill py-2" onclick="fillCreds('cashier@spicesymphony.com', 'Staff@123')">
-                            <strong>Cashier / Billing</strong> <span class="badge bg-primary ms-2">Orders &amp; Bills</span>
-                        </button>
-                        <button type="button" class="btn btn-outline-warning btn-sm text-start text-dark rounded-pill py-2" onclick="fillCreds('kitchen@spicesymphony.com', 'Staff@123')">
-                            <strong>Kitchen / Barista</strong> <span class="badge bg-warning text-dark ms-2">KDS Display</span>
-                        </button>
-                        <button type="button" class="btn btn-outline-secondary btn-sm text-start rounded-pill py-2" onclick="fillCreds('admin@menuscan.com', 'Admin@123')">
-                            <strong>Super Admin</strong> <span class="badge bg-dark ms-2">Platform Owner</span>
-                        </button>
-                    </div>
-                </div>
             </div>
         </div>
     </div>
@@ -69,10 +49,4 @@
 
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
-    <script>
-        function fillCreds(email, pwd) {
-            document.getElementById('emailInput').value = email;
-            document.getElementById('passwordInput').value = pwd;
-        }
-    </script>
 }

@@ -141,10 +141,10 @@ namespace MenuScan.Controllers
                 // 3. Create Default Tables (4 dining tables)
                 var tables = new List<DiningTable>
                 {
-                    new() { RestaurantId = restaurant.Id, TableNumber = "Table 1", Token = $"T1-{Guid.NewGuid():N}"[..8].ToUpperInvariant(), Capacity = 2 },
-                    new() { RestaurantId = restaurant.Id, TableNumber = "Table 2", Token = $"T2-{Guid.NewGuid():N}"[..8].ToUpperInvariant(), Capacity = 4 },
-                    new() { RestaurantId = restaurant.Id, TableNumber = "Table 3", Token = $"T3-{Guid.NewGuid():N}"[..8].ToUpperInvariant(), Capacity = 4 },
-                    new() { RestaurantId = restaurant.Id, TableNumber = "Table 4", Token = $"T4-{Guid.NewGuid():N}"[..8].ToUpperInvariant(), Capacity = 6 }
+                    new() { RestaurantId = restaurant.Id, TableNumber = "Table 1", Token = Guid.NewGuid().ToString("N")[..12].ToUpperInvariant(), Capacity = 2 },
+                    new() { RestaurantId = restaurant.Id, TableNumber = "Table 2", Token = Guid.NewGuid().ToString("N")[..12].ToUpperInvariant(), Capacity = 4 },
+                    new() { RestaurantId = restaurant.Id, TableNumber = "Table 3", Token = Guid.NewGuid().ToString("N")[..12].ToUpperInvariant(), Capacity = 4 },
+                    new() { RestaurantId = restaurant.Id, TableNumber = "Table 4", Token = Guid.NewGuid().ToString("N")[..12].ToUpperInvariant(), Capacity = 6 }
                 };
                 _context.DiningTables.AddRange(tables);
 

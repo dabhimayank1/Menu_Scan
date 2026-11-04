@@ -36,6 +36,9 @@
                     <i class="bi bi-play-fill"></i> Test
                 </button>
             </div>
+            <a href="/Admin/PrintTableStands" target="_blank" class="btn btn-outline-dark rounded-pill px-3 btn-sm fw-semibold" title="Print Table QR Tent Cards & Standees">
+                <i class="bi bi-qr-code-scan me-1"></i> QR Standees
+            </a>
             <button class="btn btn-cafe-primary rounded-pill px-3 btn-sm" onclick="window.location.reload()">
                 <i class="bi bi-arrow-clockwise me-1"></i> Refresh
             </button>
@@ -313,15 +316,18 @@
                             }
 
                             <div class="d-flex gap-1">
-                                @if (table.ActiveOrderId.HasValue)
+                                @if (table.ActiveOrderId.HasValue || table.PendingRequests.Any())
                                 {
-                                    <button class="btn btn-sm btn-outline-secondary rounded-pill flex-grow-1" 
-                                            onclick="openTableDrawer('@table.TableNumber')">
+                                    <button class="btn btn-sm btn-outline-secondary rounded-pill flex-grow-1 btn-table-details" 
+                                            onclick="openTableDrawer('@table.TableId')">
                                         <i class="bi bi-eye me-1"></i> Details
                                     </button>
-                                    <a href="/Billing?table=@table.TableNumber" class="btn btn-sm btn-outline-success rounded-pill px-2" title="Settle Bill">
-                                        <i class="bi bi-cash-stack"></i>
-                                    </a>
+                                    @if (table.ActiveOrderId.HasValue)
+                                    {
+                                        <a href="/Billing?table=@table.TableNumber" class="btn btn-sm btn-outline-success rounded-pill px-2" title="Settle Bill">
+                                            <i class="bi bi-cash-stack"></i>
+                                        </a>
+                                    }
                                 }
                                 else
                                 {
@@ -400,38 +406,42 @@
         const restaurantId = "@Model.Restaurant.Id";
         let soundEnabled = true;
 
-        // Raw table data serialized safely for quick client-side drawer lookup
-        const tableStore = {
-            @foreach (var t in Model.Tables)
-            {
-                <text>
-                "@t.TableNumber": {
-                    tableId: "@t.TableId",
-                    tableNumber: "@t.TableNumber",
-                    capacity: @t.Capacity,
-                    token: "@t.Token",
-                    status: "@t.FloorStatus",
-                    activeOrderId: "@(t.ActiveOrderId?.ToString() ?? "")",
-                    activeOrderNumber: "@(t.ActiveOrderNumber ?? "")",
-                    activeOrderTotal: @t.ActiveOrderTotal,
-                    seatedMinutes: @t.SeatedDurationMinutes,
-                    hasFoodReady: @t.HasFoodReady.ToString().ToLower(),
-                    items: [
-                        @foreach (var it in t.OrderItems)
-                        {
-                            <text>{ name: "@Html.Raw(it.ItemName.Replace("\"", "\\\""))", qty: @it.Quantity, price: @it.Price, custom: "@Html.Raw(it.CustomizationSummary?.Replace("\"", "\\\"") ?? "")" },</text>
-                        }
-                    ],
-                    requests: [
-                        @foreach (var r in t.PendingRequests)
-                        {
-                            <text>{ id: "@r.RequestId", type: "@r.RequestType", notes: "@Html.Raw(r.Notes?.Replace("\"", "\\\"") ?? "")", timeAgo: "@r.TimeAgo" },</text>
-                        }
-                    ]
-                },
-                </text>
-            }
-        };
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function getAntiForgeryToken() {
+            const meta = document.querySelector('meta[name="antiforgery-token"]');
+            return meta ? meta.getAttribute('content') : '';
+        }
+
+        // Table data serialized safely keyed by TableId
+        @{
+            var tablesDict = Model.Tables.ToDictionary(
+                t => t.TableId.ToString(),
+                t => new {
+                    tableId = t.TableId.ToString(),
+                    tableNumber = t.TableNumber,
+                    capacity = t.Capacity,
+                    token = t.Token,
+                    status = t.FloorStatus.ToString(),
+                    activeOrderId = t.ActiveOrderId?.ToString() ?? "",
+                    activeOrderNumber = t.ActiveOrderNumber ?? "",
+                    activeOrderTotal = t.ActiveOrderTotal,
+                    seatedMinutes = t.SeatedDurationMinutes,
+                    hasFoodReady = t.HasFoodReady,
+                    items = t.OrderItems.Select(it => new { name = it.ItemName, qty = it.Quantity, price = it.Price, custom = it.CustomizationSummary }),
+                    requests = t.PendingRequests.Select(r => new { id = r.RequestId.ToString(), type = r.RequestType, notes = r.Notes, timeAgo = r.TimeAgo })
+                }
+            );
+        }
+        const tableStore = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(tablesDict));
 
         // Live Clock
         function updateClock() {
@@ -512,8 +522,8 @@
         }
 
         // Open Table Details Drawer Modal
-        function openTableDrawer(tableNumber) {
-            const data = tableStore[tableNumber];
+        function openTableDrawer(tableId) {
+            const data = tableStore[tableId];
             if (!data) return;
 
             document.getElementById('drawerTableTitle').innerText = `${data.tableNumber} Details`;
@@ -529,10 +539,10 @@
                     bodyHtml += `
                         <div class="d-flex justify-content-between align-items-center py-1">
                             <div>
-                                <strong>${r.type}</strong>: ${r.notes || 'No extra notes'}
-                                <div class="text-muted small">${r.timeAgo}</div>
+                                <strong>${escapeHtml(r.type)}</strong>: ${escapeHtml(r.notes || 'No extra notes')}
+                                <div class="text-muted small">${escapeHtml(r.timeAgo)}</div>
                             </div>
-                            <button class="btn btn-sm btn-dark rounded-pill px-3" onclick="acknowledgeService('${r.id}', '${data.tableNumber}')">
+                            <button class="btn btn-sm btn-dark rounded-pill px-3" onclick="acknowledgeService('${escapeHtml(r.id)}', '${escapeHtml(data.tableNumber)}')">
                                 Resolve
                             </button>
                         </div>`;
@@ -544,24 +554,24 @@
             if (data.activeOrderId && data.items.length > 0) {
                 bodyHtml += `
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <h6 class="fw-bold mb-0">Order #${data.activeOrderNumber}</h6>
-                        <span class="badge bg-light text-dark border">Seated: ${data.seatedMinutes}m</span>
+                        <h6 class="fw-bold mb-0">Order #${escapeHtml(data.activeOrderNumber)}</h6>
+                        <span class="badge bg-light text-dark border">Seated: ${escapeHtml(data.seatedMinutes)}m</span>
                     </div>
                     <ul class="list-group list-group-flush mb-3">`;
                 data.items.forEach(it => {
                     bodyHtml += `
                         <li class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center">
                             <div>
-                                <span class="fw-bold">${it.qty}x</span> ${it.name}
-                                ${it.custom ? `<div class="small text-muted">${it.custom}</div>` : ''}
+                                <span class="fw-bold">${escapeHtml(it.qty)}x</span> ${escapeHtml(it.name)}
+                                ${it.custom ? `<div class="small text-muted">${escapeHtml(it.custom)}</div>` : ''}
                             </div>
-                            <span class="fw-semibold">₹${it.price.toFixed(2)}</span>
+                            <span class="fw-semibold">₹${Number(it.price).toFixed(2)}</span>
                         </li>`;
                 });
                 bodyHtml += `</ul>
                     <div class="d-flex justify-content-between align-items-center p-3 rounded-3 mb-3" style="background-color: var(--cafe-primary-light);">
                         <span class="fw-bold">Total Bill:</span>
-                        <span class="fs-5 fw-bold" style="color: var(--cafe-primary);">₹${data.activeOrderTotal.toFixed(2)}</span>
+                        <span class="fs-5 fw-bold" style="color: var(--cafe-primary);">₹${Number(data.activeOrderTotal).toFixed(2)}</span>
                     </div>`;
             } else {
                 bodyHtml += `
@@ -576,24 +586,24 @@
 
             // Footer Actions
             let footerHtml = `
-                <a href="/r/@Model.Restaurant.Slug/t/${data.token}" target="_blank" class="btn btn-outline-primary rounded-pill px-3">
+                <a href="/r/@Model.Restaurant.Slug/t/${encodeURIComponent(data.token)}" target="_blank" class="btn btn-outline-primary rounded-pill px-3">
                     <i class="bi bi-phone me-1"></i> Customer Menu
                 </a>`;
 
             if (data.activeOrderId) {
                 if (data.hasFoodReady) {
                     footerHtml += `
-                        <button class="btn text-white rounded-pill px-3" style="background-color: #6f42c1;" onclick="markServed('${data.activeOrderId}', '${data.tableNumber}')">
+                        <button class="btn text-white rounded-pill px-3" style="background-color: #6f42c1;" onclick="markServed('${escapeHtml(data.activeOrderId)}', '${escapeHtml(data.tableNumber)}')">
                             <i class="bi bi-lightning-fill me-1"></i> Mark Served
                         </button>`;
                 }
                 footerHtml += `
-                    <a href="/Billing?table=${data.tableNumber}" class="btn btn-success rounded-pill px-3">
+                    <a href="/Billing?table=${encodeURIComponent(data.tableNumber)}" class="btn btn-success rounded-pill px-3">
                         <i class="bi bi-cash-stack me-1"></i> Settle Bill
                     </a>`;
             } else {
                 footerHtml += `
-                    <button class="btn btn-outline-secondary rounded-pill px-3" onclick="cleanTable('${data.tableId}', '${data.tableNumber}')">
+                    <button class="btn btn-outline-secondary rounded-pill px-3" onclick="cleanTable('${escapeHtml(data.tableId)}', '${escapeHtml(data.tableNumber)}')">
                         <i class="bi bi-arrow-repeat me-1"></i> Reset Table
                     </button>`;
             }
@@ -604,11 +614,15 @@
             const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('tableDetailsModal'));
             modal.show();
         }
+        window.openTableDrawer = openTableDrawer;
 
         // Actions
         async function markServed(orderId, tableNumber) {
             try {
-                const res = await fetch(`/api/floor/mark-served/${orderId}`, { method: 'POST' });
+                const res = await fetch(`/api/floor/mark-served/${orderId}`, {
+                    method: 'POST',
+                    headers: { 'RequestVerificationToken': getAntiForgeryToken() }
+                });
                 if (res.ok) {
                     const modal = bootstrap.Modal.getInstance(document.getElementById('tableDetailsModal'));
                     if (modal) modal.hide();
@@ -624,7 +638,10 @@
 
         async function acknowledgeService(requestId, tableNumber) {
             try {
-                const res = await fetch(`/api/floor/acknowledge-service/${requestId}`, { method: 'POST' });
+                const res = await fetch(`/api/floor/acknowledge-service/${requestId}`, {
+                    method: 'POST',
+                    headers: { 'RequestVerificationToken': getAntiForgeryToken() }
+                });
                 if (res.ok) {
                     const alertEl = document.getElementById(`service-req-alert-${requestId}`);
                     if (alertEl) alertEl.remove();
@@ -642,7 +659,10 @@
 
         async function cleanTable(tableId, tableNumber) {
             try {
-                const res = await fetch(`/api/floor/clean-table/${tableId}`, { method: 'POST' });
+                const res = await fetch(`/api/floor/clean-table/${tableId}`, {
+                    method: 'POST',
+                    headers: { 'RequestVerificationToken': getAntiForgeryToken() }
+                });
                 if (res.ok) {
                     const modal = bootstrap.Modal.getInstance(document.getElementById('tableDetailsModal'));
                     if (modal) modal.hide();

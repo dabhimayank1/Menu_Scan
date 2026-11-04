@@ -3,15 +3,49 @@
     ViewData["Title"] = "Cashier & Billing";
     Layout = "_Layout";
     var restaurantId = (Guid)ViewBag.RestaurantId;
-    var settledBills = (List<MenuScan.Models.Entities.Bill>)ViewBag.SettledBills;
+    var restaurant = ViewBag.Restaurant as MenuScan.Models.Entities.Restaurant;
     var pendingRequests = (List<MenuScan.Models.Entities.ServiceRequest>?)ViewBag.PendingRequests;
+    var activeTab = (string)(ViewBag.ActiveTab ?? "active");
+
+    // Daily Data
+    var selectedDate = (DateTime)(ViewBag.SelectedDate ?? DateTime.UtcNow.Date);
+    var prevDate = selectedDate.AddDays(-1);
+    var nextDate = selectedDate.AddDays(1);
+    var isToday = selectedDate.Date == DateTime.UtcNow.Date;
+
+    var dailySettledBills = ViewBag.DailySettledBills as List<MenuScan.Models.Entities.Bill> ?? new();
+    var dailyCashiers = ViewBag.DailyCashiers as List<MenuScan.Models.ViewModels.CashierSalesSummaryDto> ?? new();
+    var dailyTotalSales = (decimal)(ViewBag.DailyTotalSales ?? 0m);
+    var dailyTotalTax = (decimal)(ViewBag.DailyTotalTax ?? 0m);
+    var dailyTotalCash = (decimal)(ViewBag.DailyTotalCash ?? 0m);
+    var dailyTotalUpi = (decimal)(ViewBag.DailyTotalUpi ?? 0m);
+    var dailyTotalCard = (decimal)(ViewBag.DailyTotalCard ?? 0m);
+    var dailyTotalBills = (int)(ViewBag.DailyTotalBills ?? 0);
+
+    // Monthly Data
+    var selectedYear = (int)(ViewBag.SelectedYear ?? DateTime.UtcNow.Year);
+    var selectedMonth = (int)(ViewBag.SelectedMonth ?? DateTime.UtcNow.Month);
+    var monthDate = new DateTime(selectedYear, selectedMonth, 1);
+    var prevMonthDate = monthDate.AddMonths(-1);
+    var nextMonthDate = monthDate.AddMonths(1);
+    var monthName = monthDate.ToString("MMMM yyyy");
+
+    var monthlySettledBills = ViewBag.MonthlySettledBills as List<MenuScan.Models.Entities.Bill> ?? new();
+    var monthlyCashiers = ViewBag.MonthlyCashiers as List<MenuScan.Models.ViewModels.CashierSalesSummaryDto> ?? new();
+    var monthTotalSales = (decimal)(ViewBag.MonthTotalSales ?? 0m);
+    var monthTotalTax = (decimal)(ViewBag.MonthTotalTax ?? 0m);
+    var monthTotalCash = (decimal)(ViewBag.MonthTotalCash ?? 0m);
+    var monthTotalUpi = (decimal)(ViewBag.MonthTotalUpi ?? 0m);
+    var monthTotalCard = (decimal)(ViewBag.MonthTotalCard ?? 0m);
+    var monthTotalBills = (int)(ViewBag.MonthTotalBills ?? 0);
 }
 
 <div class="container-fluid py-3">
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <!-- Header -->
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-3">
         <div>
             <h3 class="fw-bold mb-0 text-dark"><i class="bi bi-cash-stack text-success me-2"></i>Cashier &amp; Billing Dashboard</h3>
-            <small class="text-muted">Manage table bills, counter settlements, and receipts</small>
+            <small class="text-muted">Manage table orders, daily cash drawer tally, and monthly cashier settlements</small>
         </div>
         <div class="d-flex align-items-center gap-2">
             <!-- Soundbox Controls Pill -->
@@ -29,188 +63,730 @@
                     <i class="bi bi-play-fill"></i> Test
                 </button>
             </div>
-            <span class="badge bg-success py-2 px-3 fs-6 d-flex align-items-center">
-                <span class="spinner-grow spinner-grow-sm me-2" role="status"></span> Live Billing Hub
-            </span>
+            <button class="btn btn-success btn-sm d-flex align-items-center gap-1 shadow-sm fw-semibold" onclick="openDayEndWhatsAppModal()" title="Send Today's Business Summary to Owner WhatsApp">
+                <i class="bi bi-whatsapp"></i> Day-End Report
+            </button>
             <button class="btn btn-outline-secondary btn-sm" onclick="window.location.reload()">
                 <i class="bi bi-arrow-clockwise"></i> Refresh
             </button>
         </div>
     </div>
 
-    <!-- Table Assistance & Waiter Calls Alert Box -->
-    <div id="cashierWaiterAlertContainer" class="mb-4">
-        @if (pendingRequests != null && pendingRequests.Any())
-        {
-            <div class="card border-warning bg-warning-subtle rounded-3 shadow-sm mb-3">
-                <div class="card-header bg-warning text-dark fw-bold d-flex justify-content-between align-items-center py-2">
-                    <span><i class="bi bi-bell-fill me-2"></i>Pending Table Service Requests</span>
-                    <span class="badge bg-dark">@pendingRequests.Count Pending</span>
+    <!-- 3 Core Navigation Tabs -->
+    <ul class="nav nav-pills mb-4 p-1 bg-white rounded-pill shadow-sm border d-inline-flex" id="billingMainTabs" role="tablist">
+        <li class="nav-item">
+            <button class="nav-link rounded-pill fw-bold @(activeTab == "active" ? "active" : "")" id="tab-active-btn" data-bs-toggle="pill" data-bs-target="#tab-active-orders" type="button">
+                <i class="bi bi-clock-history me-1"></i> Active Orders &amp; POS 
+                <span class="badge @(Model.Any() ? "bg-primary" : "bg-secondary") ms-1">@Model.Count</span>
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link rounded-pill fw-bold @(activeTab == "daily" ? "active" : "")" id="tab-daily-btn" data-bs-toggle="pill" data-bs-target="#tab-daily-cashier" type="button">
+                <i class="bi bi-calendar-check me-1"></i> Daily Cashier Details 
+                <span class="badge bg-success ms-1">₹@dailyTotalSales.ToString("N0")</span>
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link rounded-pill fw-bold @(activeTab == "monthly" ? "active" : "")" id="tab-monthly-btn" data-bs-toggle="pill" data-bs-target="#tab-monthly-cashier" type="button">
+                <i class="bi bi-calendar-month me-1"></i> Monthly Cashier Details 
+                <span class="badge bg-dark ms-1">@monthName</span>
+            </button>
+        </li>
+    </ul>
+
+    <!-- Tabs Content -->
+    <div class="tab-content" id="billingMainTabsContent">
+        <!-- ========================================== -->
+        <!-- TAB 1: ACTIVE ORDERS & POS                 -->
+        <!-- ========================================== -->
+        <div class="tab-pane fade @(activeTab == "active" ? "show active" : "")" id="tab-active-orders" role="tabpanel">
+            <!-- Table Assistance & Waiter Calls Alert Box -->
+            <div id="cashierWaiterAlertContainer" class="mb-4">
+                @if (pendingRequests != null && pendingRequests.Any())
+                {
+                    <div class="card border-warning bg-warning-subtle rounded-3 shadow-sm mb-3">
+                        <div class="card-header bg-warning text-dark fw-bold d-flex justify-content-between align-items-center py-2">
+                            <span><i class="bi bi-bell-fill me-2"></i>Pending Table Service Requests</span>
+                            <span class="badge bg-dark">@pendingRequests.Count Pending</span>
+                        </div>
+                        <div class="card-body p-0">
+                            <ul class="list-group list-group-flush rounded-bottom-3" id="pendingRequestList">
+                                @foreach (var req in pendingRequests)
+                                {
+                                    <li class="list-group-item d-flex justify-content-between align-items-center bg-transparent py-3" id="req-card-@req.Id">
+                                        <div class="d-flex align-items-center gap-3">
+                                            <span class="fs-4">
+                                                @(req.RequestType == "Water" ? "💧" : req.RequestType == "Cutlery" ? "🍴" : req.RequestType == "Bill" ? "💳" : req.RequestType == "UPI Payment" ? "💰" : "🛎️")
+                                            </span>
+                                            <div>
+                                                <span class="badge bg-dark fs-6">@req.Table?.TableNumber</span>
+                                                <strong class="ms-2">@req.RequestType @(req.RequestType == "UPI Payment" ? "Verification" : "Requested")</strong>
+                                                @if (!string.IsNullOrEmpty(req.Note))
+                                                {
+                                                    <div class="small text-muted mt-1"><i class="bi bi-chat-left-dots me-1"></i>@req.Note</div>
+                                                }
+                                                <div class="text-muted small"><i class="bi bi-clock me-1"></i>@req.CreatedAtUtc.ToLocalTime().ToString("hh:mm tt")</div>
+                                            </div>
+                                        </div>
+                                        <div class="d-flex align-items-center gap-2">
+                                            @if (req.RequestType == "UPI Payment")
+                                            {
+                                                var matchingOrder = Model.FirstOrDefault(o => o.TableId == req.TableId);
+                                                if (matchingOrder != null)
+                                                {
+                                                    <button type="button" class="btn btn-success btn-sm rounded-pill px-3 fw-bold shadow-sm btn-instant-approve"
+                                                            data-order-id="@matchingOrder.Id"
+                                                            data-order-num="@matchingOrder.OrderNumber"
+                                                            data-table-num="@(matchingOrder.Table?.TableNumber ?? "")"
+                                                            data-amount="@matchingOrder.TotalAmount"
+                                                            data-req-id="@req.Id">
+                                                        <i class="bi bi-check-circle-fill me-1"></i> Approve Payment (₹@matchingOrder.TotalAmount.ToString("0.00"))
+                                                    </button>
+                                                }
+                                            }
+                                            <button class="btn btn-outline-secondary btn-sm rounded-pill px-3" onclick="acknowledgeService('@req.Id')" title="Dismiss / Mark Handled">
+                                                <i class="bi bi-check2 me-1"></i> Dismiss
+                                            </button>
+                                        </div>
+                                    </li>
+                                }
+                            </ul>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <!-- Active Orders Requiring Billing -->
+            <div class="card shadow-sm border-0 rounded-3 mb-4">
+                <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="fw-bold mb-0"><i class="bi bi-clock-history me-2 text-primary"></i>Active Table Orders</h5>
+                    <span class="badge bg-primary">@Model.Count Active</span>
                 </div>
                 <div class="card-body p-0">
-                    <ul class="list-group list-group-flush rounded-bottom-3" id="pendingRequestList">
-                        @foreach (var req in pendingRequests)
-                        {
-                            <li class="list-group-item d-flex justify-content-between align-items-center bg-transparent py-3" id="req-card-@req.Id">
-                                <div class="d-flex align-items-center gap-3">
-                                    <span class="fs-4">
-                                        @(req.RequestType == "Water" ? "💧" : req.RequestType == "Cutlery" ? "🍴" : req.RequestType == "Bill" ? "💳" : "🛎️")
-                                    </span>
-                                    <div>
-                                        <span class="badge bg-dark fs-6">@req.Table?.TableNumber</span>
-                                        <strong class="ms-2">@req.RequestType Requested</strong>
-                                        @if (!string.IsNullOrEmpty(req.Note))
-                                        {
-                                            <div class="small text-muted mt-1"><i class="bi bi-chat-left-dots me-1"></i>@req.Note</div>
-                                        }
-                                        <div class="text-muted small"><i class="bi bi-clock me-1"></i>@req.CreatedAtUtc.ToLocalTime().ToString("hh:mm tt")</div>
-                                    </div>
-                                </div>
-                                <button class="btn btn-dark btn-sm rounded-pill px-3" onclick="acknowledgeService('@req.Id')">
-                                    <i class="bi bi-check2 me-1"></i> Mark Handled
-                                </button>
-                            </li>
-                        }
-                    </ul>
+                    @if (!Model.Any())
+                    {
+                        <div class="text-center py-5 text-muted">
+                            <i class="bi bi-emoji-smile display-4"></i>
+                            <h5 class="mt-3">No pending orders to settle!</h5>
+                            <p>New orders placed by customers will automatically appear here.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Table</th>
+                                        <th>Order #</th>
+                                        <th>Placed At</th>
+                                        <th>Items</th>
+                                        <th>Status</th>
+                                        <th>Total (incl. Tax)</th>
+                                        <th class="text-end">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var order in Model)
+                                    {
+                                        <tr id="row-order-@order.Id">
+                                            <td>
+                                                <span class="badge bg-dark fs-6">@order.Table?.TableNumber</span>
+                                            </td>
+                                            <td>
+                                                <span class="fw-bold">@order.OrderNumber</span>
+                                            </td>
+                                            <td class="text-muted small">
+                                                @order.CreatedAtUtc.ToLocalTime().ToString("hh:mm tt")
+                                            </td>
+                                            <td>
+                                                <span class="fw-semibold">@order.OrderItems.Sum(i => i.Quantity) items</span>
+                                                <small class="text-muted d-block text-truncate" style="max-width: 250px;">
+                                                    @string.Join(", ", order.OrderItems.Select(i => $"{i.Quantity}x {i.ItemNameSnapshot}"))
+                                                </small>
+                                            </td>
+                                            <td>
+                                                @{
+                                                    var pendingUpi = pendingRequests?.FirstOrDefault(r => r.TableId == order.TableId && r.RequestType == "UPI Payment" && !r.IsHandled);
+                                                }
+                                                <span class="badge @(order.Status == MenuScan.Models.Entities.OrderStatus.Served ? "bg-success" : "bg-warning text-dark")">
+                                                    @order.Status
+                                                </span>
+                                                @if (pendingUpi != null)
+                                                {
+                                                    <span class="badge bg-danger rounded-pill d-block mt-1 animate__animated animate__pulse animate__infinite">
+                                                        <i class="bi bi-bell-fill me-1"></i>UPI Paid - Verify
+                                                    </span>
+                                                }
+                                            </td>
+                                            <td>
+                                                <span class="fw-bold fs-5 text-danger">₹@order.TotalAmount.ToString("0.00")</span>
+                                                <small class="text-muted d-block">(Tax: ₹@order.TaxAmount.ToString("0.00"))</small>
+                                            </td>
+                                            <td class="text-end">
+                                                <div class="d-flex justify-content-end gap-1">
+                                                    @if (pendingUpi != null)
+                                                    {
+                                                        <button type="button" class="btn btn-success fw-bold btn-sm px-3 shadow-sm btn-instant-approve"
+                                                                data-order-id="@order.Id"
+                                                                data-order-num="@order.OrderNumber"
+                                                                data-table-num="@(order.Table?.TableNumber ?? "")"
+                                                                data-amount="@order.TotalAmount"
+                                                                data-req-id="@pendingUpi.Id"
+                                                                title="Bank verify karke 1-click me approve karein">
+                                                            <i class="bi bi-check2-circle me-1"></i> Approve UPI
+                                                        </button>
+                                                    }
+                                                    <button class="btn btn-outline-success btn-sm px-2" onclick="openStaffWhatsAppModal('@order.OrderToken', '@(order.CustomerPhone ?? "")')" title="WhatsApp Notification via Browser">
+                                                        <i class="bi bi-whatsapp"></i>
+                                                    </button>
+                                                    <button class="btn @(pendingUpi != null ? "btn-outline-secondary" : "btn-success") fw-semibold btn-sm px-3" onclick="openSettleModal('@order.Id', '@order.OrderNumber', '@order.Table?.TableNumber', @order.SubTotal, @order.TaxAmount, @order.TotalAmount)">
+                                                        <i class="bi bi-wallet2 me-1"></i> Settle Bill
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
                 </div>
             </div>
-        }
-    </div>
-
-    <!-- Active Orders Requiring Billing -->
-    <div class="card shadow-sm border-0 rounded-3 mb-4">
-        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-            <h5 class="fw-bold mb-0"><i class="bi bi-clock-history me-2 text-primary"></i>Active Table Orders</h5>
-            <span class="badge bg-primary">@Model.Count Active</span>
         </div>
-        <div class="card-body p-0">
-            @if (!Model.Any())
-            {
-                <div class="text-center py-5 text-muted">
-                    <i class="bi bi-emoji-smile display-4"></i>
-                    <h5 class="mt-3">No pending orders to settle!</h5>
-                    <p>New orders placed by customers will automatically appear here.</p>
+
+        <!-- ========================================== -->
+        <!-- TAB 2: DAILY CASHIER & SETTLEMENT DETAILS -->
+        <!-- ========================================== -->
+        <div class="tab-pane fade @(activeTab == "daily" ? "show active" : "")" id="tab-daily-cashier" role="tabpanel">
+            <!-- Date Navigation Bar -->
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white mb-4">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                    <form method="get" asp-action="Index" class="d-flex flex-wrap align-items-center gap-2 m-0" id="dailyDateForm">
+                        <input type="hidden" name="tab" value="daily" />
+                        <a asp-action="Index" asp-route-tab="daily" asp-route-date="@prevDate.ToString("yyyy-MM-dd")" class="btn btn-outline-dark btn-sm rounded-pill px-3" title="Previous Day">
+                            <i class="bi bi-chevron-left me-1"></i> @prevDate.ToString("dd MMM")
+                        </a>
+
+                        <div class="d-flex align-items-center gap-1 bg-light p-1 px-2 rounded-pill border">
+                            <i class="bi bi-calendar-event text-muted me-1"></i>
+                            <input type="date" name="date" class="form-control form-control-sm border-0 bg-transparent fw-bold text-dark p-0" 
+                                   value="@selectedDate.ToString("yyyy-MM-dd")" 
+                                   onchange="document.getElementById('dailyDateForm').submit()" 
+                                   style="width: 130px; cursor: pointer;" />
+                        </div>
+
+                        <a asp-action="Index" asp-route-tab="daily" asp-route-date="@nextDate.ToString("yyyy-MM-dd")" class="btn btn-outline-dark btn-sm rounded-pill px-3" title="Next Day">
+                            @nextDate.ToString("dd MMM") <i class="bi bi-chevron-right ms-1"></i>
+                        </a>
+
+                        @if (!isToday)
+                        {
+                            <a asp-action="Index" asp-route-tab="daily" asp-route-date="@DateTime.UtcNow.ToString("yyyy-MM-dd")" class="badge bg-secondary-subtle text-secondary rounded-pill text-decoration-none px-3 py-2 ms-1">
+                                Go to Today
+                            </a>
+                        }
+                        else
+                        {
+                            <span class="badge bg-success-subtle text-success rounded-pill px-3 py-2 ms-1">
+                                <i class="bi bi-circle-fill me-1" style="font-size: 0.5rem;"></i> Today (Live)
+                            </span>
+                        }
+                    </form>
+
+                    <div class="d-flex align-items-center gap-2">
+                        <button type="button" class="btn btn-outline-dark btn-sm rounded-pill px-3" onclick="window.print()">
+                            <i class="bi bi-printer me-1"></i> Print Daily Cashier Sheet
+                        </button>
+                    </div>
                 </div>
-            }
-            else
-            {
+            </div>
+
+            <!-- Daily Summary KPI Cards -->
+            <div class="row g-3 mb-4">
+                <div class="col-6 col-md-3">
+                    <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                        <small class="text-muted text-uppercase fw-semibold" style="font-size: 0.72rem;">Total Settled Sales</small>
+                        <h4 class="fw-bold text-success mb-0 mt-1">₹@dailyTotalSales.ToString("N2")</h4>
+                        <small class="text-muted" style="font-size: 0.75rem;">@dailyTotalBills orders settled</small>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                        <small class="text-muted text-uppercase fw-semibold" style="font-size: 0.72rem;">Cash in Drawer (Drawer Tally)</small>
+                        <h4 class="fw-bold text-primary mb-0 mt-1">₹@dailyTotalCash.ToString("N2")</h4>
+                        <small class="text-muted" style="font-size: 0.75rem;">Counter physical cash</small>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                        <small class="text-muted text-uppercase fw-semibold" style="font-size: 0.72rem;">Digital UPI Collections</small>
+                        <h4 class="fw-bold text-success mb-0 mt-1">₹@dailyTotalUpi.ToString("N2")</h4>
+                        <small class="text-muted" style="font-size: 0.75rem;">Direct bank payments</small>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                        <small class="text-muted text-uppercase fw-semibold" style="font-size: 0.72rem;">Card / Other Payments</small>
+                        <h4 class="fw-bold text-warning-emphasis mb-0 mt-1">₹@dailyTotalCard.ToString("N2")</h4>
+                        <small class="text-muted" style="font-size: 0.75rem;">POS machines</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Daily Cashier Counter Settlement Table -->
+            <div class="card shadow-sm border-0 rounded-4 bg-white overflow-hidden mb-4">
+                <div class="card-header bg-white p-4 pb-3 border-0 d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="fw-bold mb-0">
+                            <i class="bi bi-person-badge-fill me-2 text-primary"></i>Cashier &amp; Counter Settlement &mdash; @selectedDate.ToString("dd MMM yyyy")
+                        </h5>
+                        <small class="text-muted">Day-end drawer cash reconciliation &mdash; verify physical cash in hand vs digital UPI</small>
+                    </div>
+                    <span class="badge bg-primary-subtle text-primary rounded-pill px-3 py-1">@dailyCashiers.Count Active Staff</span>
+                </div>
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
-                        <thead class="table-light">
+                        <thead class="table-light small text-uppercase text-muted">
                             <tr>
-                                <th>Table</th>
-                                <th>Order #</th>
-                                <th>Placed At</th>
-                                <th>Items</th>
-                                <th>Status</th>
-                                <th>Total (incl. Tax)</th>
-                                <th class="text-end">Action</th>
+                                <th class="ps-4">Cashier / Collector</th>
+                                <th class="text-center">Bills Settled</th>
+                                <th class="text-end text-primary">Cash in Drawer (₹)</th>
+                                <th class="text-end text-success">UPI Digital (₹)</th>
+                                <th class="text-end text-warning-emphasis">Card (₹)</th>
+                                <th class="text-end">Total Settled (₹)</th>
+                                <th class="text-end pe-4">Volume Share</th>
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var order in Model)
+                            @if (dailyCashiers.Any())
                             {
-                                <tr id="row-order-@order.Id">
-                                    <td>
-                                        <span class="badge bg-dark fs-6">@order.Table?.TableNumber</span>
-                                    </td>
-                                    <td>
-                                        <span class="fw-bold">@order.OrderNumber</span>
-                                    </td>
-                                    <td class="text-muted small">
-                                        @order.CreatedAtUtc.ToLocalTime().ToString("hh:mm tt")
-                                    </td>
-                                    <td>
-                                        <span class="fw-semibold">@order.OrderItems.Sum(i => i.Quantity) items</span>
-                                        <small class="text-muted d-block text-truncate" style="max-width: 250px;">
-                                            @string.Join(", ", order.OrderItems.Select(i => $"{i.Quantity}x {i.ItemNameSnapshot}"))
-                                        </small>
-                                    </td>
-                                    <td>
-                                        <span class="badge @(order.Status == MenuScan.Models.Entities.OrderStatus.Served ? "bg-success" : "bg-warning text-dark")">
-                                            @order.Status
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <span class="fw-bold fs-5 text-danger">₹@order.TotalAmount.ToString("0.00")</span>
-                                        <small class="text-muted d-block">(Tax: ₹@order.TaxAmount.ToString("0.00"))</small>
-                                    </td>
-                                    <td class="text-end">
-                                        <div class="d-flex justify-content-end gap-1">
-                                            <button class="btn btn-outline-success btn-sm px-2" onclick="openStaffWhatsAppModal('@order.Id', '@(order.CustomerPhone ?? "")')" title="WhatsApp Notification via Browser">
-                                                <i class="bi bi-whatsapp"></i>
-                                            </button>
-                                            <button class="btn btn-success fw-semibold btn-sm px-3" onclick="openSettleModal('@order.Id', '@order.OrderNumber', '@order.Table?.TableNumber', @order.SubTotal, @order.TaxAmount, @order.TotalAmount)">
-                                                <i class="bi bi-wallet2 me-1"></i> Settle Bill
-                                            </button>
-                                        </div>
-                                    </td>
+                                @foreach (var c in dailyCashiers)
+                                {
+                                    <tr>
+                                        <td class="ps-4">
+                                            <div class="d-flex align-items-center">
+                                                <div class="p-2 rounded-circle bg-light me-2 text-dark">
+                                                    <i class="bi bi-person-fill"></i>
+                                                </div>
+                                                <div>
+                                                    <strong class="text-dark">@c.CashierName</strong>
+                                                    <small class="text-muted d-block" style="font-size: 0.72rem;">@c.BillsCount bills settled</small>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="text-center">
+                                            <span class="badge bg-dark rounded-pill px-3 py-1">@c.BillsCount</span>
+                                        </td>
+                                        <td class="text-end fw-bold text-primary">
+                                            ₹@c.CashCollected.ToString("N2")
+                                        </td>
+                                        <td class="text-end fw-bold text-success">
+                                            ₹@c.UpiCollected.ToString("N2")
+                                        </td>
+                                        <td class="text-end small text-muted">
+                                            @(c.CardCollected > 0 ? "₹" + c.CardCollected.ToString("N2") : "₹0.00")
+                                        </td>
+                                        <td class="text-end fw-bold text-dark fs-6">
+                                            ₹@c.TotalRevenue.ToString("N2")
+                                        </td>
+                                        <td class="text-end pe-4" style="width: 160px;">
+                                            <span class="small text-muted">@c.PercentageOfTotal.ToString("0.1")%</span>
+                                            <div class="progress mt-1" style="height: 4px;">
+                                                <div class="progress-bar bg-primary" style="width: @c.PercentageOfTotal.ToString("0")%;"></div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                            else
+                            {
+                                <tr>
+                                    <td colspan="7" class="text-center py-4 text-muted">No settlements recorded for this date.</td>
                                 </tr>
                             }
                         </tbody>
+                        <tfoot class="table-light fw-bold">
+                            <tr>
+                                <td class="ps-4">TOTAL DAY SETTLEMENT</td>
+                                <td class="text-center"><span class="badge bg-dark rounded-pill px-3 py-1">@dailyTotalBills</span></td>
+                                <td class="text-end text-primary">₹@dailyTotalCash.ToString("N2")</td>
+                                <td class="text-end text-success">₹@dailyTotalUpi.ToString("N2")</td>
+                                <td class="text-end text-warning-emphasis">₹@dailyTotalCard.ToString("N2")</td>
+                                <td class="text-end text-success fs-6">₹@dailyTotalSales.ToString("N2")</td>
+                                <td class="text-end pe-4">&ndash;</td>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
-            }
-        </div>
-    </div>
+            </div>
 
-    <!-- Recently Settled Bills -->
-    <div class="card shadow-sm border-0 rounded-3">
-        <div class="card-header bg-white py-3">
-            <h5 class="fw-bold mb-0 text-secondary"><i class="bi bi-check2-circle me-2 text-success"></i>Today's Settled Bills</h5>
-        </div>
-        <div class="card-body p-0">
-            @if (settledBills == null || !settledBills.Any())
-            {
-                <div class="text-center py-4 text-muted">No settled bills recorded yet today.</div>
-            }
-            else
-            {
+            <!-- Daily Settled Bills Register -->
+            <div class="card shadow-sm border-0 rounded-4 bg-white overflow-hidden mb-4">
+                <div class="card-header bg-white p-4 pb-3 border-0 d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="fw-bold mb-0">
+                            <i class="bi bi-receipt me-2" style="color: var(--cafe-primary);"></i>Settled Bills Register &mdash; @selectedDate.ToString("dd MMM yyyy")
+                        </h5>
+                        <small class="text-muted">Detailed invoice ledger with table numbers, cashier audit, and receipt printing</small>
+                    </div>
+                    <span class="badge bg-dark rounded-pill px-3 py-1">@dailySettledBills.Count Invoices</span>
+                </div>
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
-                        <thead class="table-light">
+                        <thead class="table-light small text-uppercase text-muted">
                             <tr>
-                                <th>Bill #</th>
+                                <th class="ps-4">Bill #</th>
                                 <th>Table</th>
                                 <th>Order #</th>
                                 <th>Settled At</th>
-                                <th>Method</th>
-                                <th>Grand Total</th>
-                                <th class="text-end">Receipt</th>
+                                <th>Cashier / Collector</th>
+                                <th>Payment Method</th>
+                                <th class="text-end">Tax / GST</th>
+                                <th class="text-end">Grand Total</th>
+                                <th class="text-end pe-4">Receipt</th>
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var bill in settledBills)
+                            @if (dailySettledBills.Any())
+                            {
+                                @foreach (var bill in dailySettledBills)
+                                {
+                                    var firstPayment = bill.Payments.FirstOrDefault();
+                                    var methodStr = firstPayment?.Method.ToString() ?? "Cash";
+                                    var cashierName = firstPayment?.RecordedBy ?? "Cashier";
+                                    <tr>
+                                        <td class="ps-4">
+                                            <strong class="font-monospace text-dark">@bill.BillNumber</strong>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-secondary">@(bill.Order?.Table?.TableNumber ?? "Table")</span>
+                                        </td>
+                                        <td>
+                                            <small class="text-muted font-monospace">#@(bill.Order?.OrderNumber ?? "-")</small>
+                                        </td>
+                                        <td>
+                                            <small class="text-muted">@bill.CreatedAtUtc.ToLocalTime().ToString("hh:mm:ss tt")</small>
+                                        </td>
+                                        <td>
+                                            <small class="fw-semibold text-secondary">
+                                                <i class="bi bi-person-check me-1"></i>@cashierName
+                                            </small>
+                                        </td>
+                                        <td>
+                                            @if (methodStr == "UPI")
+                                            {
+                                                <span class="badge bg-success-subtle text-success">UPI Digital</span>
+                                            }
+                                            else if (methodStr == "Cash")
+                                            {
+                                                <span class="badge bg-primary-subtle text-primary">Cash Counter</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-warning-subtle text-dark">@methodStr</span>
+                                            }
+                                        </td>
+                                        <td class="text-end small text-muted">
+                                            ₹@bill.TaxAmount.ToString("N2")
+                                        </td>
+                                        <td class="text-end fw-bold text-success">
+                                            ₹@bill.GrandTotal.ToString("N2")
+                                        </td>
+                                        <td class="text-end pe-4">
+                                            <div class="d-flex justify-content-end gap-1">
+                                                <button class="btn btn-outline-success btn-sm px-2" onclick="openStaffWhatsAppModal('@bill.OrderId', '@(bill.Order?.CustomerPhone ?? "")', 'bill')" title="Send Receipt via WhatsApp Web">
+                                                    <i class="bi bi-whatsapp me-1"></i> WhatsApp
+                                                </button>
+                                                <a href="/Billing/PrintReceipt?orderId=@bill.OrderId" target="_blank" class="btn btn-outline-dark btn-sm">
+                                                    <i class="bi bi-printer"></i> Print
+                                                </a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                            else
                             {
                                 <tr>
-                                    <td class="fw-bold">@bill.BillNumber</td>
-                                    <td><span class="badge bg-secondary">@bill.Order?.Table?.TableNumber</span></td>
-                                    <td>@bill.Order?.OrderNumber</td>
-                                    <td class="text-muted small">@bill.ClosedAtUtc?.ToLocalTime().ToString("hh:mm:ss tt")</td>
-                                    <td>
-                                        @{
-                                            var payment = bill.Payments.FirstOrDefault();
-                                            var methodStr = payment?.Method.ToString() ?? "Cash";
-                                        }
-                                        <span class="badge bg-info text-dark">@methodStr</span>
-                                    </td>
-                                    <td class="fw-bold text-success">₹@bill.GrandTotal.ToString("0.00")</td>
-                                    <td class="text-end">
-                                        <div class="d-flex justify-content-end gap-1">
-                                            <button class="btn btn-outline-success btn-sm px-2" onclick="openStaffWhatsAppModal('@bill.OrderId', '@(bill.Order?.CustomerPhone ?? "")', 'bill')" title="Send Receipt via WhatsApp Web">
-                                                <i class="bi bi-whatsapp me-1"></i> WhatsApp
-                                            </button>
-                                            <a href="/Billing/PrintReceipt?orderId=@bill.OrderId" target="_blank" class="btn btn-outline-dark btn-sm">
-                                                <i class="bi bi-printer"></i> Print
-                                            </a>
-                                        </div>
-                                    </td>
+                                    <td colspan="9" class="text-center py-4 text-muted">No settled bills on this date.</td>
                                 </tr>
                             }
                         </tbody>
                     </table>
                 </div>
-            }
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- TAB 3: MONTHLY CASHIER & SETTLEMENT DETAILS -->
+        <!-- ========================================== -->
+        <div class="tab-pane fade @(activeTab == "monthly" ? "show active" : "")" id="tab-monthly-cashier" role="tabpanel">
+            <!-- Month Selector Bar -->
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white mb-4">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                    <form method="get" asp-action="Index" class="d-flex flex-wrap align-items-center gap-2 m-0" id="monthlyDateForm">
+                        <input type="hidden" name="tab" value="monthly" />
+                        <a asp-action="Index" asp-route-tab="monthly" asp-route-year="@prevMonthDate.Year" asp-route-month="@prevMonthDate.Month" class="btn btn-outline-dark btn-sm rounded-pill px-3" title="Previous Month">
+                            <i class="bi bi-chevron-left me-1"></i> @prevMonthDate.ToString("MMM yyyy")
+                        </a>
+
+                        <div class="d-flex align-items-center gap-1 bg-light p-1 rounded-pill border">
+                            <select name="month" class="form-select form-select-sm border-0 bg-transparent fw-bold text-dark px-2" style="width: auto; cursor: pointer;" onchange="document.getElementById('monthlyDateForm').submit()">
+                                @for (int m = 1; m <= 12; m++)
+                                {
+                                    var mName = new DateTime(2026, m, 1).ToString("MMMM");
+                                    <option value="@m" selected="@(m == selectedMonth)">@mName</option>
+                                }
+                            </select>
+
+                            <select name="year" class="form-select form-select-sm border-0 bg-transparent fw-bold text-dark px-2" style="width: auto; cursor: pointer;" onchange="document.getElementById('monthlyDateForm').submit()">
+                                @for (int y = DateTime.UtcNow.Year - 2; y <= DateTime.UtcNow.Year + 1; y++)
+                                {
+                                    <option value="@y" selected="@(y == selectedYear)">@y</option>
+                                }
+                            </select>
+                        </div>
+
+                        <a asp-action="Index" asp-route-tab="monthly" asp-route-year="@nextMonthDate.Year" asp-route-month="@nextMonthDate.Month" class="btn btn-outline-dark btn-sm rounded-pill px-3" title="Next Month">
+                            @nextMonthDate.ToString("MMM yyyy") <i class="bi bi-chevron-right ms-1"></i>
+                        </a>
+
+                        <div class="d-none d-md-flex align-items-center gap-1 ms-2">
+                            <a asp-action="Index" asp-route-tab="monthly" asp-route-year="@DateTime.UtcNow.Year" asp-route-month="@DateTime.UtcNow.Month" class="badge rounded-pill text-decoration-none px-2 py-1 @(selectedYear == DateTime.UtcNow.Year && selectedMonth == DateTime.UtcNow.Month ? "bg-dark text-white" : "bg-light text-muted border")">
+                                Current Month
+                            </a>
+                            <a asp-action="Index" asp-route-tab="monthly" asp-route-year="@DateTime.UtcNow.AddMonths(-1).Year" asp-route-month="@DateTime.UtcNow.AddMonths(-1).Month" class="badge rounded-pill text-decoration-none px-2 py-1 @(selectedYear == DateTime.UtcNow.AddMonths(-1).Year && selectedMonth == DateTime.UtcNow.AddMonths(-1).Month ? "bg-dark text-white" : "bg-light text-muted border")">
+                                Last Month
+                            </a>
+                        </div>
+                    </form>
+
+                    <div class="d-flex align-items-center gap-2">
+                        <a asp-controller="Reports" asp-action="ExportMonthlyExcel" asp-route-year="@selectedYear" asp-route-month="@selectedMonth" class="btn btn-outline-success btn-sm rounded-pill px-3 fw-bold shadow-sm" title="Download Excel format (.xls) with auto-fit wide columns and styled numbers">
+                            <i class="bi bi-file-earmark-excel-fill text-success me-1"></i> Download Cashier Excel (.xls)
+                        </a>
+                        <button type="button" class="btn btn-outline-dark btn-sm rounded-pill px-3" onclick="window.print()">
+                            <i class="bi bi-printer me-1"></i> Print Monthly Sheet
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Monthly Summary KPI Cards -->
+            <div class="row g-3 mb-4">
+                <div class="col-6 col-md-3">
+                    <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                        <small class="text-muted text-uppercase fw-semibold" style="font-size: 0.72rem;">Monthly Total Revenue</small>
+                        <h4 class="fw-bold text-success mb-0 mt-1">₹@monthTotalSales.ToString("N2")</h4>
+                        <small class="text-muted" style="font-size: 0.75rem;">@monthTotalBills settled bills</small>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                        <small class="text-muted text-uppercase fw-semibold" style="font-size: 0.72rem;">Month Cash in Drawer</small>
+                        <h4 class="fw-bold text-primary mb-0 mt-1">₹@monthTotalCash.ToString("N2")</h4>
+                        <small class="text-muted" style="font-size: 0.75rem;">Physical cash collected</small>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                        <small class="text-muted text-uppercase fw-semibold" style="font-size: 0.72rem;">Month Digital UPI</small>
+                        <h4 class="fw-bold text-success mb-0 mt-1">₹@monthTotalUpi.ToString("N2")</h4>
+                        <small class="text-muted" style="font-size: 0.75rem;">Online collections</small>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="card border-0 shadow-sm rounded-4 p-3 bg-white h-100">
+                        <small class="text-muted text-uppercase fw-semibold" style="font-size: 0.72rem;">Month Total GST</small>
+                        <h4 class="fw-bold text-secondary mb-0 mt-1">₹@monthTotalTax.ToString("N2")</h4>
+                        <small class="text-muted" style="font-size: 0.75rem;">Tax collected</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Monthly Cashier Performance & Collection Summary Table -->
+            <div class="card shadow-sm border-0 rounded-4 bg-white overflow-hidden mb-4">
+                <div class="card-header bg-white p-4 pb-3 border-0 d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="fw-bold mb-0">
+                            <i class="bi bi-person-badge-fill me-2 text-primary"></i>Cashier &amp; Settlement Summary &mdash; @monthName
+                        </h5>
+                        <small class="text-muted">Staff collection performance, drawer cash received, and UPI settlements for the entire month</small>
+                    </div>
+                    <span class="badge bg-primary-subtle text-primary rounded-pill px-3 py-1">@monthlyCashiers.Count Collectors</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light small text-uppercase text-muted">
+                            <tr>
+                                <th class="ps-4">Cashier / Collector</th>
+                                <th class="text-center">Total Bills</th>
+                                <th class="text-end text-primary">Cash Collected (₹)</th>
+                                <th class="text-end text-success">UPI Digital (₹)</th>
+                                <th class="text-end text-warning-emphasis">Card (₹)</th>
+                                <th class="text-end">Total Revenue (₹)</th>
+                                <th class="text-end pe-4">Volume Share</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (monthlyCashiers.Any())
+                            {
+                                @foreach (var c in monthlyCashiers)
+                                {
+                                    <tr>
+                                        <td class="ps-4">
+                                            <div class="d-flex align-items-center">
+                                                <div class="p-2 rounded-circle bg-light me-2 text-dark">
+                                                    <i class="bi bi-person-fill"></i>
+                                                </div>
+                                                <div>
+                                                    <strong class="text-dark">@c.CashierName</strong>
+                                                    <small class="text-muted d-block" style="font-size: 0.72rem;">@c.BillsCount bills settled</small>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="text-center">
+                                            <span class="badge bg-dark rounded-pill px-3 py-1">@c.BillsCount</span>
+                                        </td>
+                                        <td class="text-end fw-bold text-primary">
+                                            ₹@c.CashCollected.ToString("N2")
+                                        </td>
+                                        <td class="text-end fw-bold text-success">
+                                            ₹@c.UpiCollected.ToString("N2")
+                                        </td>
+                                        <td class="text-end small text-muted">
+                                            @(c.CardCollected > 0 ? "₹" + c.CardCollected.ToString("N2") : "₹0.00")
+                                        </td>
+                                        <td class="text-end fw-bold text-dark fs-6">
+                                            ₹@c.TotalRevenue.ToString("N2")
+                                        </td>
+                                        <td class="text-end pe-4" style="width: 160px;">
+                                            <span class="small text-muted">@c.PercentageOfTotal.ToString("0.1")%</span>
+                                            <div class="progress mt-1" style="height: 4px;">
+                                                <div class="progress-bar bg-primary" style="width: @c.PercentageOfTotal.ToString("0")%;"></div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                            else
+                            {
+                                <tr>
+                                    <td colspan="7" class="text-center py-4 text-muted">No settlements recorded for this month.</td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot class="table-light fw-bold">
+                            <tr>
+                                <td class="ps-4">TOTAL MONTH SETTLEMENT</td>
+                                <td class="text-center"><span class="badge bg-dark rounded-pill px-3 py-1">@monthTotalBills</span></td>
+                                <td class="text-end text-primary">₹@monthTotalCash.ToString("N2")</td>
+                                <td class="text-end text-success">₹@monthTotalUpi.ToString("N2")</td>
+                                <td class="text-end text-warning-emphasis">₹@monthTotalCard.ToString("N2")</td>
+                                <td class="text-end text-success fs-6">₹@monthTotalSales.ToString("N2")</td>
+                                <td class="text-end pe-4">&ndash;</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Monthly Settled Invoices Register -->
+            <div class="card shadow-sm border-0 rounded-4 bg-white overflow-hidden mb-4">
+                <div class="card-header bg-white p-4 pb-3 border-0 d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="fw-bold mb-0">
+                            <i class="bi bi-receipt-cutoff me-2" style="color: var(--cafe-primary);"></i>Monthly Settled Bills Ledger &mdash; @monthName
+                        </h5>
+                        <small class="text-muted">Complete bill-by-bill audit for all transactions settled during @monthName</small>
+                    </div>
+                    <span class="badge bg-dark rounded-pill px-3 py-1">@monthlySettledBills.Count Invoices</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light small text-uppercase text-muted">
+                            <tr>
+                                <th class="ps-4">Bill #</th>
+                                <th>Table</th>
+                                <th>Order #</th>
+                                <th>Settled Date &amp; Time</th>
+                                <th>Cashier / Collector</th>
+                                <th>Payment Method</th>
+                                <th class="text-end">Tax / GST</th>
+                                <th class="text-end">Grand Total</th>
+                                <th class="text-end pe-4">Receipt</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (monthlySettledBills.Any())
+                            {
+                                @foreach (var bill in monthlySettledBills)
+                                {
+                                    var firstPayment = bill.Payments.FirstOrDefault();
+                                    var methodStr = firstPayment?.Method.ToString() ?? "Cash";
+                                    var cashierName = firstPayment?.RecordedBy ?? "Cashier";
+                                    <tr>
+                                        <td class="ps-4">
+                                            <strong class="font-monospace text-dark">@bill.BillNumber</strong>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-secondary">@(bill.Order?.Table?.TableNumber ?? "Table")</span>
+                                        </td>
+                                        <td>
+                                            <small class="text-muted font-monospace">#@(bill.Order?.OrderNumber ?? "-")</small>
+                                        </td>
+                                        <td>
+                                            <small class="text-muted">@bill.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy, hh:mm tt")</small>
+                                        </td>
+                                        <td>
+                                            <small class="fw-semibold text-secondary">
+                                                <i class="bi bi-person-check me-1"></i>@cashierName
+                                            </small>
+                                        </td>
+                                        <td>
+                                            @if (methodStr == "UPI")
+                                            {
+                                                <span class="badge bg-success-subtle text-success">UPI Digital</span>
+                                            }
+                                            else if (methodStr == "Cash")
+                                            {
+                                                <span class="badge bg-primary-subtle text-primary">Cash Counter</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-warning-subtle text-dark">@methodStr</span>
+                                            }
+                                        </td>
+                                        <td class="text-end small text-muted">
+                                            ₹@bill.TaxAmount.ToString("N2")
+                                        </td>
+                                        <td class="text-end fw-bold text-success">
+                                            ₹@bill.GrandTotal.ToString("N2")
+                                        </td>
+                                        <td class="text-end pe-4">
+                                            <div class="d-flex justify-content-end gap-1">
+                                                <button class="btn btn-outline-success btn-sm px-2" onclick="openStaffWhatsAppModal('@bill.OrderId', '@(bill.Order?.CustomerPhone ?? "")', 'bill')" title="Send Receipt via WhatsApp Web">
+                                                    <i class="bi bi-whatsapp me-1"></i> WhatsApp
+                                                </button>
+                                                <a href="/Billing/PrintReceipt?orderId=@bill.OrderId" target="_blank" class="btn btn-outline-dark btn-sm">
+                                                    <i class="bi bi-printer"></i> Print
+                                                </a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                            else
+                            {
+                                <tr>
+                                    <td colspan="9" class="text-center py-4 text-muted">No settled bills recorded for this month.</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -326,8 +902,25 @@
         let activeStaffOrderId = null;
         let staffWpModalInstance;
 
-        function openStaffWhatsAppModal(orderId, phone, defaultType = 'confirm') {
-            activeStaffOrderId = orderId;
+        function getAntiForgeryToken() {
+            const meta = document.querySelector('meta[name="antiforgery-token"]');
+            return meta ? meta.getAttribute('content') : '';
+        }
+
+        document.addEventListener('click', function (e) {
+            const btn = e.target.closest('.btn-instant-approve');
+            if (btn) {
+                const orderId = btn.getAttribute('data-order-id');
+                const orderNum = btn.getAttribute('data-order-num') || '';
+                const tableNum = btn.getAttribute('data-table-num') || '';
+                const amount = parseFloat(btn.getAttribute('data-amount') || '0');
+                const reqId = btn.getAttribute('data-req-id') || '';
+                instantApprovePayment(orderId, orderNum, tableNum, amount, reqId);
+            }
+        });
+
+        function openStaffWhatsAppModal(orderToken, phone, defaultType = 'confirm') {
+            activeStaffOrderId = orderToken;
             const input = document.getElementById('staffWpPhoneInput');
             if (input) {
                 input.value = phone ? (phone.startsWith('91') ? phone.substring(2) : phone) : '';
@@ -343,7 +936,7 @@
             const phone = input ? input.value.trim() : '';
 
             try {
-                const res = await fetch(`/api/order/whatsapp-link?orderId=${activeStaffOrderId}&type=${type}&phone=${phone}`);
+                const res = await fetch(`/api/order/whatsapp-link?orderToken=${encodeURIComponent(activeStaffOrderId)}&type=${encodeURIComponent(type)}&phone=${encodeURIComponent(phone)}`);
                 const data = await res.json();
                 if (res.ok && data.url) {
                     window.open(data.url, '_blank');
@@ -369,6 +962,55 @@
             currentModal.show();
         }
 
+        function openSettleWithUtr(orderId, orderNum, tableNum, subTotal, tax, total, utr) {
+            openSettleModal(orderId, orderNum, tableNum, subTotal, tax, total);
+            const methodSelect = document.getElementById('paymentMethodSelect');
+            const refInput = document.getElementById('paymentReferenceInput');
+            if (methodSelect) methodSelect.value = "1"; // UPI
+            if (refInput && utr) refInput.value = `UTR-${utr}`;
+        }
+
+        async function instantApprovePayment(orderId, orderNum, tableNum, amount, reqId) {
+            const confirmed = confirm(`Table ${tableNum} (Order #${orderNum}) ka UPI Payment approve karein?\n\nAmount: ₹${Number(amount).toFixed(2)}\n\nIsse bill PAID mark ho jayega aur customer ke phone pe Tax Receipt unlock ho jayegi.`);
+            if (!confirmed) return;
+
+            try {
+                const response = await fetch('/Billing/SettleBill', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'RequestVerificationToken': getAntiForgeryToken()
+                    },
+                    body: JSON.stringify({
+                        orderId: orderId,
+                        method: 1, // UPI
+                        reference: 'UPI-VERIFIED'
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    playCashierChime();
+                    if (reqId) {
+                        const reqCard = document.getElementById(`req-card-${reqId}`);
+                        if (reqCard) reqCard.remove();
+                    }
+                    if (data.whatsAppUrl) {
+                        const sendWp = confirm("Payment approved! Bill settled. Would you like to open WhatsApp Web to send receipt?");
+                        if (sendWp) {
+                            window.open(data.whatsAppUrl, '_blank');
+                        }
+                    }
+                    window.location.reload();
+                } else {
+                    alert(data.message || "Failed to settle bill.");
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Network error approving payment.");
+            }
+        }
+
         async function confirmPayment() {
             const orderId = document.getElementById('settleOrderId').value;
             const method = parseInt(document.getElementById('paymentMethodSelect').value);
@@ -381,7 +1023,10 @@
             try {
                 const response = await fetch('/Billing/SettleBill', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'RequestVerificationToken': getAntiForgeryToken()
+                    },
                     body: JSON.stringify({
                         orderId: orderId,
                         method: method,
@@ -442,7 +1087,10 @@
             try {
                 const response = await fetch('/Billing/AcknowledgeServiceRequest', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'RequestVerificationToken': getAntiForgeryToken()
+                    },
                     body: JSON.stringify(requestId)
                 });
 
@@ -459,6 +1107,16 @@
             } catch (e) {
                 console.error(e);
             }
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
         }
 
         // SignalR Auto-refresh on new orders & waiter calls
@@ -504,28 +1162,162 @@
                 list = document.getElementById('pendingRequestList');
             }
 
-            const icon = data.requestType === "Water" ? "💧" : data.requestType === "Cutlery" ? "🍴" : data.requestType === "Bill" ? "💳" : "🛎️";
+            const icon = data.requestType === "Water" ? "💧" : data.requestType === "Cutlery" ? "🍴" : data.requestType === "Bill" ? "💳" : data.requestType === "UPI Payment" ? "💰" : "🛎️";
+            const safeTable = escapeHtml(data.tableNumber);
+            const safeType = escapeHtml(data.requestType);
+            const safeNotes = escapeHtml(data.notes);
+            const safeCreated = escapeHtml(data.createdAt);
+
             const itemHtml = `
                 <li class="list-group-item d-flex justify-content-between align-items-center bg-transparent py-3 animate__animated animate__fadeInDown" id="req-card-${data.requestId}">
                     <div class="d-flex align-items-center gap-3">
                         <span class="fs-4">${icon}</span>
                         <div>
-                            <span class="badge bg-dark fs-6">${data.tableNumber}</span>
-                            <strong class="ms-2">${data.requestType} Requested</strong>
-                            ${data.notes ? `<div class="small text-muted mt-1"><i class="bi bi-chat-left-dots me-1"></i>${data.notes}</div>` : ''}
-                            <div class="text-muted small"><i class="bi bi-clock me-1"></i>${data.createdAt}</div>
+                            <span class="badge bg-dark fs-6">${safeTable}</span>
+                            <strong class="ms-2">${safeType} ${data.requestType === "UPI Payment" ? "Verification" : "Requested"}</strong>
+                            ${safeNotes ? `<div class="small text-muted mt-1"><i class="bi bi-chat-left-dots me-1"></i>${safeNotes}</div>` : ''}
+                            <div class="text-muted small"><i class="bi bi-clock me-1"></i>${safeCreated}</div>
                         </div>
                     </div>
-                    <button class="btn btn-dark btn-sm rounded-pill px-3" onclick="acknowledgeService('${data.requestId}')">
-                        <i class="bi bi-check2 me-1"></i> Mark Handled
-                    </button>
+                    <div class="d-flex align-items-center gap-2">
+                        ${data.requestType === "UPI Payment" && data.orderId ? `
+                            <button type="button" class="btn btn-success btn-sm rounded-pill px-3 fw-bold shadow-sm btn-instant-approve"
+                                    data-order-id="${escapeHtml(data.orderId)}"
+                                    data-order-num=""
+                                    data-table-num="${safeTable}"
+                                    data-amount="${Number(data.totalAmount || 0)}"
+                                    data-req-id="${escapeHtml(data.requestId)}">
+                                <i class="bi bi-check-circle-fill me-1"></i> Approve Payment
+                            </button>
+                        ` : ''}
+                        <button class="btn btn-outline-secondary btn-sm rounded-pill px-3" onclick="acknowledgeService('${data.requestId}')">
+                            <i class="bi bi-check2 me-1"></i> Mark Handled
+                        </button>
+                    </div>
                 </li>
             `;
             list.insertAdjacentHTML('afterbegin', itemHtml);
+
+            if (data.requestType === "UPI Payment") {
+                // Auto reload active orders table so cashier gets the 1-click verify button
+                setTimeout(() => window.location.reload(), 1500);
+            }
         });
 
         connection.start().then(() => {
             connection.invoke("JoinRestaurantGroup", restaurantId);
         });
+
+        let dayEndData = null;
+
+        async function openDayEndWhatsAppModal() {
+            const modalEl = document.getElementById('dayEndWhatsAppModal');
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modal.show();
+
+            const phoneInput = document.getElementById('ownerWpPhoneInput');
+            const phone = phoneInput ? phoneInput.value.trim() : '';
+
+            try {
+                const res = await fetch(`/api/reports/daily-sales-summary?phone=${encodeURIComponent(phone)}`);
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    dayEndData = data;
+                    if (data.ownerPhone && phoneInput && !phoneInput.value) {
+                        phoneInput.value = data.ownerPhone.replace(/\D/g, '').slice(-10);
+                    }
+                    const preview = document.getElementById('dayEndReportPreview');
+                    if (preview) preview.innerText = data.summaryText;
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function refreshDayEndPreview() {
+            const phoneInput = document.getElementById('ownerWpPhoneInput');
+            const phone = phoneInput ? phoneInput.value.trim() : '';
+            try {
+                const res = await fetch(`/api/reports/daily-sales-summary?phone=${encodeURIComponent(phone)}`);
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    dayEndData = data;
+                    const preview = document.getElementById('dayEndReportPreview');
+                    if (preview) preview.innerText = data.summaryText;
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function sendOwnerWhatsAppReport() {
+            const phoneInput = document.getElementById('ownerWpPhoneInput');
+            const phone = phoneInput ? phoneInput.value.trim() : '';
+            if (!phone || phone.length < 10) {
+                alert("Please enter a valid 10-digit mobile number.");
+                return;
+            }
+
+            if (dayEndData && dayEndData.summaryText) {
+                const clean = phone.replace(/\D/g, '');
+                const cleanPhone = clean.length === 10 ? `91${clean}` : clean;
+                const url = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(dayEndData.summaryText)}`;
+                window.open(url, '_blank');
+                const modalEl = document.getElementById('dayEndWhatsAppModal');
+                if (modalEl) bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+            }
+        }
+
+        function copyReportText() {
+            if (dayEndData && dayEndData.summaryText) {
+                navigator.clipboard.writeText(dayEndData.summaryText).then(() => {
+                    alert("Daily sales summary copied to clipboard!");
+                });
+            }
+        }
     </script>
 }
+
+<!-- Day-End WhatsApp Summary Modal -->
+<div class="modal fade" id="dayEndWhatsAppModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content rounded-4 border-0 shadow-lg overflow-hidden">
+            <div class="modal-header bg-success text-white py-3">
+                <h5 class="modal-title fw-bold mb-0">
+                    <i class="bi bi-whatsapp me-2"></i>Daily Sales WhatsApp Report
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div class="mb-3 text-start">
+                    <label class="form-label small fw-bold text-muted text-uppercase">Owner / Manager WhatsApp Number:</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-light fw-bold text-muted">+91</span>
+                        <input type="tel" id="ownerWpPhoneInput" class="form-control font-monospace fw-bold fs-6" 
+                               placeholder="10-digit mobile number" maxlength="10" 
+                               oninput="refreshDayEndPreview()" />
+                    </div>
+                    <small class="text-muted d-block mt-1" style="font-size: 11px;">
+                        <i class="bi bi-info-circle me-1"></i>Pre-filled with restaurant owner contact. Editable anytime.
+                    </small>
+                </div>
+
+                <div class="mb-3 text-start">
+                    <label class="form-label small fw-bold text-muted text-uppercase">Summary Message Preview:</label>
+                    <div class="p-3 bg-light rounded-3 border font-monospace small" id="dayEndReportPreview" style="white-space: pre-wrap; max-height: 220px; overflow-y: auto; font-size: 12px;">
+Loading live report preview...
+                    </div>
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button type="button" class="btn btn-success py-3 fw-bold rounded-pill shadow-sm d-flex align-items-center justify-content-center gap-2" id="btnSendOwnerWp" onclick="sendOwnerWhatsAppReport()">
+                        <i class="bi bi-whatsapp fs-5"></i> Open WhatsApp Web &amp; Send Summary
+                    </button>
+                    <button type="button" class="btn btn-outline-dark py-2 rounded-pill small fw-semibold" onclick="copyReportText()">
+                        <i class="bi bi-copy me-1"></i> Copy Text to Clipboard
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

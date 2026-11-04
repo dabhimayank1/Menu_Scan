@@ -86,5 +86,105 @@ namespace MenuScan.Services
                    $"📄 *View Official Tax Receipt:*\n{receiptUrl}\n\n" +
                    $"Thank you for dining with us! Have a wonderful day! 🙏";
         }
+
+        public static string BuildDailySalesSummaryMessage(
+            string restName, 
+            DateTime date, 
+            decimal totalSales, 
+            int totalOrders, 
+            decimal avgOrderValue, 
+            decimal upiTotal, 
+            decimal cashTotal, 
+            decimal cardTotal, 
+            decimal taxTotal, 
+            IEnumerable<(string ItemName, int Quantity, decimal Revenue)> topItems)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"📊 *{restName}*");
+            sb.AppendLine($"🌙 *Daily Business & Sales Report*");
+            sb.AppendLine($"📅 *Date:* {date.ToLocalTime():dddd, dd MMM yyyy}");
+            sb.AppendLine();
+            sb.AppendLine($"💰 *Net Revenue:* ₹{totalSales:0.00}");
+            sb.AppendLine($"🧾 *Orders Settled:* {totalOrders}");
+            sb.AppendLine($"📈 *Avg. Order Value (AOV):* ₹{avgOrderValue:0.00}");
+            sb.AppendLine($"🏛️ *GST / Taxes Collected:* ₹{taxTotal:0.00}");
+            sb.AppendLine();
+            sb.AppendLine($"💳 *Payment Mode Split:*");
+            sb.AppendLine($"• 📱 UPI (Digital): *₹{upiTotal:0.00}*");
+            sb.AppendLine($"• 💵 Cash Counter: *₹{cashTotal:0.00}*");
+            if (cardTotal > 0)
+            {
+                sb.AppendLine($"• 💳 Debit/Credit Cards: *₹{cardTotal:0.00}*");
+            }
+            sb.AppendLine();
+            
+            var itemList = topItems?.Take(5).ToList();
+            if (itemList != null && itemList.Any())
+            {
+                sb.AppendLine($"🏆 *Top Selling Dishes Today:*");
+                int rank = 1;
+                foreach (var item in itemList)
+                {
+                    sb.AppendLine($"{rank}. {item.ItemName} — *{item.Quantity} sold* (₹{item.Revenue:0.00})");
+                    rank++;
+                }
+                sb.AppendLine();
+            }
+
+            sb.AppendLine($"✅ *Restaurant Day Closed Successfully!*");
+            return sb.ToString();
+        }
+
+        public static string BuildMonthlySalesSummaryMessage(
+            string restName,
+            int year,
+            int month,
+            decimal totalSales,
+            int totalOrders,
+            decimal avgOrderValue,
+            decimal dailyAverage,
+            decimal upiTotal,
+            decimal cashTotal,
+            decimal cardTotal,
+            decimal taxTotal,
+            IEnumerable<(string ItemName, int Quantity, decimal Revenue)> topItems)
+        {
+            var sb = new System.Text.StringBuilder();
+            var monthStr = new DateTime(year, month, 1).ToString("MMMM yyyy");
+            sb.AppendLine($"📊 *{restName}*");
+            sb.AppendLine($"🗓️ *Monthly Business & Performance Report*");
+            sb.AppendLine($"📅 *Period:* {monthStr}");
+            sb.AppendLine();
+            sb.AppendLine($"💰 *Total Monthly Revenue:* ₹{totalSales:0.00}");
+            sb.AppendLine($"🧾 *Total Orders Settled:* {totalOrders}");
+            sb.AppendLine($"📈 *Avg. Order Value (AOV):* ₹{avgOrderValue:0.00}");
+            sb.AppendLine($"⚡ *Daily Average Sales:* ₹{dailyAverage:0.00}");
+            sb.AppendLine($"🏛️ *Total Tax / GST:* ₹{taxTotal:0.00}");
+            sb.AppendLine();
+            sb.AppendLine($"💳 *Payment Mode Split:*");
+            sb.AppendLine($"• 📱 UPI (Digital): *₹{upiTotal:0.00}*");
+            sb.AppendLine($"• 💵 Cash Counter: *₹{cashTotal:0.00}*");
+            if (cardTotal > 0)
+            {
+                sb.AppendLine($"• 💳 Debit/Credit Cards: *₹{cardTotal:0.00}*");
+            }
+            sb.AppendLine();
+
+            var itemList = topItems?.Take(5).ToList();
+            if (itemList != null && itemList.Any())
+            {
+                sb.AppendLine($"🏆 *Top 5 Bestsellers of the Month:*");
+                int rank = 1;
+                foreach (var item in itemList)
+                {
+                    sb.AppendLine($"{rank}. {item.ItemName} — *{item.Quantity} sold* (₹{item.Revenue:0.00})");
+                    rank++;
+                }
+                sb.AppendLine();
+            }
+
+            sb.AppendLine($"✨ *Generated via MenuScan Restaurant OS*");
+            return sb.ToString();
+        }
     }
 }

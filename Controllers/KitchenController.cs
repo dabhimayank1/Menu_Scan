@@ -35,15 +35,20 @@ namespace MenuScan.Controllers
             var restaurantId = _tenantService.CurrentRestaurantId;
             if (!restaurantId.HasValue)
             {
-                // Fallback for SuperAdmin: choose first active restaurant
-                var defaultRest = await _context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.IsActive);
-                if (defaultRest == null) return NotFound("No active restaurant found.");
-                restaurantId = defaultRest.Id;
+                if (User.IsInRole(AppRoles.SuperAdmin))
+                {
+                    return RedirectToAction("Index", "SuperAdmin");
+                }
+                return Forbid();
             }
 
+            var cutoffUtc = DateTime.UtcNow.AddHours(-24);
             var orders = await _context.Orders
                 .IgnoreQueryFilters()
-                .Where(o => o.RestaurantId == restaurantId.Value && o.Status != OrderStatus.Completed && o.Status != OrderStatus.Cancelled)
+                .Where(o => o.RestaurantId == restaurantId.Value 
+                         && o.Status != OrderStatus.Completed 
+                         && o.Status != OrderStatus.Cancelled
+                         && o.CreatedAtUtc >= cutoffUtc)
                 .OrderBy(o => o.CreatedAtUtc)
                 .Include(o => o.Table)
                 .Include(o => o.OrderItems)
@@ -64,6 +69,19 @@ namespace MenuScan.Controllers
             if (order == null)
             {
                 return NotFound(new { message = "Order not found." });
+            }
+
+            // Tenant security check
+            var currentTenantId = _tenantService.CurrentRestaurantId;
+            if (!User.IsInRole(AppRoles.SuperAdmin) && (!currentTenantId.HasValue || order.RestaurantId != currentTenantId.Value))
+            {
+                return Forbid();
+            }
+
+            // Kitchen cannot bypass billing to complete orders
+            if (dto.NewStatus == OrderStatus.Completed)
+            {
+                return BadRequest(new { message = "Orders can only be marked Completed by the Cashier upon bill settlement." });
             }
 
             var oldStatus = order.Status;

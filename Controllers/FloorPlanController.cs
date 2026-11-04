@@ -30,25 +30,32 @@ namespace MenuScan.Controllers
             _logger = logger;
         }
 
-        private async Task<Restaurant?> GetCurrentRestaurantAsync()
+        private async Task<(Restaurant? Restaurant, IActionResult? Result)> GetCurrentRestaurantAsync()
         {
             var restaurantId = _tenantService.CurrentRestaurantId;
-            if (restaurantId.HasValue)
+            if (!restaurantId.HasValue)
             {
-                return await _context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.Id == restaurantId.Value);
+                if (User.IsInRole(AppRoles.SuperAdmin))
+                {
+                    return (null, RedirectToAction("Index", "SuperAdmin"));
+                }
+                return (null, Forbid());
             }
-            return await _context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.IsActive);
+
+            var r = await _context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.Id == restaurantId.Value);
+            if (r == null) return (null, NotFound("Restaurant not configured."));
+            return (r, null);
         }
 
         [HttpGet]
         public async Task<IActionResult> Index()
         {
-            var restaurant = await GetCurrentRestaurantAsync();
-            if (restaurant == null) return NotFound("Restaurant not configured.");
+            var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
+            if (errorResult != null) return errorResult;
 
             var tables = await _context.DiningTables
                 .IgnoreQueryFilters()
-                .Where(t => t.RestaurantId == restaurant.Id && t.IsActive)
+                .Where(t => t.RestaurantId == restaurant!.Id && t.IsActive)
                 .OrderBy(t => t.TableNumber)
                 .ToListAsync();
 
@@ -57,7 +64,8 @@ namespace MenuScan.Controllers
                 .Include(o => o.OrderItems)
                 .Where(o => o.RestaurantId == restaurant.Id &&
                             o.Status != OrderStatus.Cancelled &&
-                            o.Status != OrderStatus.Completed)
+                            o.Status != OrderStatus.Completed &&
+                            o.CreatedAtUtc >= DateTime.UtcNow.AddHours(-24))
                 .ToListAsync();
 
             var pendingRequests = await _context.ServiceRequests
@@ -168,6 +176,12 @@ namespace MenuScan.Controllers
 
             if (req == null) return NotFound(new { success = false, message = "Request not found." });
 
+            var currentTenantId = _tenantService.CurrentRestaurantId;
+            if (!User.IsInRole(AppRoles.SuperAdmin) && (!currentTenantId.HasValue || req.RestaurantId != currentTenantId.Value))
+            {
+                return Forbid();
+            }
+
             req.IsHandled = true;
             req.HandledAtUtc = DateTime.UtcNow;
             req.HandledBy = User.Identity?.Name ?? "Staff";
@@ -193,6 +207,12 @@ namespace MenuScan.Controllers
                 .FirstOrDefaultAsync(o => o.Id == orderId);
 
             if (order == null) return NotFound(new { success = false, message = "Order not found." });
+
+            var currentTenantId = _tenantService.CurrentRestaurantId;
+            if (!User.IsInRole(AppRoles.SuperAdmin) && (!currentTenantId.HasValue || order.RestaurantId != currentTenantId.Value))
+            {
+                return Forbid();
+            }
 
             var oldStatus = order.Status;
             order.Status = OrderStatus.Served;
@@ -227,6 +247,12 @@ namespace MenuScan.Controllers
                 .FirstOrDefaultAsync(t => t.Id == tableId);
 
             if (table == null) return NotFound(new { success = false, message = "Table not found." });
+
+            var currentTenantId = _tenantService.CurrentRestaurantId;
+            if (!User.IsInRole(AppRoles.SuperAdmin) && (!currentTenantId.HasValue || table.RestaurantId != currentTenantId.Value))
+            {
+                return Forbid();
+            }
 
             // Mark any remaining pending service calls as handled
             var pendingRequests = await _context.ServiceRequests

@@ -482,3 +482,9 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+
+# Local scratch and test scripts (may contain credentials)
+scratch/
+*.bak
+backups/
