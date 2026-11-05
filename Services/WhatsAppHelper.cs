@@ -102,7 +102,7 @@ namespace MenuScan.Services
             var sb = new System.Text.StringBuilder();
             sb.AppendLine($"📊 *{restName}*");
             sb.AppendLine($"🌙 *Daily Business & Sales Report*");
-            sb.AppendLine($"📅 *Date:* {date.ToLocalTime():dddd, dd MMM yyyy}");
+            sb.AppendLine($"📅 *Date:* {TimeHelper.Current.Format(date, "dddd, dd MMM yyyy")}");
             sb.AppendLine();
             sb.AppendLine($"💰 *Net Revenue:* ₹{totalSales:0.00}");
             sb.AppendLine($"🧾 *Orders Settled:* {totalOrders}");

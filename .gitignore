@@ -484,11 +484,8 @@ $RECYCLE.BIN/
 *.swp
 
 
-# Local scratch and test scripts (may contain credentials)
+# Local scratch, backups, uploads
 scratch/
-*.bak
 backups/
-*quick_check*
-*manual_tests*
-*test_suite*
-*.py
+*.bak
+wwwroot/uploads/

@@ -4,10 +4,10 @@
     Layout = "_Layout";
     var restaurant = (MenuScan.Models.Entities.Restaurant)ViewBag.Restaurant;
     var itemPopularity = (IEnumerable<dynamic>)ViewBag.ItemPopularity;
-    var selectedDate = (DateTime)(ViewBag.SelectedDate ?? DateTime.UtcNow.Date);
+    var selectedDate = (DateTime)(ViewBag.SelectedDate ?? TimeHelper.Today());
     var prevDate = selectedDate.AddDays(-1);
     var nextDate = selectedDate.AddDays(1);
-    var isToday = selectedDate.Date == DateTime.UtcNow.Date;
+    var isToday = selectedDate.Date == TimeHelper.Today();
 }
 
 <div class="container-fluid py-4 px-3 px-lg-4">
@@ -58,7 +58,7 @@
 
                 @if (!isToday)
                 {
-                    <a asp-action="DailySales" asp-route-date="@DateTime.UtcNow.ToString("yyyy-MM-dd")" class="badge bg-secondary-subtle text-secondary rounded-pill text-decoration-none px-3 py-2 ms-1">
+                    <a asp-action="DailySales" asp-route-date="@TimeHelper.Today().ToString("yyyy-MM-dd")" class="badge bg-secondary-subtle text-secondary rounded-pill text-decoration-none px-3 py-2 ms-1">
                         Go to Today
                     </a>
                 }
@@ -185,7 +185,7 @@
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <div>
                         <h5 class="fw-bold mb-0"><i class="bi bi-graph-up-arrow me-2 text-success"></i>Hourly Sales Flow (Peak Rush Tracker)</h5>
-                        <small class="text-muted">Today's transaction volume across operating hours (8 AM &ndash; 11 PM)</small>
+                        <small class="text-muted">Today's transaction volume across all 24 hours (12 AM &ndash; 11 PM)</small>
                     </div>
                     <span class="badge bg-light text-dark border">Hourly Distribution</span>
                 </div>
@@ -327,7 +327,7 @@
                                     <small class="text-muted font-monospace">#@(bill.Order?.OrderNumber ?? "-")</small>
                                 </td>
                                 <td>
-                                    <small class="text-muted">@bill.CreatedAtUtc.ToLocalTime().ToString("hh:mm tt")</small>
+                                    <small class="text-muted">@TimeHelper.Format(bill.ClosedAtUtc ?? bill.CreatedAtUtc, "hh:mm tt")</small>
                                 </td>
                                 <td>
                                     <small class="fw-semibold text-secondary">

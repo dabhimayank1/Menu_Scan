@@ -49,7 +49,7 @@
                     </select>
 
                     <select name="year" class="form-select form-select-sm border-0 bg-transparent fw-bold text-dark px-2" style="width: auto; cursor: pointer;" onchange="document.getElementById('monthFilterForm').submit()">
-                        @for (int y = DateTime.UtcNow.Year - 2; y <= DateTime.UtcNow.Year + 1; y++)
+                        @for (int y = TimeHelper.Today().Year - 2; y <= TimeHelper.Today().Year + 1; y++)
                         {
                             <option value="@y" selected="@(y == Model.Year)">@y</option>
                         }
@@ -62,10 +62,10 @@
 
                 <!-- Quick Jump Pills -->
                 <div class="d-none d-md-flex align-items-center gap-1 ms-2">
-                    <a asp-action="MonthlySales" asp-route-year="@DateTime.UtcNow.Year" asp-route-month="@DateTime.UtcNow.Month" class="badge rounded-pill text-decoration-none px-2 py-1 @(Model.Year == DateTime.UtcNow.Year && Model.Month == DateTime.UtcNow.Month ? "bg-dark text-white" : "bg-light text-muted border")">
+                    <a asp-action="MonthlySales" asp-route-year="@TimeHelper.Today().Year" asp-route-month="@TimeHelper.Today().Month" class="badge rounded-pill text-decoration-none px-2 py-1 @(Model.Year == TimeHelper.Today().Year && Model.Month == TimeHelper.Today().Month ? "bg-dark text-white" : "bg-light text-muted border")">
                         Current Month
                     </a>
-                    <a asp-action="MonthlySales" asp-route-year="@DateTime.UtcNow.AddMonths(-1).Year" asp-route-month="@DateTime.UtcNow.AddMonths(-1).Month" class="badge rounded-pill text-decoration-none px-2 py-1 @(Model.Year == DateTime.UtcNow.AddMonths(-1).Year && Model.Month == DateTime.UtcNow.AddMonths(-1).Month ? "bg-dark text-white" : "bg-light text-muted border")">
+                    <a asp-action="MonthlySales" asp-route-year="@TimeHelper.Today().AddMonths(-1).Year" asp-route-month="@TimeHelper.Today().AddMonths(-1).Month" class="badge rounded-pill text-decoration-none px-2 py-1 @(Model.Year == TimeHelper.Today().AddMonths(-1).Year && Model.Month == TimeHelper.Today().AddMonths(-1).Month ? "bg-dark text-white" : "bg-light text-muted border")">
                         Last Month
                     </a>
                 </div>

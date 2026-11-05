@@ -13,11 +13,32 @@ namespace MenuScan.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly ITenantService _tenantService;
+        private readonly ITimeHelper _timeHelper;
 
-        public ReportsController(ApplicationDbContext context, ITenantService tenantService)
+        public ReportsController(ApplicationDbContext context, ITenantService tenantService, ITimeHelper timeHelper)
         {
             _context = context;
             _tenantService = tenantService;
+            _timeHelper = timeHelper;
+        }
+
+        private static string EscapeCsvCell(string? value)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+
+            // Formula injection prevention: if starts with =, +, -, @, prefix with single quote '
+            if (value.StartsWith("=") || value.StartsWith("+") || value.StartsWith("-") || value.StartsWith("@"))
+            {
+                value = "'" + value;
+            }
+
+            // CSV escaping: if contains comma, quote, or newline, escape double quotes and wrap in quotes
+            if (value.Contains(",") || value.Contains("\"") || value.Contains("\r") || value.Contains("\n"))
+            {
+                return $"\"{value.Replace("\"", "\"\"")}\"";
+            }
+
+            return value;
         }
 
         private async Task<(Restaurant? Restaurant, IActionResult? Result)> GetCurrentRestaurantAsync()
@@ -46,26 +67,32 @@ namespace MenuScan.Controllers
             var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
             if (errorResult != null) return errorResult;
 
-            var targetDate = date?.Date ?? DateTime.UtcNow.AddHours(5.5).Date;
-            var startUtc = targetDate.AddHours(-5.5);
-            var endUtc = startUtc.AddDays(1);
+            var targetDate = date?.Date ?? _timeHelper.Today();
+            var (startUtc, endUtc) = _timeHelper.LocalDayRangeUtc(targetDate);
 
             if (!date.HasValue)
             {
                 // Check if today (IST) has bills; if not, check if any recent bills exist and default to latest active date
                 var hasToday = await _context.Bills.IgnoreQueryFilters()
-                    .AnyAsync(b => b.RestaurantId == restaurant!.Id && b.Status == BillStatus.Paid && b.CreatedAtUtc >= startUtc && b.CreatedAtUtc < endUtc);
+                    .AnyAsync(b => b.RestaurantId == restaurant!.Id 
+                        && b.Status == BillStatus.Paid 
+                        && b.Status != BillStatus.Cancelled
+                        && (b.Order == null || b.Order.Status != OrderStatus.Cancelled)
+                        && (b.ClosedAtUtc ?? b.CreatedAtUtc) >= startUtc 
+                        && (b.ClosedAtUtc ?? b.CreatedAtUtc) < endUtc);
                 if (!hasToday)
                 {
                     var latestBill = await _context.Bills.IgnoreQueryFilters()
-                        .Where(b => b.RestaurantId == restaurant!.Id && b.Status == BillStatus.Paid)
-                        .OrderByDescending(b => b.CreatedAtUtc)
+                        .Where(b => b.RestaurantId == restaurant!.Id 
+                            && b.Status == BillStatus.Paid 
+                            && b.Status != BillStatus.Cancelled
+                            && (b.Order == null || b.Order.Status != OrderStatus.Cancelled))
+                        .OrderByDescending(b => b.ClosedAtUtc ?? b.CreatedAtUtc)
                         .FirstOrDefaultAsync();
                     if (latestBill != null)
                     {
-                        targetDate = latestBill.CreatedAtUtc.AddHours(5.5).Date;
-                        startUtc = targetDate.AddHours(-5.5);
-                        endUtc = startUtc.AddDays(1);
+                        targetDate = _timeHelper.ToLocal(latestBill.ClosedAtUtc ?? latestBill.CreatedAtUtc).Date;
+                        (startUtc, endUtc) = _timeHelper.LocalDayRangeUtc(targetDate);
                     }
                 }
             }
@@ -73,13 +100,18 @@ namespace MenuScan.Controllers
             // Bills for selected IST date
             var bills = await _context.Bills
                 .IgnoreQueryFilters()
-                .Where(b => b.RestaurantId == restaurant!.Id && b.Status == BillStatus.Paid && b.CreatedAtUtc >= startUtc && b.CreatedAtUtc < endUtc)
+                .Where(b => b.RestaurantId == restaurant!.Id 
+                    && b.Status == BillStatus.Paid 
+                    && b.Status != BillStatus.Cancelled
+                    && (b.Order == null || b.Order.Status != OrderStatus.Cancelled)
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) >= startUtc 
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) < endUtc)
                 .Include(b => b.Payments)
                 .Include(b => b.Order)
                     .ThenInclude(o => o!.Table)
                 .Include(b => b.Order)
                     .ThenInclude(o => o!.OrderItems)
-                .OrderByDescending(b => b.CreatedAtUtc)
+                .OrderByDescending(b => b.ClosedAtUtc ?? b.CreatedAtUtc)
                 .ToListAsync();
 
             var totalSales = bills.Sum(b => b.GrandTotal);
@@ -101,14 +133,15 @@ namespace MenuScan.Controllers
                 .Take(10)
                 .ToList();
 
-            // Hourly trend calculation (8 AM to 11 PM)
+            // Hourly trend calculation (all 24 hours 0 to 23)
             var hourlyLabels = new List<string>();
             var hourlyData = new List<decimal>();
-            for (int h = 8; h <= 23; h++)
+            for (int h = 0; h < 24; h++)
             {
-                hourlyLabels.Add(DateTime.Today.AddHours(h).ToString("h tt"));
+                var hourDt = new DateTime(2000, 1, 1, h, 0, 0);
+                hourlyLabels.Add(hourDt.ToString("h tt"));
                 var hourSales = bills
-                    .Where(b => b.CreatedAtUtc.AddHours(5.5).Hour == h)
+                    .Where(b => _timeHelper.ToLocal(b.ClosedAtUtc ?? b.CreatedAtUtc).Hour == h)
                     .Sum(b => b.GrandTotal);
                 hourlyData.Add(hourSales);
             }
@@ -158,41 +191,60 @@ namespace MenuScan.Controllers
             var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
             if (errorResult != null) return errorResult;
 
-            var now = DateTime.UtcNow.AddHours(5.5);
-            var targetYear = year ?? now.Year;
-            var targetMonth = month ?? now.Month;
+            int targetYear;
+            int targetMonth;
 
-            if (!year.HasValue && !month.HasValue)
+            if (year.HasValue || month.HasValue)
             {
-                // If current month (IST) has 0 bills, check if there's any latest bill in DB
+                (targetYear, targetMonth) = _timeHelper.SafeMonthYear(year, month);
+            }
+            else
+            {
+                var today = _timeHelper.Today();
+                targetYear = today.Year;
+                targetMonth = today.Month;
+
+                var (curStartUtc, curEndUtc) = _timeHelper.LocalMonthRangeUtc(targetYear, targetMonth);
                 var hasThisMonth = await _context.Bills.IgnoreQueryFilters()
-                    .AnyAsync(b => b.RestaurantId == restaurant!.Id && b.Status == BillStatus.Paid && b.CreatedAtUtc.AddHours(5.5).Year == now.Year && b.CreatedAtUtc.AddHours(5.5).Month == now.Month);
+                    .AnyAsync(b => b.RestaurantId == restaurant!.Id 
+                        && b.Status == BillStatus.Paid 
+                        && b.Status != BillStatus.Cancelled
+                        && (b.Order == null || b.Order.Status != OrderStatus.Cancelled)
+                        && (b.ClosedAtUtc ?? b.CreatedAtUtc) >= curStartUtc 
+                        && (b.ClosedAtUtc ?? b.CreatedAtUtc) < curEndUtc);
                 if (!hasThisMonth)
                 {
                     var latestBill = await _context.Bills.IgnoreQueryFilters()
-                        .Where(b => b.RestaurantId == restaurant!.Id && b.Status == BillStatus.Paid)
-                        .OrderByDescending(b => b.CreatedAtUtc)
+                        .Where(b => b.RestaurantId == restaurant!.Id 
+                            && b.Status == BillStatus.Paid 
+                            && b.Status != BillStatus.Cancelled
+                            && (b.Order == null || b.Order.Status != OrderStatus.Cancelled))
+                        .OrderByDescending(b => b.ClosedAtUtc ?? b.CreatedAtUtc)
                         .FirstOrDefaultAsync();
                     if (latestBill != null)
                     {
-                        targetYear = latestBill.CreatedAtUtc.AddHours(5.5).Year;
-                        targetMonth = latestBill.CreatedAtUtc.AddHours(5.5).Month;
+                        var localDt = _timeHelper.ToLocal(latestBill.ClosedAtUtc ?? latestBill.CreatedAtUtc);
+                        (targetYear, targetMonth) = _timeHelper.SafeMonthYear(localDt.Year, localDt.Month);
                     }
                 }
             }
 
-            var startOfMonthUtc = new DateTime(targetYear, targetMonth, 1, 0, 0, 0, DateTimeKind.Utc).AddHours(-5.5);
-            var endOfMonthUtc = new DateTime(targetYear, targetMonth, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(1).AddHours(-5.5);
+            var (startOfMonthUtc, endOfMonthUtc) = _timeHelper.LocalMonthRangeUtc(targetYear, targetMonth);
 
             var bills = await _context.Bills
                 .IgnoreQueryFilters()
-                .Where(b => b.RestaurantId == restaurant!.Id && b.Status == BillStatus.Paid && b.CreatedAtUtc >= startOfMonthUtc && b.CreatedAtUtc < endOfMonthUtc)
+                .Where(b => b.RestaurantId == restaurant!.Id 
+                    && b.Status == BillStatus.Paid 
+                    && b.Status != BillStatus.Cancelled
+                    && (b.Order == null || b.Order.Status != OrderStatus.Cancelled)
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) >= startOfMonthUtc 
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) < endOfMonthUtc)
                 .Include(b => b.Payments)
                 .Include(b => b.Order)
                     .ThenInclude(o => o!.OrderItems)
                         .ThenInclude(oi => oi.MenuItem)
                             .ThenInclude(mi => mi!.Category)
-                .OrderBy(b => b.CreatedAtUtc)
+                .OrderBy(b => b.ClosedAtUtc ?? b.CreatedAtUtc)
                 .ToListAsync();
 
             var totalSales = bills.Sum(b => b.GrandTotal);
@@ -218,7 +270,7 @@ namespace MenuScan.Controllers
             for (int day = 1; day <= daysInMonth; day++)
             {
                 var curDate = new DateTime(targetYear, targetMonth, day);
-                var dayBills = bills.Where(b => b.CreatedAtUtc.AddHours(5.5).Date == curDate.Date).ToList();
+                var dayBills = bills.Where(b => _timeHelper.ToLocal(b.ClosedAtUtc ?? b.CreatedAtUtc).Date == curDate.Date).ToList();
                 var daySales = dayBills.Sum(b => b.GrandTotal);
                 var dayTax = dayBills.Sum(b => b.TaxAmount);
                 var dayPayments = dayBills.SelectMany(b => b.Payments).ToList();
@@ -307,7 +359,7 @@ namespace MenuScan.Controllers
 
             var vm = new MonthlySalesViewModel
             {
-                Restaurant = restaurant,
+                Restaurant = restaurant!,
                 Year = targetYear,
                 Month = targetMonth,
                 TotalSales = totalSales,
@@ -342,16 +394,17 @@ namespace MenuScan.Controllers
             var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
             if (errorResult != null) return errorResult;
 
-            var now = DateTime.UtcNow.AddHours(5.5);
-            var targetYear = year ?? now.Year;
-            var targetMonth = month ?? now.Month;
-
-            var startOfMonthUtc = new DateTime(targetYear, targetMonth, 1, 0, 0, 0, DateTimeKind.Utc).AddHours(-5.5);
-            var endOfMonthUtc = new DateTime(targetYear, targetMonth, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(1).AddHours(-5.5);
+            var (targetYear, targetMonth) = _timeHelper.SafeMonthYear(year, month);
+            var (startOfMonthUtc, endOfMonthUtc) = _timeHelper.LocalMonthRangeUtc(targetYear, targetMonth);
 
             var bills = await _context.Bills
                 .IgnoreQueryFilters()
-                .Where(b => b.RestaurantId == restaurant!.Id && b.Status == BillStatus.Paid && b.CreatedAtUtc >= startOfMonthUtc && b.CreatedAtUtc < endOfMonthUtc)
+                .Where(b => b.RestaurantId == restaurant!.Id 
+                    && b.Status == BillStatus.Paid 
+                    && b.Status != BillStatus.Cancelled
+                    && (b.Order == null || b.Order.Status != OrderStatus.Cancelled)
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) >= startOfMonthUtc 
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) < endOfMonthUtc)
                 .Include(b => b.Payments)
                 .ToListAsync();
 
@@ -381,8 +434,8 @@ namespace MenuScan.Controllers
             sb.AppendLine("<body>");
 
             var monthDisplay = new DateTime(targetYear, targetMonth, 1).ToString("MMMM yyyy");
-            sb.AppendLine($"<div class=\"report-title\">{System.Net.WebUtility.HtmlEncode(restaurant.Name)} &mdash; Monthly Sales &amp; Settlement Report</div>");
-            sb.AppendLine($"<div class=\"report-meta\">Month / Period: <b>{monthDisplay}</b> &bull; Exported On: {DateTime.Now:dd MMM yyyy, hh:mm tt}</div>");
+            sb.AppendLine($"<div class=\"report-title\">{System.Net.WebUtility.HtmlEncode(restaurant!.Name)} &mdash; Monthly Sales &amp; Settlement Report</div>");
+            sb.AppendLine($"<div class=\"report-meta\">Month / Period: <b>{System.Net.WebUtility.HtmlEncode(monthDisplay)}</b> &bull; Exported On: {_timeHelper.Format(_timeHelper.Now(), "dd MMM yyyy, hh:mm tt")}</div>");
 
             sb.AppendLine("<table border=\"1\" cellspacing=\"0\" cellpadding=\"6\">");
             sb.AppendLine("<thead>");
@@ -409,7 +462,7 @@ namespace MenuScan.Controllers
             for (int day = 1; day <= daysInMonth; day++)
             {
                 var curDate = new DateTime(targetYear, targetMonth, day);
-                var dayBills = bills.Where(b => b.CreatedAtUtc.AddHours(5.5).Date == curDate.Date).ToList();
+                var dayBills = bills.Where(b => _timeHelper.ToLocal(b.ClosedAtUtc ?? b.CreatedAtUtc).Date == curDate.Date).ToList();
                 var daySales = dayBills.Sum(b => b.GrandTotal);
                 var dayTax = dayBills.Sum(b => b.TaxAmount);
                 var dayPayments = dayBills.SelectMany(b => b.Payments).ToList();
@@ -455,7 +508,7 @@ namespace MenuScan.Controllers
 
             // Cashier settlement section in Excel
             sb.AppendLine("<br/><br/>");
-            sb.AppendLine($"<div class=\"report-title\">Cashier &amp; Settlement Breakdown &mdash; {monthDisplay}</div>");
+            sb.AppendLine($"<div class=\"report-title\">Cashier &amp; Settlement Breakdown &mdash; {System.Net.WebUtility.HtmlEncode(monthDisplay)}</div>");
             sb.AppendLine("<table border=\"1\" cellspacing=\"0\" cellpadding=\"6\">");
             sb.AppendLine("<thead>");
             sb.AppendLine("  <tr>");
@@ -490,14 +543,15 @@ namespace MenuScan.Controllers
 
             foreach (var c in excelCashiers)
             {
+                var encodedCashier = System.Net.WebUtility.HtmlEncode(c.CashierName);
                 sb.AppendLine("  <tr>");
-                sb.AppendLine($"    <td class=\"day-col\"><b>{c.CashierName}</b></td>");
+                sb.AppendLine($"    <td class=\"day-col\"><b>{encodedCashier}</b></td>");
                 sb.AppendLine($"    <td class=\"qty-col\">{c.BillsCount}</td>");
                 sb.AppendLine($"    <td class=\"num-col\">{c.CashCollected:0.00}</td>");
                 sb.AppendLine($"    <td class=\"num-col\">{c.UpiCollected:0.00}</td>");
                 sb.AppendLine($"    <td class=\"num-col\">{c.CardCollected:0.00}</td>");
                 sb.AppendLine($"    <td class=\"rev-col\">{c.TotalRevenue:0.00}</td>");
-                sb.AppendLine($"    <td class=\"qty-col\">{c.PercentageOfTotal:0.1}%</td>");
+                sb.AppendLine($"    <td class=\"qty-col\">{c.PercentageOfTotal:0.0}%</td>");
                 sb.AppendLine("  </tr>");
             }
 
@@ -508,7 +562,7 @@ namespace MenuScan.Controllers
             sb.AppendLine("</html>");
 
             var bytes = System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
-            var cleanName = System.Text.RegularExpressions.Regex.Replace(restaurant.Name, @"[^a-zA-Z0-9]", "_");
+            var cleanName = System.Text.RegularExpressions.Regex.Replace(restaurant!.Name, @"[^a-zA-Z0-9]", "_");
             return File(bytes, "application/vnd.ms-excel", $"Monthly_Sales_{cleanName}_{targetYear}_{targetMonth:D2}.xls");
         }
 
@@ -518,16 +572,17 @@ namespace MenuScan.Controllers
             var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
             if (errorResult != null) return errorResult;
 
-            var now = DateTime.UtcNow.AddHours(5.5);
-            var targetYear = year ?? now.Year;
-            var targetMonth = month ?? now.Month;
-
-            var startOfMonthUtc = new DateTime(targetYear, targetMonth, 1, 0, 0, 0, DateTimeKind.Utc).AddHours(-5.5);
-            var endOfMonthUtc = new DateTime(targetYear, targetMonth, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(1).AddHours(-5.5);
+            var (targetYear, targetMonth) = _timeHelper.SafeMonthYear(year, month);
+            var (startOfMonthUtc, endOfMonthUtc) = _timeHelper.LocalMonthRangeUtc(targetYear, targetMonth);
 
             var bills = await _context.Bills
                 .IgnoreQueryFilters()
-                .Where(b => b.RestaurantId == restaurant!.Id && b.Status == BillStatus.Paid && b.CreatedAtUtc >= startOfMonthUtc && b.CreatedAtUtc < endOfMonthUtc)
+                .Where(b => b.RestaurantId == restaurant!.Id 
+                    && b.Status == BillStatus.Paid 
+                    && b.Status != BillStatus.Cancelled
+                    && (b.Order == null || b.Order.Status != OrderStatus.Cancelled)
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) >= startOfMonthUtc 
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) < endOfMonthUtc)
                 .Include(b => b.Payments)
                 .ToListAsync();
 
@@ -547,7 +602,7 @@ namespace MenuScan.Controllers
             for (int day = 1; day <= daysInMonth; day++)
             {
                 var curDate = new DateTime(targetYear, targetMonth, day);
-                var dayBills = bills.Where(b => b.CreatedAtUtc.AddHours(5.5).Date == curDate.Date).ToList();
+                var dayBills = bills.Where(b => _timeHelper.ToLocal(b.ClosedAtUtc ?? b.CreatedAtUtc).Date == curDate.Date).ToList();
                 var daySales = dayBills.Sum(b => b.GrandTotal);
                 var dayTax = dayBills.Sum(b => b.TaxAmount);
                 var dayPayments = dayBills.SelectMany(b => b.Payments).ToList();
@@ -562,13 +617,40 @@ namespace MenuScan.Controllers
                 totalCash += dayCash;
                 totalCard += dayCard;
 
-                sb.AppendLine($"{curDate:yyyy-MM-dd},{curDate:dddd},{dayBills.Count},{dayTax:F2},{daySales:F2},{dayUpi:F2},{dayCash:F2},{dayCard:F2}");
+                sb.AppendLine($"{EscapeCsvCell(curDate.ToString("yyyy-MM-dd"))},{EscapeCsvCell(curDate.ToString("dddd"))},{dayBills.Count},{dayTax:F2},{daySales:F2},{dayUpi:F2},{dayCash:F2},{dayCard:F2}");
             }
 
-            sb.AppendLine($"TOTAL,All Days,{totalOrders},{totalTax:F2},{totalSales:F2},{totalUpi:F2},{totalCash:F2},{totalCard:F2}");
+            sb.AppendLine($"{EscapeCsvCell("TOTAL")},{EscapeCsvCell("All Days")},{totalOrders},{totalTax:F2},{totalSales:F2},{totalUpi:F2},{totalCash:F2},{totalCard:F2}");
+
+            // Cashier settlement section in CSV
+            sb.AppendLine();
+            sb.AppendLine("Cashier / Source,Bills Settled,Cash Counter (INR),UPI Collected (INR),Card Collected (INR),Total Revenue Handled (INR),Revenue Share (%)");
+
+            var csvCashiers = bills
+                .SelectMany(b => b.Payments.DefaultIfEmpty(), (b, p) => new { Bill = b, Payment = p })
+                .GroupBy(x => x.Payment?.RecordedBy ?? "Customer / Online")
+                .Select(g => new
+                {
+                    CashierName = g.Key,
+                    BillsCount = g.Select(x => x.Bill.Id).Distinct().Count(),
+                    CashCollected = g.Where(x => x.Payment != null && x.Payment.Method == PaymentMethod.Cash).Sum(x => x.Payment!.Amount),
+                    UpiCollected = g.Where(x => x.Payment != null && x.Payment.Method == PaymentMethod.UPI).Sum(x => x.Payment!.Amount),
+                    CardCollected = g.Where(x => x.Payment != null && x.Payment.Method == PaymentMethod.Card).Sum(x => x.Payment!.Amount),
+                    TotalRevenue = g.Where(x => x.Payment != null).Sum(x => x.Payment!.Amount) > 0
+                        ? g.Where(x => x.Payment != null).Sum(x => x.Payment!.Amount)
+                        : g.Select(x => x.Bill).Distinct().Sum(x => x.GrandTotal),
+                    PercentageOfTotal = totalSales > 0 ? (double)(g.Select(x => x.Bill).Distinct().Sum(x => x.GrandTotal) / totalSales) * 100 : 0
+                })
+                .OrderByDescending(x => x.TotalRevenue)
+                .ToList();
+
+            foreach (var c in csvCashiers)
+            {
+                sb.AppendLine($"{EscapeCsvCell(c.CashierName)},{c.BillsCount},{c.CashCollected:F2},{c.UpiCollected:F2},{c.CardCollected:F2},{c.TotalRevenue:F2},{c.PercentageOfTotal:0.0}%");
+            }
 
             var bytes = System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
-            var cleanName = System.Text.RegularExpressions.Regex.Replace(restaurant.Name, @"[^a-zA-Z0-9]", "_");
+            var cleanName = System.Text.RegularExpressions.Regex.Replace(restaurant!.Name, @"[^a-zA-Z0-9]", "_");
             return File(bytes, "text/csv; charset=utf-8", $"Monthly_Sales_{cleanName}_{targetYear}_{targetMonth:D2}.csv");
         }
 
@@ -581,12 +663,17 @@ namespace MenuScan.Controllers
             var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
             if (errorResult != null) return errorResult;
 
-            var targetDate = date?.Date ?? DateTime.UtcNow.Date;
-            var nextDay = targetDate.AddDays(1);
+            var targetDate = date?.Date ?? _timeHelper.Today();
+            var (startUtc, endUtc) = _timeHelper.LocalDayRangeUtc(targetDate);
 
             var bills = await _context.Bills
                 .IgnoreQueryFilters()
-                .Where(b => b.RestaurantId == restaurant!.Id && b.Status == BillStatus.Paid && b.CreatedAtUtc >= targetDate && b.CreatedAtUtc < nextDay)
+                .Where(b => b.RestaurantId == restaurant!.Id 
+                    && b.Status == BillStatus.Paid 
+                    && b.Status != BillStatus.Cancelled
+                    && (b.Order == null || b.Order.Status != OrderStatus.Cancelled)
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) >= startUtc 
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) < endUtc)
                 .Include(b => b.Payments)
                 .Include(b => b.Order)
                     .ThenInclude(o => o!.OrderItems)
@@ -651,16 +738,17 @@ namespace MenuScan.Controllers
             var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
             if (errorResult != null) return errorResult;
 
-            var now = DateTime.UtcNow.AddHours(5.5);
-            var targetYear = year ?? now.Year;
-            var targetMonth = month ?? now.Month;
-
-            var startOfMonthUtc = new DateTime(targetYear, targetMonth, 1, 0, 0, 0, DateTimeKind.Utc).AddHours(-5.5);
-            var endOfMonthUtc = new DateTime(targetYear, targetMonth, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(1).AddHours(-5.5);
+            var (targetYear, targetMonth) = _timeHelper.SafeMonthYear(year, month);
+            var (startOfMonthUtc, endOfMonthUtc) = _timeHelper.LocalMonthRangeUtc(targetYear, targetMonth);
 
             var bills = await _context.Bills
                 .IgnoreQueryFilters()
-                .Where(b => b.RestaurantId == restaurant!.Id && b.Status == BillStatus.Paid && b.CreatedAtUtc >= startOfMonthUtc && b.CreatedAtUtc < endOfMonthUtc)
+                .Where(b => b.RestaurantId == restaurant!.Id 
+                    && b.Status == BillStatus.Paid 
+                    && b.Status != BillStatus.Cancelled
+                    && (b.Order == null || b.Order.Status != OrderStatus.Cancelled)
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) >= startOfMonthUtc 
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) < endOfMonthUtc)
                 .Include(b => b.Payments)
                 .Include(b => b.Order)
                     .ThenInclude(o => o!.OrderItems)
@@ -676,7 +764,7 @@ namespace MenuScan.Controllers
             var cashTotal = payments.Where(p => p.Method == PaymentMethod.Cash).Sum(p => p.Amount);
             var cardTotal = payments.Where(p => p.Method == PaymentMethod.Card).Sum(p => p.Amount);
 
-            var activeDays = bills.Select(b => b.CreatedAtUtc.ToLocalTime().Date).Distinct().Count();
+            var activeDays = bills.Select(b => _timeHelper.ToLocal(b.ClosedAtUtc ?? b.CreatedAtUtc).Date).Distinct().Count();
             var dailyAverage = activeDays > 0 ? totalSales / activeDays : 0;
 
             var topItems = bills.SelectMany(b => b.Order?.OrderItems ?? Enumerable.Empty<OrderItem>())
@@ -686,10 +774,10 @@ namespace MenuScan.Controllers
                 .Take(5)
                 .ToList();
 
-            var targetPhone = !string.IsNullOrWhiteSpace(phone) ? phone.Trim() : restaurant.Phone;
+            var targetPhone = !string.IsNullOrWhiteSpace(phone) ? phone.Trim() : restaurant!.Phone;
 
             var msg = WhatsAppHelper.BuildMonthlySalesSummaryMessage(
-                restaurant.Name,
+                restaurant!.Name,
                 targetYear,
                 targetMonth,
                 totalSales,
@@ -709,7 +797,7 @@ namespace MenuScan.Controllers
             return Ok(new
             {
                 success = true,
-                restaurantName = restaurant.Name,
+                restaurantName = restaurant!.Name,
                 period = new DateTime(targetYear, targetMonth, 1).ToString("MMMM yyyy"),
                 ownerPhone = targetPhone,
                 totalSales,

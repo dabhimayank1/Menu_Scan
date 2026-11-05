@@ -19,6 +19,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
 
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<ITimeHelper, TimeHelper>();
 builder.Services.AddScoped<ITenantService, TenantService>();
 builder.Services.AddTransient<IQRService, QRService>();
 
@@ -113,6 +114,7 @@ builder.Services.AddRateLimiter(options =>
 });
 
 var app = builder.Build();
+TimeHelper.Current = app.Services.GetRequiredService<ITimeHelper>();
 
 // 4. Automatic DB Migration & Data Seeding
 using (var scope = app.Services.CreateScope())
