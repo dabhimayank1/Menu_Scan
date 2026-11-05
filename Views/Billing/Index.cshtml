@@ -8,10 +8,10 @@
     var activeTab = (string)(ViewBag.ActiveTab ?? "active");
 
     // Daily Data
-    var selectedDate = (DateTime)(ViewBag.SelectedDate ?? DateTime.UtcNow.Date);
+    var selectedDate = (DateTime)(ViewBag.SelectedDate ?? TimeHelper.Today());
     var prevDate = selectedDate.AddDays(-1);
     var nextDate = selectedDate.AddDays(1);
-    var isToday = selectedDate.Date == DateTime.UtcNow.Date;
+    var isToday = selectedDate.Date == TimeHelper.Today();
 
     var dailySettledBills = ViewBag.DailySettledBills as List<MenuScan.Models.Entities.Bill> ?? new();
     var dailyCashiers = ViewBag.DailyCashiers as List<MenuScan.Models.ViewModels.CashierSalesSummaryDto> ?? new();
@@ -23,8 +23,8 @@
     var dailyTotalBills = (int)(ViewBag.DailyTotalBills ?? 0);
 
     // Monthly Data
-    var selectedYear = (int)(ViewBag.SelectedYear ?? DateTime.UtcNow.Year);
-    var selectedMonth = (int)(ViewBag.SelectedMonth ?? DateTime.UtcNow.Month);
+    var selectedYear = (int)(ViewBag.SelectedYear ?? TimeHelper.Today().Year);
+    var selectedMonth = (int)(ViewBag.SelectedMonth ?? TimeHelper.Today().Month);
     var monthDate = new DateTime(selectedYear, selectedMonth, 1);
     var prevMonthDate = monthDate.AddMonths(-1);
     var nextMonthDate = monthDate.AddMonths(1);
@@ -125,7 +125,7 @@
                                                 {
                                                     <div class="small text-muted mt-1"><i class="bi bi-chat-left-dots me-1"></i>@req.Note</div>
                                                 }
-                                                <div class="text-muted small"><i class="bi bi-clock me-1"></i>@req.CreatedAtUtc.ToLocalTime().ToString("hh:mm tt")</div>
+                                                <div class="text-muted small"><i class="bi bi-clock me-1"></i>@TimeHelper.Format(req.CreatedAtUtc, "hh:mm tt")</div>
                                             </div>
                                         </div>
                                         <div class="d-flex align-items-center gap-2">
@@ -159,7 +159,14 @@
             <!-- Active Orders Requiring Billing -->
             <div class="card shadow-sm border-0 rounded-3 mb-4">
                 <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-                    <h5 class="fw-bold mb-0"><i class="bi bi-clock-history me-2 text-primary"></i>Active Table Orders</h5>
+                    <div class="d-flex align-items-center gap-2">
+                        <h5 class="fw-bold mb-0"><i class="bi bi-clock-history me-2 text-primary"></i>Active Table Orders</h5>
+                        @if (!string.IsNullOrEmpty(ViewBag.SelectedTable as string))
+                        {
+                            <span class="badge bg-warning text-dark"><i class="bi bi-funnel me-1"></i>Filtered: @ViewBag.SelectedTable</span>
+                            <a href="/Billing" class="btn btn-outline-secondary btn-sm rounded-pill py-0 px-2" style="font-size: 0.75rem;">Clear</a>
+                        }
+                    </div>
                     <span class="badge bg-primary">@Model.Count Active</span>
                 </div>
                 <div class="card-body p-0">
@@ -197,13 +204,21 @@
                                                 <span class="fw-bold">@order.OrderNumber</span>
                                             </td>
                                             <td class="text-muted small">
-                                                @order.CreatedAtUtc.ToLocalTime().ToString("hh:mm tt")
+                                                @TimeHelper.Format(order.CreatedAtUtc, "hh:mm tt")
                                             </td>
                                             <td>
                                                 <span class="fw-semibold">@order.OrderItems.Sum(i => i.Quantity) items</span>
                                                 <small class="text-muted d-block text-truncate" style="max-width: 250px;">
                                                     @string.Join(", ", order.OrderItems.Select(i => $"{i.Quantity}x {i.ItemNameSnapshot}"))
                                                 </small>
+                                                @if (!string.IsNullOrEmpty(order.CustomerName))
+                                                {
+                                                    <small class="text-muted d-block"><i class="bi bi-person me-1"></i>@order.CustomerName</small>
+                                                }
+                                                @if (!string.IsNullOrEmpty(order.CustomerNotes))
+                                                {
+                                                    <small class="text-warning d-block"><i class="bi bi-chat-left-text me-1"></i>Note: @order.CustomerNotes</small>
+                                                }
                                             </td>
                                             <td>
                                                 @{
@@ -288,7 +303,7 @@
 
                         @if (!isToday)
                         {
-                            <a asp-action="Index" asp-route-tab="daily" asp-route-date="@DateTime.UtcNow.ToString("yyyy-MM-dd")" class="badge bg-secondary-subtle text-secondary rounded-pill text-decoration-none px-3 py-2 ms-1">
+                            <a asp-action="Index" asp-route-tab="daily" asp-route-date="@TimeHelper.Today().ToString("yyyy-MM-dd")" class="badge bg-secondary-subtle text-secondary rounded-pill text-decoration-none px-3 py-2 ms-1">
                                 Go to Today
                             </a>
                         }
@@ -472,7 +487,7 @@
                                             <small class="text-muted font-monospace">#@(bill.Order?.OrderNumber ?? "-")</small>
                                         </td>
                                         <td>
-                                            <small class="text-muted">@bill.CreatedAtUtc.ToLocalTime().ToString("hh:mm:ss tt")</small>
+                                            <small class="text-muted">@TimeHelper.Format(bill.ClosedAtUtc ?? bill.CreatedAtUtc, "hh:mm:ss tt")</small>
                                         </td>
                                         <td>
                                             <small class="fw-semibold text-secondary">
@@ -547,7 +562,7 @@
                             </select>
 
                             <select name="year" class="form-select form-select-sm border-0 bg-transparent fw-bold text-dark px-2" style="width: auto; cursor: pointer;" onchange="document.getElementById('monthlyDateForm').submit()">
-                                @for (int y = DateTime.UtcNow.Year - 2; y <= DateTime.UtcNow.Year + 1; y++)
+                                @for (int y = TimeHelper.Today().Year - 2; y <= TimeHelper.Today().Year + 1; y++)
                                 {
                                     <option value="@y" selected="@(y == selectedYear)">@y</option>
                                 }
@@ -559,10 +574,10 @@
                         </a>
 
                         <div class="d-none d-md-flex align-items-center gap-1 ms-2">
-                            <a asp-action="Index" asp-route-tab="monthly" asp-route-year="@DateTime.UtcNow.Year" asp-route-month="@DateTime.UtcNow.Month" class="badge rounded-pill text-decoration-none px-2 py-1 @(selectedYear == DateTime.UtcNow.Year && selectedMonth == DateTime.UtcNow.Month ? "bg-dark text-white" : "bg-light text-muted border")">
+                            <a asp-action="Index" asp-route-tab="monthly" asp-route-year="@TimeHelper.Today().Year" asp-route-month="@TimeHelper.Today().Month" class="badge rounded-pill text-decoration-none px-2 py-1 @(selectedYear == TimeHelper.Today().Year && selectedMonth == TimeHelper.Today().Month ? "bg-dark text-white" : "bg-light text-muted border")">
                                 Current Month
                             </a>
-                            <a asp-action="Index" asp-route-tab="monthly" asp-route-year="@DateTime.UtcNow.AddMonths(-1).Year" asp-route-month="@DateTime.UtcNow.AddMonths(-1).Month" class="badge rounded-pill text-decoration-none px-2 py-1 @(selectedYear == DateTime.UtcNow.AddMonths(-1).Year && selectedMonth == DateTime.UtcNow.AddMonths(-1).Month ? "bg-dark text-white" : "bg-light text-muted border")">
+                            <a asp-action="Index" asp-route-tab="monthly" asp-route-year="@TimeHelper.Today().AddMonths(-1).Year" asp-route-month="@TimeHelper.Today().AddMonths(-1).Month" class="badge rounded-pill text-decoration-none px-2 py-1 @(selectedYear == TimeHelper.Today().AddMonths(-1).Year && selectedMonth == TimeHelper.Today().AddMonths(-1).Month ? "bg-dark text-white" : "bg-light text-muted border")">
                                 Last Month
                             </a>
                         </div>
@@ -743,7 +758,7 @@
                                             <small class="text-muted font-monospace">#@(bill.Order?.OrderNumber ?? "-")</small>
                                         </td>
                                         <td>
-                                            <small class="text-muted">@bill.CreatedAtUtc.ToLocalTime().ToString("dd MMM yyyy, hh:mm tt")</small>
+                                            <small class="text-muted">@TimeHelper.Format(bill.ClosedAtUtc ?? bill.CreatedAtUtc, "dd MMM yyyy, hh:mm tt")</small>
                                         </td>
                                         <td>
                                             <small class="fw-semibold text-secondary">
@@ -901,7 +916,8 @@
 </div>
 
 @section Scripts {
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
+    <script src="~/lib/signalr/signalr.min.js"></script>
+    <script src="~/js/realtime.js" asp-append-version="true"></script>
     <script>
         const restaurantId = "@restaurantId";
         let currentModal;
@@ -1164,92 +1180,94 @@
         }
 
         // SignalR Auto-refresh on new orders & waiter calls
-        const connection = new signalR.HubConnectionBuilder()
-            .withUrl("/hubs/order")
-            .withAutomaticReconnect()
-            .build();
+        const hub = startHub({
+            onJoin: async (conn) => {
+                await conn.invoke("JoinRestaurantGroup", restaurantId);
+            },
+            handlers: {
+                ReceiveNewOrder: (order) => {
+                    console.log("New order notified to Cashier:", order);
+                    MenuScanSoundbox.announceNewOrder(order.tableNumber, order.totalAmount, order.itemCount);
+                    const badge = document.querySelector('.badge.bg-primary');
+                    if (badge) {
+                        badge.classList.add('animate__animated', 'animate__pulse');
+                    }
+                    debouncedReload();
+                },
 
-        connection.on("ReceiveNewOrder", (order) => {
-            console.log("New order notified to Cashier:", order);
-            MenuScanSoundbox.announceNewOrder(order.tableNumber, order.totalAmount, order.itemCount);
-            const badge = document.querySelector('.badge.bg-primary');
-            if (badge) {
-                badge.classList.add('animate__animated', 'animate__pulse');
+                ReceivePaymentSettled: (data) => {
+                    console.log("Payment settled notification received in Cashier:", data);
+                    MenuScanSoundbox.announcePayment(data.tableNumber, data.amount, data.method);
+                    debouncedReload();
+                },
+
+                ReceiveOrderStatusUpdate: (orderNumber, newStatus, tableNumber, orderId) => {
+                    console.log("Order status update received in Cashier:", orderNumber, newStatus, tableNumber);
+                    debouncedReload();
+                },
+
+                ReceiveWaiterCall: (data) => {
+                    console.log("Waiter call received in Cashier:", data);
+                    MenuScanSoundbox.announceServiceCall(data.tableNumber, data.requestType);
+
+                    const container = document.getElementById('cashierWaiterAlertContainer');
+                    let list = document.getElementById('pendingRequestList');
+                    if (!list) {
+                        container.innerHTML = `
+                            <div class="card border-warning bg-warning-subtle rounded-3 shadow-sm mb-3">
+                                <div class="card-header bg-warning text-dark fw-bold d-flex justify-content-between align-items-center py-2">
+                                    <span><i class="bi bi-bell-fill me-2"></i>Pending Table Service Requests</span>
+                                    <span class="badge bg-dark" id="pendingCallCount">1 Pending</span>
+                                </div>
+                                <div class="card-body p-0">
+                                    <ul class="list-group list-group-flush rounded-bottom-3" id="pendingRequestList"></ul>
+                                </div>
+                            </div>
+                        `;
+                        list = document.getElementById('pendingRequestList');
+                    }
+
+                    const icon = data.requestType === "Water" ? "💧" : data.requestType === "Cutlery" ? "🍴" : data.requestType === "Bill" ? "💳" : data.requestType === "UPI Payment" ? "💰" : "🛎️";
+                    const safeTable = escapeHtml(data.tableNumber);
+                    const safeType = escapeHtml(data.requestType);
+                    const safeNotes = escapeHtml(data.notes);
+                    const safeCreated = escapeHtml(data.createdAt);
+
+                    const itemHtml = `
+                        <li class="list-group-item d-flex justify-content-between align-items-center bg-transparent py-3 animate__animated animate__fadeInDown" id="req-card-${data.requestId}">
+                            <div class="d-flex align-items-center gap-3">
+                                <span class="fs-4">${icon}</span>
+                                <div>
+                                    <span class="badge bg-dark fs-6">${safeTable}</span>
+                                    <strong class="ms-2">${safeType} ${data.requestType === "UPI Payment" ? "Verification" : "Requested"}</strong>
+                                    ${safeNotes ? `<div class="small text-muted mt-1"><i class="bi bi-chat-left-dots me-1"></i>${safeNotes}</div>` : ''}
+                                    <div class="text-muted small"><i class="bi bi-clock me-1"></i>${safeCreated}</div>
+                                </div>
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
+                                ${data.requestType === "UPI Payment" && data.orderId ? `
+                                    <button type="button" class="btn btn-success btn-sm rounded-pill px-3 fw-bold shadow-sm btn-instant-approve"
+                                            data-order-id="${escapeHtml(data.orderId)}"
+                                            data-order-num=""
+                                            data-table-num="${safeTable}"
+                                            data-amount="${Number(data.totalAmount || 0)}"
+                                            data-req-id="${escapeHtml(data.requestId)}">
+                                        <i class="bi bi-check-circle-fill me-1"></i> Approve Payment
+                                    </button>
+                                ` : ''}
+                                <button class="btn btn-outline-secondary btn-sm rounded-pill px-3" onclick="acknowledgeService('${data.requestId}')">
+                                    <i class="bi bi-check2 me-1"></i> Mark Handled
+                                </button>
+                            </div>
+                        </li>
+                    `;
+                    list.insertAdjacentHTML('afterbegin', itemHtml);
+
+                    if (data.requestType === "UPI Payment") {
+                        debouncedReload();
+                    }
+                }
             }
-            setTimeout(() => window.location.reload(), 1500);
-        });
-
-        connection.on("ReceivePaymentSettled", (data) => {
-            console.log("Payment settled notification received in Cashier:", data);
-            MenuScanSoundbox.announcePayment(data.tableNumber, data.amount, data.method);
-            setTimeout(() => window.location.reload(), 1500);
-        });
-
-        connection.on("ReceiveWaiterCall", (data) => {
-            console.log("Waiter call received in Cashier:", data);
-            MenuScanSoundbox.announceServiceCall(data.tableNumber, data.requestType);
-
-            const container = document.getElementById('cashierWaiterAlertContainer');
-            let list = document.getElementById('pendingRequestList');
-            if (!list) {
-                container.innerHTML = `
-                    <div class="card border-warning bg-warning-subtle rounded-3 shadow-sm mb-3">
-                        <div class="card-header bg-warning text-dark fw-bold d-flex justify-content-between align-items-center py-2">
-                            <span><i class="bi bi-bell-fill me-2"></i>Pending Table Service Requests</span>
-                            <span class="badge bg-dark" id="pendingCallCount">1 Pending</span>
-                        </div>
-                        <div class="card-body p-0">
-                            <ul class="list-group list-group-flush rounded-bottom-3" id="pendingRequestList"></ul>
-                        </div>
-                    </div>
-                `;
-                list = document.getElementById('pendingRequestList');
-            }
-
-            const icon = data.requestType === "Water" ? "💧" : data.requestType === "Cutlery" ? "🍴" : data.requestType === "Bill" ? "💳" : data.requestType === "UPI Payment" ? "💰" : "🛎️";
-            const safeTable = escapeHtml(data.tableNumber);
-            const safeType = escapeHtml(data.requestType);
-            const safeNotes = escapeHtml(data.notes);
-            const safeCreated = escapeHtml(data.createdAt);
-
-            const itemHtml = `
-                <li class="list-group-item d-flex justify-content-between align-items-center bg-transparent py-3 animate__animated animate__fadeInDown" id="req-card-${data.requestId}">
-                    <div class="d-flex align-items-center gap-3">
-                        <span class="fs-4">${icon}</span>
-                        <div>
-                            <span class="badge bg-dark fs-6">${safeTable}</span>
-                            <strong class="ms-2">${safeType} ${data.requestType === "UPI Payment" ? "Verification" : "Requested"}</strong>
-                            ${safeNotes ? `<div class="small text-muted mt-1"><i class="bi bi-chat-left-dots me-1"></i>${safeNotes}</div>` : ''}
-                            <div class="text-muted small"><i class="bi bi-clock me-1"></i>${safeCreated}</div>
-                        </div>
-                    </div>
-                    <div class="d-flex align-items-center gap-2">
-                        ${data.requestType === "UPI Payment" && data.orderId ? `
-                            <button type="button" class="btn btn-success btn-sm rounded-pill px-3 fw-bold shadow-sm btn-instant-approve"
-                                    data-order-id="${escapeHtml(data.orderId)}"
-                                    data-order-num=""
-                                    data-table-num="${safeTable}"
-                                    data-amount="${Number(data.totalAmount || 0)}"
-                                    data-req-id="${escapeHtml(data.requestId)}">
-                                <i class="bi bi-check-circle-fill me-1"></i> Approve Payment
-                            </button>
-                        ` : ''}
-                        <button class="btn btn-outline-secondary btn-sm rounded-pill px-3" onclick="acknowledgeService('${data.requestId}')">
-                            <i class="bi bi-check2 me-1"></i> Mark Handled
-                        </button>
-                    </div>
-                </li>
-            `;
-            list.insertAdjacentHTML('afterbegin', itemHtml);
-
-            if (data.requestType === "UPI Payment") {
-                // Auto reload active orders table so cashier gets the 1-click verify button
-                setTimeout(() => window.location.reload(), 1500);
-            }
-        });
-
-        connection.start().then(() => {
-            connection.invoke("JoinRestaurantGroup", restaurantId);
         });
 
         let dayEndData = null;

@@ -27,8 +27,8 @@
                     <i class="bi bi-play-fill"></i> Test
                 </button>
             </div>
-            <span class="badge bg-success py-2 px-3 fs-6 d-flex align-items-center">
-                <span class="spinner-grow spinner-grow-sm me-2" role="status"></span> Live Connected
+            <span id="kitchenConnectionStatusBadge" class="badge bg-success py-2 px-3 fs-6 d-flex align-items-center">
+                <span class="spinner-grow spinner-grow-sm me-2" role="status"></span> Connected
             </span>
             <button class="btn btn-outline-secondary btn-sm" onclick="window.location.reload()">
                 <i class="bi bi-arrow-clockwise"></i> Refresh
@@ -84,6 +84,13 @@
                             </span>
                             <span class="badge bg-secondary" id="badge-status-@order.Id">@order.Status</span>
                         </div>
+
+                        @if (!string.IsNullOrEmpty(order.CustomerName))
+                        {
+                            <div class="small text-muted mb-1">
+                                <i class="bi bi-person me-1"></i>@order.CustomerName
+                            </div>
+                        }
 
                         @if (!string.IsNullOrEmpty(order.CustomerNotes))
                         {
@@ -144,7 +151,8 @@
 </div>
 
 @section Scripts {
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
+    <script src="~/lib/signalr/signalr.min.js"></script>
+    <script src="~/js/realtime.js" asp-append-version="true"></script>
     <script>
         const restaurantId = "@restaurantId";
 
@@ -169,107 +177,183 @@
             }
         }
 
-        const connection = new signalR.HubConnectionBuilder()
-            .withUrl("/hubs/order")
-            .withAutomaticReconnect()
-            .build();
-
-        function escapeHtml(str) {
-            if (!str) return '';
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
+        function updateConnectionStatusBadge(status) {
+            const badge = document.getElementById('kitchenConnectionStatusBadge');
+            if (!badge) return;
+            if (status === 'Connected') {
+                badge.className = 'badge bg-success py-2 px-3 fs-6 d-flex align-items-center';
+                badge.innerHTML = '<span class="spinner-grow spinner-grow-sm me-2" role="status"></span> Connected';
+            } else if (status === 'Reconnecting') {
+                badge.className = 'badge bg-warning text-dark py-2 px-3 fs-6 d-flex align-items-center';
+                badge.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span> Reconnecting';
+            } else {
+                badge.className = 'badge bg-danger text-white py-2 px-3 fs-6 d-flex align-items-center';
+                badge.innerHTML = '<i class="bi bi-wifi-off me-2"></i> Offline';
+            }
         }
 
-        connection.on("ReceiveNewOrder", (order) => {
-            console.log("New order received in KDS:", order);
+        const hub = startHub({
+            onJoin: async (conn) => {
+                console.log("Joining Restaurant group:", restaurantId);
+                await conn.invoke("JoinRestaurantGroup", restaurantId);
+            },
+            onStatus: updateConnectionStatusBadge,
+            handlers: {
+                ReceiveNewOrder: (order) => {
+                    console.log("New order received in KDS:", order);
 
-            const noOrders = document.getElementById('noOrdersMessage');
-            if (noOrders) noOrders.remove();
+                    const noOrders = document.getElementById('noOrdersMessage');
+                    if (noOrders) noOrders.remove();
 
-            const container = document.getElementById('kdsTicketContainer');
-            let itemsHtml = '';
-            order.items.forEach(it => {
-                itemsHtml += `<li class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center">
-                    <div><span class="fw-bold fs-6">${escapeHtml(it.qty)} x</span> ${escapeHtml(it.name)}${it.customizations ? `<div class="small text-muted">${escapeHtml(it.customizations)}</div>` : ''}</div>
-                </li>`;
-            });
+                    const container = document.getElementById('kdsTicketContainer');
+                    let itemsHtml = '';
+                    (order.items || []).forEach(it => {
+                        itemsHtml += `<li class="list-group-item px-0 py-2 d-flex justify-content-between align-items-center">
+                            <div><span class="fw-bold fs-6">${escapeHtml(it.qty)} x</span> ${escapeHtml(it.name)}${it.customizations ? `<div class="small text-muted">${escapeHtml(it.customizations)}</div>` : ''}</div>
+                        </li>`;
+                    });
 
-            const safeTable = escapeHtml(order.tableNumber);
-            const safeOrderNum = escapeHtml(order.orderNumber);
-            const safeNotes = escapeHtml(order.notes);
+                    const safeTable = escapeHtml(order.tableNumber);
+                    const safeOrderNum = escapeHtml(order.orderNumber);
+                    const safeNotes = escapeHtml(order.notes);
+                    const safeCustomerName = escapeHtml(order.customerName);
+                    const safeOrderToken = escapeHtml(order.orderToken || '');
+                    const orderId = escapeHtml(order.orderId);
 
-            const cardHtml = `
-                <div class="col-12 col-md-6 col-lg-4 col-xl-3 animate__animated animate__fadeIn" id="order-card-${order.orderId}">
-                    <div class="card h-100 shadow-sm border-2 border-danger rounded-3">
-                        <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center py-2">
-                            <span class="fw-bold fs-5">${safeTable}</span>
-                            <span class="badge bg-light text-dark">#${safeOrderNum.slice(-4)}</span>
-                        </div>
-                        <div class="card-body p-3">
-                            <div class="d-flex justify-content-between text-muted small mb-2">
-                                <span>Placed: ${escapeHtml(order.createdAt)}</span>
-                                <span class="badge bg-secondary" id="badge-status-${order.orderId}">New</span>
+                    const cardHtml = `
+                        <div class="col-12 col-md-6 col-lg-4 col-xl-3 kds-ticket-col animate__animated animate__fadeIn" id="order-card-${orderId}" data-status="New" data-order-token="${safeOrderToken}">
+                            <div class="card h-100 shadow-sm border-2 border-danger rounded-3">
+                                <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center py-2">
+                                    <span class="fw-bold fs-5">${safeTable}</span>
+                                    <span class="badge bg-light text-dark">#${safeOrderNum.slice(-4)}</span>
+                                </div>
+                                <div class="card-body p-3">
+                                    <div class="d-flex justify-content-between text-muted small mb-2">
+                                        <span>Placed: ${escapeHtml(order.createdAt)}</span>
+                                        <span class="badge bg-secondary" id="badge-status-${orderId}">New</span>
+                                    </div>
+                                    ${safeCustomerName ? `<div class="small text-muted mb-1"><i class="bi bi-person me-1"></i>${safeCustomerName}</div>` : ''}
+                                    ${safeNotes ? `<div class="alert alert-warning py-1 px-2 small mb-2"><strong>Note:</strong> ${safeNotes}</div>` : ''}
+                                    <ul class="list-group list-group-flush mb-3">${itemsHtml}</ul>
+                                    <div class="mt-auto" id="actions-${orderId}">
+                                        <button class="btn btn-warning w-100 fw-bold py-2 text-dark" onclick="updateOrderStatus('${orderId}', 2)">
+                                            <i class="bi bi-fire me-1"></i> Accept & Prepare
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
-                            ${safeNotes ? `<div class="alert alert-warning py-1 px-2 small mb-2"><strong>Note:</strong> ${safeNotes}</div>` : ''}
-                            <ul class="list-group list-group-flush mb-3">${itemsHtml}</ul>
-                            <div class="mt-auto" id="actions-${order.orderId}">
-                                <button class="btn btn-warning w-100 fw-bold py-2 text-dark" onclick="updateOrderStatus('${order.orderId}', 2)">
-                                    <i class="bi bi-fire me-1"></i> Accept & Prepare
-                                </button>
+                        </div>
+                    `;
+                    container.insertAdjacentHTML('afterbegin', cardHtml);
+                    updateSlaBadges();
+                    applyCurrentFilter();
+                    refreshFilterCounts();
+                    MenuScanSoundbox.announceNewOrder(order.tableNumber, order.totalAmount, order.itemCount);
+                },
+
+                ReceiveWaiterCall: (data) => {
+                    console.log("Waiter call received in KDS:", data);
+                    MenuScanSoundbox.announceServiceCall(data.tableNumber, data.requestType);
+
+                    const alertContainer = document.getElementById('kitchenWaiterAlertContainer');
+                    const alertId = `waiter-call-${Date.now()}`;
+                    const safeTable = escapeHtml(data.tableNumber);
+                    const safeType = escapeHtml(data.requestType);
+                    const safeNotes = escapeHtml(data.notes);
+                    const safeCreated = escapeHtml(data.createdAt);
+
+                    const alertHtml = `
+                        <div class="alert alert-warning alert-dismissible fade show rounded-3 shadow-sm d-flex align-items-center justify-content-between p-3" id="${alertId}">
+                            <div class="d-flex align-items-center gap-3">
+                                <span class="fs-3">🛎️</span>
+                                <div>
+                                    <span class="badge bg-dark fs-6">${safeTable}</span>
+                                    <strong class="ms-2">Request: ${safeType}</strong>
+                                    ${safeNotes ? `<span class="text-muted small ms-2">(${safeNotes})</span>` : ''}
+                                    <div class="text-muted small mt-1"><i class="bi bi-clock me-1"></i>${safeCreated}</div>
+                                </div>
                             </div>
+                            <button type="button" class="btn btn-outline-dark btn-sm rounded-pill px-3" onclick="document.getElementById('${alertId}').remove()">
+                                <i class="bi bi-check-lg me-1"></i> Acknowledge
+                            </button>
                         </div>
-                    </div>
-                </div>
-            `;
-            container.insertAdjacentHTML('afterbegin', cardHtml);
-            updateSlaBadges();
-            refreshFilterCounts();
-            MenuScanSoundbox.announceNewOrder(order.tableNumber, order.totalAmount, order.itemCount);
+                    `;
+                    alertContainer.insertAdjacentHTML('afterbegin', alertHtml);
+                },
+
+                ReceiveOrderStatusUpdate: (orderNumber, newStatus, tableNumber, orderId) => {
+                    console.log("Order status update:", orderNumber, newStatus, tableNumber, orderId);
+                    let card = null;
+                    if (orderId) {
+                        card = document.getElementById(`order-card-${orderId}`);
+                    }
+                    if (!card && orderNumber) {
+                        const targetShort = '#' + String(orderNumber).slice(-4);
+                        document.querySelectorAll('.kds-ticket-col').forEach(c => {
+                            if (c.innerText.includes(targetShort)) {
+                                card = c;
+                            }
+                        });
+                    }
+
+                    if (newStatus === "Completed" || newStatus === "Cancelled") {
+                        if (card) {
+                            card.remove();
+                        }
+                        const remaining = document.querySelectorAll('.kds-ticket-col');
+                        if (remaining.length === 0) {
+                            const container = document.getElementById('kdsTicketContainer');
+                            if (container && !document.getElementById('noOrdersMessage')) {
+                                container.innerHTML = `
+                                    <div class="col-12 text-center py-5 text-muted" id="noOrdersMessage">
+                                        <i class="bi bi-check-circle display-3 text-success"></i>
+                                        <h4 class="mt-3">Kitchen is all caught up!</h4>
+                                        <p>New orders will appear here automatically in real time.</p>
+                                    </div>`;
+                            }
+                        }
+                    } else if (card) {
+                        const id = orderId || card.id.replace('order-card-', '');
+                        const badge = document.getElementById(`badge-status-${id}`);
+                        const actions = document.getElementById(`actions-${id}`);
+
+                        if (newStatus === "Preparing") {
+                            if (badge) badge.innerText = "Preparing";
+                            card.setAttribute('data-status', 'Preparing');
+                            if (actions) {
+                                actions.innerHTML = `
+                                    <button class="btn btn-primary w-100 fw-bold py-2" onclick="updateOrderStatus('${id}', 3)">
+                                        <i class="bi bi-bell me-1"></i> Mark as Ready
+                                    </button>`;
+                            }
+                        } else if (newStatus === "Ready") {
+                            if (badge) badge.innerText = "Ready";
+                            card.setAttribute('data-status', 'Ready');
+                            if (actions) {
+                                actions.innerHTML = `
+                                    <button class="btn btn-success w-100 fw-bold py-2 mb-2" onclick="updateOrderStatus('${id}', 4)">
+                                        <i class="bi bi-check2-circle me-1"></i> Mark as Served
+                                    </button>
+                                    <button class="btn btn-outline-success btn-sm w-100 fw-semibold" onclick="sendKitchenWhatsApp('${id}')">
+                                        <i class="bi bi-whatsapp me-1"></i> WhatsApp Diner (Ready)
+                                    </button>`;
+                            }
+                        } else if (newStatus === "Served") {
+                            if (badge) badge.innerText = "Served";
+                            card.setAttribute('data-status', 'Served');
+                            if (actions) {
+                                actions.innerHTML = `
+                                    <div class="text-center text-success small fw-bold py-2">
+                                        <i class="bi bi-check-all fs-5 me-1"></i> Food Served at Table
+                                    </div>`;
+                            }
+                        }
+                    }
+                    applyCurrentFilter();
+                    refreshFilterCounts();
+                }
+            }
         });
-
-        connection.on("ReceiveWaiterCall", (data) => {
-            console.log("Waiter call received in KDS:", data);
-            MenuScanSoundbox.announceServiceCall(data.tableNumber, data.requestType);
-
-            const alertContainer = document.getElementById('kitchenWaiterAlertContainer');
-            const alertId = `waiter-call-${Date.now()}`;
-            const safeTable = escapeHtml(data.tableNumber);
-            const safeType = escapeHtml(data.requestType);
-            const safeNotes = escapeHtml(data.notes);
-            const safeCreated = escapeHtml(data.createdAt);
-
-            const alertHtml = `
-                <div class="alert alert-warning alert-dismissible fade show rounded-3 shadow-sm d-flex align-items-center justify-content-between p-3" id="${alertId}">
-                    <div class="d-flex align-items-center gap-3">
-                        <span class="fs-3">🛎️</span>
-                        <div>
-                            <span class="badge bg-dark fs-6">${safeTable}</span>
-                            <strong class="ms-2">Request: ${safeType}</strong>
-                            ${safeNotes ? `<span class="text-muted small ms-2">(${safeNotes})</span>` : ''}
-                            <div class="text-muted small mt-1"><i class="bi bi-clock me-1"></i>${safeCreated}</div>
-                        </div>
-                    </div>
-                    <button type="button" class="btn btn-outline-dark btn-sm rounded-pill px-3" onclick="document.getElementById('${alertId}').remove()">
-                        <i class="bi bi-check-lg me-1"></i> Acknowledge
-                    </button>
-                </div>
-            `;
-            alertContainer.insertAdjacentHTML('afterbegin', alertHtml);
-        });
-
-        connection.on("ReceiveOrderStatusUpdate", (orderNumber, newStatus, tableNumber) => {
-            console.log("Order status update:", orderNumber, newStatus);
-            refreshFilterCounts();
-        });
-
-        connection.start().then(() => {
-            console.log("Connected to OrderHub for Kitchen.");
-            connection.invoke("JoinRestaurantGroup", restaurantId);
-        }).catch(err => console.error("SignalR connection error:", err));
 
         async function updateOrderStatus(orderId, newStatus) {
             try {
@@ -318,6 +402,7 @@
                                 </div>`;
                         }
                     }
+                    applyCurrentFilter();
                     refreshFilterCounts();
                 } else {
                     alert("Failed to update status.");
@@ -352,6 +437,17 @@
         updateSlaBadges();
 
         let currentKdsFilter = 'all';
+        function applyCurrentFilter() {
+            document.querySelectorAll('.kds-ticket-col').forEach(card => {
+                const cardStatus = card.getAttribute('data-status');
+                if (currentKdsFilter === 'all' || cardStatus === currentKdsFilter) {
+                    card.classList.remove('d-none');
+                } else {
+                    card.classList.add('d-none');
+                }
+            });
+        }
+
         function filterKds(status, btn) {
             currentKdsFilter = status;
             document.querySelectorAll('.kds-filter').forEach(b => {
@@ -361,15 +457,7 @@
                 }
             });
             btn.classList.add('active', 'btn-dark');
-
-            document.querySelectorAll('.kds-ticket-col').forEach(card => {
-                const cardStatus = card.getAttribute('data-status');
-                if (status === 'all' || cardStatus === status) {
-                    card.classList.remove('d-none');
-                } else {
-                    card.classList.add('d-none');
-                }
-            });
+            applyCurrentFilter();
         }
 
         function refreshFilterCounts() {

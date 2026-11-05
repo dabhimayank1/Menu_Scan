@@ -40,6 +40,8 @@ namespace MenuScan.Models.ViewModels
 
         public Guid? ActiveOrderId { get; set; }
         public string? ActiveOrderNumber { get; set; }
+        public string? ActiveOrderNotes { get; set; }
+        public string? CustomerName { get; set; }
         public OrderStatus? ActiveOrderStatus { get; set; }
         public decimal ActiveOrderTotal { get; set; }
         public DateTime? OrderCreatedAtUtc { get; set; }

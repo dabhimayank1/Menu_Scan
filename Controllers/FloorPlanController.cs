@@ -135,6 +135,8 @@ namespace MenuScan.Controllers
                     HasBillCall = hasBillCall,
                     ActiveOrderId = tableOrder?.Id,
                     ActiveOrderNumber = tableOrder?.OrderNumber,
+                    ActiveOrderNotes = tableOrder?.CustomerNotes,
+                    CustomerName = tableOrder?.CustomerName,
                     ActiveOrderStatus = tableOrder?.Status,
                     ActiveOrderTotal = tableOrder?.TotalAmount ?? 0,
                     OrderCreatedAtUtc = tableOrder?.CreatedAtUtc,
@@ -241,10 +243,10 @@ namespace MenuScan.Controllers
             await _context.SaveChangesAsync();
 
             await _hubContext.Clients.Group($"Restaurant_{order.RestaurantId}")
-                .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Served", order.Table?.TableNumber ?? "Unknown");
+                .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Served", order.Table?.TableNumber ?? "Unknown", order.Id.ToString());
 
             await _hubContext.Clients.Group($"Order_{order.OrderToken}")
-                .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Served", order.Table?.TableNumber ?? "Unknown");
+                .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Served", order.Table?.TableNumber ?? "Unknown", order.Id.ToString());
 
             _logger.LogInformation("Order {OrderNumber} marked Served by {Staff}", order.OrderNumber, User.Identity?.Name);
 

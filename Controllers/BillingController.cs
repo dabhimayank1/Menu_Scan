@@ -18,23 +18,26 @@ namespace MenuScan.Controllers
         private readonly IHubContext<OrderHub> _hubContext;
         private readonly ILogger<BillingController> _logger;
         private readonly IConfiguration _configuration;
+        private readonly ITimeHelper _timeHelper;
 
         public BillingController(
             ApplicationDbContext context,
             ITenantService tenantService,
             IHubContext<OrderHub> hubContext,
             ILogger<BillingController> logger,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            ITimeHelper timeHelper)
         {
             _context = context;
             _tenantService = tenantService;
             _hubContext = hubContext;
             _logger = logger;
             _configuration = configuration;
+            _timeHelper = timeHelper;
         }
 
         [HttpGet]
-        public async Task<IActionResult> Index(string? tab = "active", DateTime? date = null, int? year = null, int? month = null)
+        public async Task<IActionResult> Index(string? tab = "active", DateTime? date = null, int? year = null, int? month = null, string? table = null)
         {
             var restaurantId = _tenantService.CurrentRestaurantId;
             if (!restaurantId.HasValue)
@@ -49,12 +52,20 @@ namespace MenuScan.Controllers
             var restaurant = await _context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.Id == restaurantId.Value);
 
             // 1. Fetch active orders requiring settlement (unpaid orders)
-            var activeOrders = await _context.Orders
+            var activeOrdersQuery = _context.Orders
                 .IgnoreQueryFilters()
                 .Where(o => o.RestaurantId == restaurantId.Value 
                          && o.Status != OrderStatus.Completed 
                          && o.Status != OrderStatus.Cancelled
-                         && (o.Bill == null || o.Bill.Status != BillStatus.Paid))
+                         && (o.Bill == null || o.Bill.Status != BillStatus.Paid));
+
+            if (!string.IsNullOrWhiteSpace(table))
+            {
+                var trimmedTable = table.Trim();
+                activeOrdersQuery = activeOrdersQuery.Where(o => o.Table != null && o.Table.TableNumber == trimmedTable);
+            }
+
+            var activeOrders = await activeOrdersQuery
                 .OrderByDescending(o => o.CreatedAtUtc)
                 .Include(o => o.Table)
                 .Include(o => o.OrderItems)
@@ -70,36 +81,47 @@ namespace MenuScan.Controllers
                 .ToListAsync();
 
             // 3. DAILY Cashier & Settlement Data
-            var targetDate = date?.Date ?? DateTime.UtcNow.AddHours(5.5).Date;
-            var startUtc = targetDate.AddHours(-5.5);
-            var endUtc = startUtc.AddDays(1);
+            var targetDate = date?.Date ?? _timeHelper.Today();
+            var (startUtc, endUtc) = _timeHelper.LocalDayRangeUtc(targetDate);
 
             if (!date.HasValue)
             {
                 var hasToday = await _context.Bills.IgnoreQueryFilters()
-                    .AnyAsync(b => b.RestaurantId == restaurantId.Value && b.Status == BillStatus.Paid && b.CreatedAtUtc >= startUtc && b.CreatedAtUtc < endUtc);
+                    .AnyAsync(b => b.RestaurantId == restaurantId.Value 
+                        && b.Status == BillStatus.Paid 
+                        && b.Status != BillStatus.Cancelled
+                        && (b.Order == null || b.Order.Status != OrderStatus.Cancelled)
+                        && (b.ClosedAtUtc ?? b.CreatedAtUtc) >= startUtc 
+                        && (b.ClosedAtUtc ?? b.CreatedAtUtc) < endUtc);
                 if (!hasToday)
                 {
                     var latestBill = await _context.Bills.IgnoreQueryFilters()
-                        .Where(b => b.RestaurantId == restaurantId.Value && b.Status == BillStatus.Paid)
-                        .OrderByDescending(b => b.CreatedAtUtc)
+                        .Where(b => b.RestaurantId == restaurantId.Value 
+                            && b.Status == BillStatus.Paid 
+                            && b.Status != BillStatus.Cancelled
+                            && (b.Order == null || b.Order.Status != OrderStatus.Cancelled))
+                        .OrderByDescending(b => b.ClosedAtUtc ?? b.CreatedAtUtc)
                         .FirstOrDefaultAsync();
                     if (latestBill != null)
                     {
-                        targetDate = latestBill.CreatedAtUtc.AddHours(5.5).Date;
-                        startUtc = targetDate.AddHours(-5.5);
-                        endUtc = startUtc.AddDays(1);
+                        targetDate = _timeHelper.ToLocal(latestBill.ClosedAtUtc ?? latestBill.CreatedAtUtc).Date;
+                        (startUtc, endUtc) = _timeHelper.LocalDayRangeUtc(targetDate);
                     }
                 }
             }
 
             var dailySettledBills = await _context.Bills
                 .IgnoreQueryFilters()
-                .Where(b => b.RestaurantId == restaurantId.Value && b.Status == BillStatus.Paid && b.CreatedAtUtc >= startUtc && b.CreatedAtUtc < endUtc)
+                .Where(b => b.RestaurantId == restaurantId.Value 
+                    && b.Status == BillStatus.Paid 
+                    && b.Status != BillStatus.Cancelled
+                    && (b.Order == null || b.Order.Status != OrderStatus.Cancelled)
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) >= startUtc 
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) < endUtc)
                 .Include(b => b.Payments)
                 .Include(b => b.Order)
                     .ThenInclude(o => o!.Table)
-                .OrderByDescending(b => b.CreatedAtUtc)
+                .OrderByDescending(b => b.ClosedAtUtc ?? b.CreatedAtUtc)
                 .ToListAsync();
 
             var dailyTotalSales = dailySettledBills.Sum(b => b.GrandTotal);
@@ -129,38 +151,58 @@ namespace MenuScan.Controllers
                 .ToList();
 
             // 4. MONTHLY Cashier & Settlement Data
-            var now = DateTime.UtcNow.AddHours(5.5);
-            var targetYear = year ?? now.Year;
-            var targetMonth = month ?? now.Month;
+            int targetYear;
+            int targetMonth;
 
-            if (!year.HasValue && !month.HasValue)
+            if (year.HasValue || month.HasValue)
             {
+                (targetYear, targetMonth) = _timeHelper.SafeMonthYear(year, month);
+            }
+            else
+            {
+                var today = _timeHelper.Today();
+                targetYear = today.Year;
+                targetMonth = today.Month;
+
+                var (curStartUtc, curEndUtc) = _timeHelper.LocalMonthRangeUtc(targetYear, targetMonth);
                 var hasThisMonth = await _context.Bills.IgnoreQueryFilters()
-                    .AnyAsync(b => b.RestaurantId == restaurantId.Value && b.Status == BillStatus.Paid && b.CreatedAtUtc.AddHours(5.5).Year == now.Year && b.CreatedAtUtc.AddHours(5.5).Month == now.Month);
+                    .AnyAsync(b => b.RestaurantId == restaurantId.Value 
+                        && b.Status == BillStatus.Paid 
+                        && b.Status != BillStatus.Cancelled
+                        && (b.Order == null || b.Order.Status != OrderStatus.Cancelled)
+                        && (b.ClosedAtUtc ?? b.CreatedAtUtc) >= curStartUtc 
+                        && (b.ClosedAtUtc ?? b.CreatedAtUtc) < curEndUtc);
                 if (!hasThisMonth)
                 {
                     var latestBill = await _context.Bills.IgnoreQueryFilters()
-                        .Where(b => b.RestaurantId == restaurantId.Value && b.Status == BillStatus.Paid)
-                        .OrderByDescending(b => b.CreatedAtUtc)
+                        .Where(b => b.RestaurantId == restaurantId.Value 
+                            && b.Status == BillStatus.Paid 
+                            && b.Status != BillStatus.Cancelled
+                            && (b.Order == null || b.Order.Status != OrderStatus.Cancelled))
+                        .OrderByDescending(b => b.ClosedAtUtc ?? b.CreatedAtUtc)
                         .FirstOrDefaultAsync();
                     if (latestBill != null)
                     {
-                        targetYear = latestBill.CreatedAtUtc.AddHours(5.5).Year;
-                        targetMonth = latestBill.CreatedAtUtc.AddHours(5.5).Month;
+                        var localDt = _timeHelper.ToLocal(latestBill.ClosedAtUtc ?? latestBill.CreatedAtUtc);
+                        (targetYear, targetMonth) = _timeHelper.SafeMonthYear(localDt.Year, localDt.Month);
                     }
                 }
             }
 
-            var startOfMonthUtc = new DateTime(targetYear, targetMonth, 1, 0, 0, 0, DateTimeKind.Utc).AddHours(-5.5);
-            var endOfMonthUtc = new DateTime(targetYear, targetMonth, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(1).AddHours(-5.5);
+            var (startOfMonthUtc, endOfMonthUtc) = _timeHelper.LocalMonthRangeUtc(targetYear, targetMonth);
 
             var monthlySettledBills = await _context.Bills
                 .IgnoreQueryFilters()
-                .Where(b => b.RestaurantId == restaurantId.Value && b.Status == BillStatus.Paid && b.CreatedAtUtc >= startOfMonthUtc && b.CreatedAtUtc < endOfMonthUtc)
+                .Where(b => b.RestaurantId == restaurantId.Value 
+                    && b.Status == BillStatus.Paid 
+                    && b.Status != BillStatus.Cancelled
+                    && (b.Order == null || b.Order.Status != OrderStatus.Cancelled)
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) >= startOfMonthUtc 
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) < endOfMonthUtc)
                 .Include(b => b.Payments)
                 .Include(b => b.Order)
                     .ThenInclude(o => o!.Table)
-                .OrderByDescending(b => b.CreatedAtUtc)
+                .OrderByDescending(b => b.ClosedAtUtc ?? b.CreatedAtUtc)
                 .ToListAsync();
 
             var monthTotalSales = monthlySettledBills.Sum(b => b.GrandTotal);
@@ -192,6 +234,7 @@ namespace MenuScan.Controllers
             ViewBag.RestaurantId = restaurantId.Value;
             ViewBag.Restaurant = restaurant;
             ViewBag.ActiveTab = tab ?? "active";
+            ViewBag.SelectedTable = table;
             ViewBag.PendingRequests = pendingRequests;
 
             ViewBag.SelectedDate = targetDate;
@@ -275,11 +318,11 @@ namespace MenuScan.Controllers
 
             // Broadcast to Restaurant Group (Kitchen & Cashier)
             await _hubContext.Clients.Group($"Restaurant_{order.RestaurantId}")
-                .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Cancelled", order.Table?.TableNumber ?? "Unknown");
+                .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Cancelled", order.Table?.TableNumber ?? "Unknown", order.Id.ToString());
 
             // Broadcast to Customer Order Group
             await _hubContext.Clients.Group($"Order_{order.OrderToken}")
-                .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Cancelled", order.Table?.TableNumber ?? "Unknown");
+                .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Cancelled", order.Table?.TableNumber ?? "Unknown", order.Id.ToString());
 
             _logger.LogInformation("Order {OrderNumber} cancelled by {User}. Reason: {Reason}",
                 order.OrderNumber, User.Identity?.Name, dto.Reason);
@@ -427,7 +470,7 @@ namespace MenuScan.Controllers
 
                     // Notify via SignalR
                     await _hubContext.Clients.Group($"Restaurant_{order.RestaurantId}")
-                        .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Completed", order.Table?.TableNumber ?? "");
+                        .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Completed", order.Table?.TableNumber ?? "", order.Id.ToString());
 
                     await _hubContext.Clients.Group($"Restaurant_{order.RestaurantId}")
                         .SendAsync("ReceivePaymentSettled", new
@@ -440,7 +483,7 @@ namespace MenuScan.Controllers
                     });
 
                     await _hubContext.Clients.Group($"Order_{order.OrderToken}")
-                        .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Completed", order.Table?.TableNumber ?? "");
+                        .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, "Completed", order.Table?.TableNumber ?? "", order.Id.ToString());
 
                     await _hubContext.Clients.Group($"Order_{order.OrderToken}")
                         .SendAsync("ReceivePaymentSettled", new

@@ -122,11 +122,11 @@ namespace MenuScan.Controllers
 
             // Broadcast to Restaurant Group (Kitchen & Cashier)
             await _hubContext.Clients.Group($"Restaurant_{order.RestaurantId}")
-                .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, order.Status.ToString(), order.Table?.TableNumber ?? "Unknown");
+                .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, order.Status.ToString(), order.Table?.TableNumber ?? "Unknown", order.Id.ToString());
 
             // Broadcast to Customer Order Group
             await _hubContext.Clients.Group($"Order_{order.OrderToken}")
-                .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, order.Status.ToString(), order.Table?.TableNumber ?? "Unknown");
+                .SendAsync("ReceiveOrderStatusUpdate", order.OrderNumber, order.Status.ToString(), order.Table?.TableNumber ?? "Unknown", order.Id.ToString());
 
             _logger.LogInformation("Order {OrderNumber} status changed from {Old} to {New} by {User}",
                 order.OrderNumber, oldStatus, dto.NewStatus, User.Identity?.Name);

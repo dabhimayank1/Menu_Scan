@@ -401,7 +401,8 @@
 </style>
 
 @section Scripts {
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+    <script src="~/lib/signalr/signalr.min.js"></script>
+    <script src="~/js/realtime.js" asp-append-version="true"></script>
     <script>
         const restaurantId = "@Model.Restaurant.Id";
         let soundEnabled = true;
@@ -433,6 +434,8 @@
                     status = t.FloorStatus.ToString(),
                     activeOrderId = t.ActiveOrderId?.ToString() ?? "",
                     activeOrderNumber = t.ActiveOrderNumber ?? "",
+                    activeOrderNotes = t.ActiveOrderNotes ?? "",
+                    customerName = t.CustomerName ?? "",
                     activeOrderTotal = t.ActiveOrderTotal,
                     seatedMinutes = t.SeatedDurationMinutes,
                     hasFoodReady = t.HasFoodReady,
@@ -554,9 +557,13 @@
             if (data.activeOrderId && data.items.length > 0) {
                 bodyHtml += `
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <h6 class="fw-bold mb-0">Order #${escapeHtml(data.activeOrderNumber)}</h6>
+                        <div>
+                            <h6 class="fw-bold mb-0">Order #${escapeHtml(data.activeOrderNumber)}</h6>
+                            ${data.customerName ? `<div class="small text-muted"><i class="bi bi-person me-1"></i>${escapeHtml(data.customerName)}</div>` : ''}
+                        </div>
                         <span class="badge bg-light text-dark border">Seated: ${escapeHtml(data.seatedMinutes)}m</span>
                     </div>
+                    ${data.activeOrderNotes ? `<div class="alert alert-warning py-1 px-2 small mb-2"><i class="bi bi-chat-left-text me-1"></i><strong>Note:</strong> ${escapeHtml(data.activeOrderNotes)}</div>` : ''}
                     <ul class="list-group list-group-flush mb-3">`;
                 data.items.forEach(it => {
                     bodyHtml += `
@@ -677,57 +684,54 @@
         }
 
         // SignalR Real-time Setup
-        const connection = new signalR.HubConnectionBuilder()
-            .withUrl("/hubs/order")
-            .withAutomaticReconnect()
-            .build();
+        const hub = startHub({
+            onJoin: async (conn) => {
+                console.log("Floor Plan joining Restaurant group:", restaurantId);
+                await conn.invoke("JoinRestaurantGroup", restaurantId);
+            },
+            handlers: {
+                ReceiveNewOrder: (order) => {
+                    console.log("Floor Plan: New order received:", order);
+                    if (window.MenuScanSoundbox) {
+                        MenuScanSoundbox.announceNewOrder(order.tableNumber, order.totalAmount, order.itemCount);
+                    }
+                    debouncedReload();
+                },
 
-        connection.on("ReceiveNewOrder", (order) => {
-            console.log("Floor Plan: New order received:", order);
-            if (window.MenuScanSoundbox) {
-                MenuScanSoundbox.announceNewOrder(order.tableNumber, order.totalAmount, order.itemCount);
-            }
-            // Refresh to update table card state seamlessly
-            setTimeout(() => window.location.reload(), 1400);
-        });
+                ReceiveOrderStatusUpdate: (orderNumber, newStatus, tableNumber, orderId) => {
+                    console.log("Floor Plan: Order status update:", orderNumber, newStatus, tableNumber);
+                    if (newStatus === "Ready") {
+                        if (window.MenuScanSoundbox) {
+                            MenuScanSoundbox.announceFoodReady(tableNumber);
+                        }
+                    }
+                    debouncedReload();
+                },
 
-        connection.on("ReceiveOrderStatusUpdate", (orderNumber, newStatus, tableNumber) => {
-            console.log("Floor Plan: Order status update:", orderNumber, newStatus, tableNumber);
-            if (newStatus === "Ready") {
-                if (window.MenuScanSoundbox) {
-                    MenuScanSoundbox.announceFoodReady(tableNumber);
+                ReceivePaymentSettled: (data) => {
+                    console.log("Floor Plan: Payment settled:", data);
+                    if (window.MenuScanSoundbox) {
+                        MenuScanSoundbox.announcePayment(data.tableNumber, data.amount, data.method);
+                    }
+                    debouncedReload();
+                },
+
+                ReceiveWaiterCall: (data) => {
+                    console.log("Floor Plan: Waiter call received:", data);
+                    if (window.MenuScanSoundbox) {
+                        MenuScanSoundbox.announceServiceCall(data.tableNumber, data.requestType);
+                    }
+                    debouncedReload();
+                },
+
+                ReceiveWaiterCallHandled: (data) => {
+                    debouncedReload();
+                },
+
+                ReceiveTableCleaned: (data) => {
+                    debouncedReload();
                 }
             }
-            setTimeout(() => window.location.reload(), 1400);
         });
-
-        connection.on("ReceivePaymentSettled", (data) => {
-            console.log("Floor Plan: Payment settled:", data);
-            if (window.MenuScanSoundbox) {
-                MenuScanSoundbox.announcePayment(data.tableNumber, data.amount, data.method);
-            }
-            setTimeout(() => window.location.reload(), 1400);
-        });
-
-        connection.on("ReceiveWaiterCall", (data) => {
-            console.log("Floor Plan: Waiter call received:", data);
-            if (window.MenuScanSoundbox) {
-                MenuScanSoundbox.announceServiceCall(data.tableNumber, data.requestType);
-            }
-            setTimeout(() => window.location.reload(), 1400);
-        });
-
-        connection.on("ReceiveWaiterCallHandled", (data) => {
-            setTimeout(() => window.location.reload(), 800);
-        });
-
-        connection.on("ReceiveTableCleaned", (data) => {
-            setTimeout(() => window.location.reload(), 800);
-        });
-
-        connection.start().then(() => {
-            console.log("Floor Plan connected to OrderHub.");
-            connection.invoke("JoinRestaurantGroup", restaurantId);
-        }).catch(err => console.error("SignalR connection error:", err));
     </script>
 }

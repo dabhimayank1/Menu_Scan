@@ -56,7 +56,7 @@
         <div><strong>Bill No:</strong> @(bill?.BillNumber ?? "N/A")</div>
         <div><strong>Order No:</strong> @Model.OrderNumber</div>
         <div><strong>Table:</strong> @Model.Table?.TableNumber</div>
-        <div><strong>Date:</strong> @((bill?.ClosedAtUtc ?? Model.CreatedAtUtc).ToLocalTime().ToString("dd/MM/yyyy hh:mm tt"))</div>
+        <div><strong>Date:</strong> @TimeHelper.Format((bill?.ClosedAtUtc ?? Model.CreatedAtUtc), "dd/MM/yyyy hh:mm tt")</div>
         <div><strong>Payment:</strong> @(payment?.Method.ToString() ?? "Settled")</div>
     </div>
 
