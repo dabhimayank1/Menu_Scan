@@ -13,7 +13,7 @@
                 <div class="cafe-promo-banner rounded-0 text-white py-4 px-3">
                     <span class="badge bg-warning text-dark mb-2 px-3 py-1 rounded-pill fw-bold">☕ @Model.Restaurant.Name</span>
                     <h3 class="fw-bold mb-1 text-white">Order #@Model.Order.OrderNumber</h3>
-                    <p class="text-white-50 mb-0 small"><i class="bi bi-geo-alt"></i> @Model.Table.TableNumber | Placed at @Model.Order.CreatedAtUtc.ToLocalTime().ToString("hh:mm tt")</p>
+                    <p class="text-white-50 mb-0 small"><i class="bi bi-geo-alt"></i> @Model.Table.TableNumber | Placed at @TimeHelper.Format(Model.Order.CreatedAtUtc, "hh:mm tt")</p>
                 </div>
 
                 <div class="card-body p-4 bg-white">
@@ -122,6 +122,14 @@
                             <span>Total</span>
                             <span style="color: var(--cafe-primary);">₹@Model.Order.TotalAmount.ToString("0.00")</span>
                         </div>
+                        @if (!string.IsNullOrEmpty(Model.Order.CustomerName))
+                        {
+                            <div class="small text-muted mt-2"><i class="bi bi-person me-1"></i><strong>Diner:</strong> @Model.Order.CustomerName</div>
+                        }
+                        @if (!string.IsNullOrEmpty(Model.Order.CustomerNotes))
+                        {
+                            <div class="alert alert-warning py-1 px-2 small mt-1 mb-0"><i class="bi bi-chat-left-dots me-1"></i><strong>Note:</strong> @Model.Order.CustomerNotes</div>
+                        }
                     </div>
                 </div>
             </div>
@@ -486,7 +494,7 @@
                 <div class="border-top border-bottom py-2 my-2 small">
                     <div class="d-flex justify-content-between">
                         <span>Receipt: <strong id="receiptBillNum">@(Model.Order.Bill?.BillNumber ?? "BILL-PAID")</strong></span>
-                        <span>Date: <strong>@DateTime.UtcNow.ToLocalTime().ToString("dd MMM yyyy")</strong></span>
+                        <span>Date: <strong>@TimeHelper.Format(Model.Order.Bill?.ClosedAtUtc ?? Model.Order.CreatedAtUtc, "dd MMM yyyy")</strong></span>
                     </div>
                     <div class="d-flex justify-content-between">
                         <span>Table: <strong>@Model.Table.TableNumber</strong></span>
@@ -533,7 +541,8 @@
 </div>
 
 @section Scripts {
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
+    <script src="~/lib/signalr/signalr.min.js"></script>
+    <script src="~/js/realtime.js" asp-append-version="true"></script>
     <script>
         const tableToken = "@Model.Table.Token";
         const orderToken = "@Model.Order.OrderToken";
@@ -555,36 +564,40 @@
             }
         } catch (e) {}
 
-        const connection = new signalR.HubConnectionBuilder()
-            .withUrl("/hubs/order")
-            .withAutomaticReconnect()
-            .build();
+        const hub = startHub({
+            onJoin: async (conn) => {
+                await conn.invoke("JoinOrderGroup", orderToken);
+            },
+            handlers: {
+                ReceiveOrderStatusUpdate: (orderNumber, newStatus, tableNumber, orderId) => {
+                    console.log("Status update received:", orderNumber, newStatus);
+                    const statusText = document.getElementById('currentStatusText');
+                    if (statusText) statusText.innerText = newStatus;
+                    
+                    let pct = 20;
+                    if (newStatus === "Accepted") pct = 35;
+                    else if (newStatus === "Preparing") pct = 65;
+                    else if (newStatus === "Ready") pct = 90;
+                    if (newStatus === "Served" || newStatus === "Completed") {
+                        pct = 100;
+                        const feedbackCard = document.getElementById('customerFeedbackCard');
+                        if (feedbackCard) feedbackCard.classList.remove('d-none');
+                    }
 
-        connection.on("ReceiveOrderStatusUpdate", (orderNumber, newStatus, tableNumber) => {
-            console.log("Status update received:", orderNumber, newStatus);
-            document.getElementById('currentStatusText').innerText = newStatus;
-            
-            let pct = 20;
-            if (newStatus === "Accepted") pct = 35;
-            else if (newStatus === "Preparing") pct = 65;
-            else if (newStatus === "Ready") pct = 90;
-            if (newStatus === "Served" || newStatus === "Completed") {
-                pct = 100;
-                const feedbackCard = document.getElementById('customerFeedbackCard');
-                if (feedbackCard) feedbackCard.classList.remove('d-none');
+                    if (newStatus === "Completed") {
+                        handlePaymentCompleted();
+                    }
+
+                    const pBar = document.getElementById('statusProgressBar');
+                    if (pBar) pBar.style.width = pct + "%";
+                    const descEl = document.getElementById('currentStatusDesc');
+                    if (descEl) descEl.innerText = `Your order status changed to ${newStatus}.`;
+                },
+                ReceivePaymentSettled: (data) => {
+                    console.log("Payment settled event received:", data);
+                    handlePaymentCompleted(data.billNumber);
+                }
             }
-
-            if (newStatus === "Completed") {
-                handlePaymentCompleted();
-            }
-
-            document.getElementById('statusProgressBar').style.width = pct + "%";
-            document.getElementById('currentStatusDesc').innerText = `Your order status changed to ${newStatus}.`;
-        });
-
-        connection.on("ReceivePaymentSettled", (data) => {
-            console.log("Payment settled event received:", data);
-            handlePaymentCompleted(data.billNumber);
         });
 
         function handlePaymentCompleted(billNumber) {
@@ -640,10 +653,6 @@
             const feedbackCard = document.getElementById('customerFeedbackCard');
             if (feedbackCard) feedbackCard.classList.remove('d-none');
         }
-
-        connection.start().then(() => {
-            connection.invoke("JoinOrderGroup", orderToken);
-        }).catch(err => console.error("SignalR connection error:", err));
 
         let feedbackRatings = {
             Overall: 5,

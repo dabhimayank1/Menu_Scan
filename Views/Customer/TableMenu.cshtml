@@ -512,7 +512,8 @@
 </div>
 
 @section Scripts {
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
+    <script src="~/lib/signalr/signalr.min.js"></script>
+    <script src="~/js/realtime.js" asp-append-version="true"></script>
     @{
         var catalogData = Model.Categories
             .SelectMany(c => c.MenuItems)
@@ -545,7 +546,7 @@
             taxAmount = o.TaxAmount,
             itemCount = o.OrderItems.Sum(i => i.Quantity),
             items = o.OrderItems.Select(i => new { name = i.ItemNameSnapshot, qty = i.Quantity, price = i.TotalPrice, custom = i.CustomizationSummary }).ToList(),
-            createdAt = o.CreatedAtUtc.ToLocalTime().ToString("hh:mm tt"),
+            createdAt = TimeHelper.Format(o.CreatedAtUtc, "hh:mm tt"),
             isPaid = o.Status == MenuScan.Models.Entities.OrderStatus.Completed || (o.Bill != null && o.Bill.Status == MenuScan.Models.Entities.BillStatus.Paid),
             billNumber = o.Bill != null ? o.Bill.BillNumber : null
         }).ToList();
@@ -707,10 +708,13 @@
 
                 let itemsHtml = '';
                 (ord.items || []).forEach(it => {
+                    const safeQty = escapeHtml(it.qty);
+                    const safeName = escapeHtml(it.name);
+                    const safeCustom = it.custom ? ` <small class="text-secondary">(${escapeHtml(it.custom)})</small>` : '';
                     itemsHtml += `
                         <div class="d-flex justify-content-between text-muted" style="font-size: 12px; line-height: 1.35;">
-                            <span class="text-truncate me-2"><strong>${it.qty}x</strong> ${it.name}${it.custom ? ` <small class="text-secondary">(${it.custom})</small>` : ''}</span>
-                            <span class="fw-semibold flex-shrink-0">₹${it.price.toFixed(2)}</span>
+                            <span class="text-truncate me-2"><strong>${safeQty}x</strong> ${safeName}${safeCustom}</span>
+                            <span class="fw-semibold flex-shrink-0">₹${Number(it.price).toFixed(2)}</span>
                         </div>
                     `;
                 });
@@ -720,16 +724,16 @@
                         <div class="card-header bg-dark text-white p-2 px-3 d-flex justify-content-between align-items-center">
                             <div>
                                 <span class="badge bg-warning text-dark me-1 fw-bold" style="font-size: 10px;">Round #${roundNum}</span>
-                                <strong style="font-size: 13px;">#${ord.orderNumber}</strong>
+                                <strong style="font-size: 13px;">#${escapeHtml(ord.orderNumber)}</strong>
                             </div>
-                            <small class="text-white-50" style="font-size: 11px;"><i class="bi bi-clock me-1"></i>${ord.createdAt}</small>
+                            <small class="text-white-50" style="font-size: 11px;"><i class="bi bi-clock me-1"></i>${escapeHtml(ord.createdAt)}</small>
                         </div>
                         <div class="card-body p-3">
                             <div class="d-flex align-items-center justify-content-between mb-2">
                                 <span class="badge ${st.badgeClass} px-2 py-1 fs-6 d-flex align-items-center gap-1 shadow-sm">
                                     ${st.icon} <span>${st.title}</span>
                                 </span>
-                                <span class="fw-bold fs-6" style="color: var(--cafe-primary);">₹${ord.totalAmount.toFixed(2)}</span>
+                                <span class="fw-bold fs-6" style="color: var(--cafe-primary);">₹${Number(ord.totalAmount).toFixed(2)}</span>
                             </div>
 
                             <div class="text-muted small mb-2" style="font-size: 12px;">${st.desc}</div>
@@ -751,16 +755,18 @@
                             <!-- Items List -->
                             <div class="bg-light rounded-3 p-2 my-2 border">
                                 <div class="fw-semibold text-dark mb-1" style="font-size: 11px;">
-                                    Items ordered (${ord.itemCount}):
+                                    Items ordered (${Number(ord.itemCount)}):
                                 </div>
                                 <div class="d-flex flex-column gap-1">
                                     ${itemsHtml}
                                 </div>
                             </div>
+                            ${ord.customerName ? `<div class="small text-muted"><i class="bi bi-person me-1"></i>${escapeHtml(ord.customerName)}</div>` : ''}
+                            ${ord.notes ? `<div class="small text-muted fst-italic my-2"><i class="bi bi-chat-left-dots me-1"></i>Note: ${escapeHtml(ord.notes)}</div>` : ''}
 
                             <!-- Action Buttons -->
                             <div class="mt-2 pt-1 border-top">
-                                <a href="/order/track/${ord.orderToken}" class="btn btn-outline-dark btn-sm w-100 rounded-pill fw-semibold py-1 d-flex align-items-center justify-content-center gap-1" style="font-size: 12px;">
+                                <a href="/order/track/${encodeURIComponent(ord.orderToken)}" class="btn btn-outline-dark btn-sm w-100 rounded-pill fw-semibold py-1 d-flex align-items-center justify-content-center gap-1" style="font-size: 12px;">
                                     <i class="bi bi-wallet2 text-primary"></i> View Bill &amp; Pay Online (UPI)
                                 </a>
                             </div>
@@ -792,6 +798,15 @@
                     // Sync active tokens in session: prune any tokens that are now paid/completed
                     const activeTokens = currentActiveOrders.map(o => o.orderToken);
                     localStorage.setItem(sessionOrdersKey, JSON.stringify(activeTokens));
+
+                    // Ensure hub is joined to order groups for all active tokens
+                    if (hub && hub.connection && hub.connection.state === signalR.HubConnectionState.Connected) {
+                        for (const tok of activeTokens) {
+                            try {
+                                await hub.connection.invoke("JoinOrderGroup", tok);
+                            } catch (e) {}
+                        }
+                    }
 
                     renderActiveOrdersUI(currentActiveOrders);
                     updateCartUI();
@@ -857,7 +872,7 @@
                         <div>
                             <input class="form-check-input me-2 custom-check-opt" type="checkbox" id="opt_${c.id}" value="${c.id}" data-price="${c.price}" data-name="${safeName}" onchange="recalcCustomModal()">
                             <label class="form-check-label fw-semibold" for="opt_${c.id}" style="cursor: pointer;">
-                                ${c.name}
+                                ${escapeHtml(c.name)}
                             </label>
                         </div>
                         <span class="badge bg-light text-dark border">+₹${c.price.toFixed(2)}</span>
@@ -1054,8 +1069,8 @@
                             <div class="d-flex align-items-center me-2 text-truncate">
                                 <img src="${it.img}" class="rounded-3 me-2" style="width: 44px; height: 44px; object-fit: cover;" />
                                 <div class="text-truncate">
-                                    <h6 class="mb-0 fw-bold small text-truncate">${it.name}</h6>
-                                    ${it.customizationSummary ? `<div class="small text-muted" style="font-size: 11px;">${it.customizationSummary}</div>` : ''}
+                                    <h6 class="mb-0 fw-bold small text-truncate">${escapeHtml(it.name)}</h6>
+                                    ${it.customizationSummary ? `<div class="small text-muted" style="font-size: 11px;">${escapeHtml(it.customizationSummary)}</div>` : ''}
                                     <span class="small fw-semibold" style="color: var(--cafe-primary);">₹${it.price.toFixed(2)}</span>
                                 </div>
                             </div>
@@ -1190,6 +1205,13 @@
                     // Save new order token into this diner's session
                     if (result.orderToken) {
                         saveSessionOrderToken(result.orderToken);
+                        try {
+                            if (hub && hub.connection && hub.connection.state === signalR.HubConnectionState.Connected) {
+                                await hub.connection.invoke("JoinOrderGroup", result.orderToken);
+                            }
+                        } catch (e) {
+                            console.warn("Failed to join new order group:", e);
+                        }
                     }
 
                     // Order submitted successfully!
@@ -1283,38 +1305,69 @@
             }
         }
 
-        // Initialize SignalR Real-time Listener for instant status updates
+        // Initialize SignalR Real-time Listener for instant status updates (Phase 4 startHub)
+        let hub = null;
         try {
-            const connection = new signalR.HubConnectionBuilder()
-                .withUrl("/hubs/order")
-                .withAutomaticReconnect([0, 2000, 5000, 10000])
-                .build();
-
-            connection.on("ReceiveOrderStatusUpdate", async (orderNumber, newStatus, tableNumber) => {
-                console.log("SignalR Order Status Update:", orderNumber, newStatus, tableNumber);
-                await loadActiveOrders();
+            hub = startHub({
+                onJoin: async (conn) => {
+                    const tokens = getSessionOrderTokens();
+                    console.log("Diner joining order groups for tokens:", tokens);
+                    for (const tok of tokens) {
+                        try {
+                            await conn.invoke("JoinOrderGroup", tok);
+                        } catch (err) {
+                            console.warn("Failed to join order group:", tok, err);
+                        }
+                    }
+                },
+                handlers: {
+                    ReceiveOrderStatusUpdate: async (orderNumber, newStatus, tableNumber, orderId) => {
+                        console.log("SignalR Order Status Update:", orderNumber, newStatus, tableNumber, orderId);
+                        const existing = (currentActiveOrders || []).find(o => o.orderNumber === orderNumber || o.orderId === orderId);
+                        if (existing) {
+                            existing.status = newStatus;
+                            const statusMap = { 'New': 0, 'Accepted': 1, 'Preparing': 2, 'Ready': 3, 'Served': 4, 'Cancelled': 5, 'Completed': 6 };
+                            if (statusMap[newStatus] !== undefined) {
+                                existing.statusCode = statusMap[newStatus];
+                            }
+                            renderActiveOrdersUI(currentActiveOrders);
+                        }
+                        try {
+                            await loadActiveOrders();
+                        } catch (e) {
+                            console.warn("loadActiveOrders reconciliation caught:", e);
+                        }
+                    },
+                    ReceivePaymentSettled: async (data) => {
+                        console.log("SignalR Payment Settled:", data);
+                        try {
+                            await loadActiveOrders();
+                        } catch (e) {}
+                    }
+                }
             });
-
-            connection.on("ReceivePaymentSettled", async (data) => {
-                console.log("SignalR Payment Settled:", data);
-                await loadActiveOrders();
-            });
-
-            connection.on("ReceiveNewOrder", async (data) => {
-                console.log("SignalR New Order:", data);
-                await loadActiveOrders();
-            });
-
-            connection.start().then(async () => {
-                console.log("SignalR Connected to OrderHub");
-                await connection.invoke("JoinRestaurantGroup", "@Model.Restaurant.Id");
-            }).catch(err => console.warn("SignalR connection notice:", err));
         } catch (e) {
             console.warn("SignalR initialization notice:", e);
         }
 
+        // Polling fallback: loadActiveOrders every 20 seconds while tab is visible (Page Visibility API)
+        setInterval(() => {
+            if (document.visibilityState === 'visible') {
+                loadActiveOrders();
+            }
+        }, 20000);
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                loadActiveOrders();
+            }
+        });
+
         // Initial render on page load
         renderActiveOrdersUI(currentActiveOrders);
         updateCartUI();
+        if (getSessionOrderTokens().length > 0) {
+            loadActiveOrders();
+        }
     </script>
 }

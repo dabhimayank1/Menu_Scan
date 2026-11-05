@@ -21,6 +21,7 @@ namespace MenuScan.Controllers
         private readonly IWebHostEnvironment _env;
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly IConfiguration _configuration;
+        private readonly ITimeHelper _timeHelper;
 
         public AdminController(
             ApplicationDbContext context,
@@ -29,7 +30,8 @@ namespace MenuScan.Controllers
             ILogger<AdminController> logger,
             IWebHostEnvironment env,
             UserManager<ApplicationUser> userManager,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            ITimeHelper timeHelper)
         {
             _context = context;
             _tenantService = tenantService;
@@ -38,6 +40,7 @@ namespace MenuScan.Controllers
             _env = env;
             _userManager = userManager;
             _configuration = configuration;
+            _timeHelper = timeHelper;
         }
 
         private async Task<(Restaurant? Restaurant, IActionResult? Result)> GetCurrentRestaurantAsync()
@@ -64,15 +67,23 @@ namespace MenuScan.Controllers
             var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
             if (errorResult != null) return errorResult;
 
-            var todayUtc = DateTime.UtcNow.Date;
+            var (startUtc, endUtc) = _timeHelper.LocalDayRangeUtc(_timeHelper.Today());
             var todayBills = await _context.Bills
                 .IgnoreQueryFilters()
-                .Where(b => b.RestaurantId == restaurant!.Id && b.Status == BillStatus.Paid && b.CreatedAtUtc >= todayUtc)
+                .Where(b => b.RestaurantId == restaurant!.Id 
+                    && b.Status == BillStatus.Paid 
+                    && b.Status != BillStatus.Cancelled
+                    && (b.Order == null || b.Order.Status != OrderStatus.Cancelled)
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) >= startUtc 
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) < endUtc)
                 .ToListAsync();
 
             var todayOrdersCount = await _context.Orders
                 .IgnoreQueryFilters()
-                .CountAsync(o => o.RestaurantId == restaurant!.Id && o.CreatedAtUtc >= todayUtc);
+                .CountAsync(o => o.RestaurantId == restaurant!.Id 
+                    && o.Status != OrderStatus.Cancelled
+                    && o.CreatedAtUtc >= startUtc 
+                    && o.CreatedAtUtc < endUtc);
 
             var tablesCount = await _context.DiningTables
                 .IgnoreQueryFilters()

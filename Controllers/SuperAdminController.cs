@@ -16,17 +16,20 @@ namespace MenuScan.Controllers
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly ITenantService _tenantService;
         private readonly ILogger<SuperAdminController> _logger;
+        private readonly ITimeHelper _timeHelper;
 
         public SuperAdminController(
             ApplicationDbContext context,
             UserManager<ApplicationUser> userManager,
             ITenantService tenantService,
-            ILogger<SuperAdminController> logger)
+            ILogger<SuperAdminController> logger,
+            ITimeHelper timeHelper)
         {
             _context = context;
             _userManager = userManager;
             _tenantService = tenantService;
             _logger = logger;
+            _timeHelper = timeHelper;
         }
 
         [HttpGet]
@@ -40,14 +43,24 @@ namespace MenuScan.Controllers
                 .OrderByDescending(r => r.CreatedAtUtc)
                 .ToListAsync();
 
-            var totalOrders = await _context.Orders.IgnoreQueryFilters().CountAsync();
+            var (todayStartUtc, todayEndUtc) = _timeHelper.LocalDayRangeUtc(_timeHelper.Today());
+
+            var totalOrders = await _context.Orders.IgnoreQueryFilters()
+                .Where(o => o.Status != OrderStatus.Cancelled)
+                .CountAsync();
+
             var totalRevenue = await _context.Bills.IgnoreQueryFilters()
-                .Where(b => b.Status == BillStatus.Paid)
+                .Where(b => b.Status == BillStatus.Paid 
+                    && b.Status != BillStatus.Cancelled
+                    && (b.Order == null || b.Order.Status != OrderStatus.Cancelled))
                 .SumAsync(b => b.GrandTotal);
 
-            var todayUtc = DateTime.UtcNow.Date;
             var todayRevenue = await _context.Bills.IgnoreQueryFilters()
-                .Where(b => b.Status == BillStatus.Paid && b.CreatedAtUtc >= todayUtc)
+                .Where(b => b.Status == BillStatus.Paid 
+                    && b.Status != BillStatus.Cancelled
+                    && (b.Order == null || b.Order.Status != OrderStatus.Cancelled)
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) >= todayStartUtc 
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) < todayEndUtc)
                 .SumAsync(b => b.GrandTotal);
 
             ViewBag.TotalRestaurants = restaurants.Count;

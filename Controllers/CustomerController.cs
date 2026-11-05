@@ -18,6 +18,7 @@ namespace MenuScan.Controllers
         private readonly ILogger<CustomerController> _logger;
         private readonly IWebHostEnvironment _env;
         private readonly IConfiguration _configuration;
+        private readonly ITimeHelper _timeHelper;
 
         public CustomerController(
             ApplicationDbContext context,
@@ -25,7 +26,8 @@ namespace MenuScan.Controllers
             IQRService qrService,
             ILogger<CustomerController> logger,
             IWebHostEnvironment env,
-            IConfiguration configuration)
+            IConfiguration configuration,
+            ITimeHelper timeHelper)
         {
             _context = context;
             _hubContext = hubContext;
@@ -33,6 +35,7 @@ namespace MenuScan.Controllers
             _logger = logger;
             _env = env;
             _configuration = configuration;
+            _timeHelper = timeHelper;
         }
 
         [HttpGet("r/{slug}/t/{token}")]
@@ -64,26 +67,12 @@ namespace MenuScan.Controllers
                     .ThenInclude(m => m.Customizations.Where(cu => cu.IsAvailable))
                 .ToListAsync();
 
-            var cutoffUtc = DateTime.UtcNow.AddHours(-24);
-            var activeOrders = await _context.Orders
-                .IgnoreQueryFilters()
-                .Include(o => o.OrderItems)
-                .Include(o => o.Bill)
-                .Where(o => o.RestaurantId == restaurant.Id 
-                         && o.TableId == table.Id 
-                         && o.Status != OrderStatus.Cancelled 
-                         && o.Status != OrderStatus.Completed 
-                         && (o.Bill == null || o.Bill.Status != BillStatus.Paid)
-                         && o.CreatedAtUtc >= cutoffUtc)
-                .OrderByDescending(o => o.CreatedAtUtc)
-                .ToListAsync();
-
             var viewModel = new CustomerMenuViewModel
             {
                 Restaurant = restaurant,
                 Table = table,
                 Categories = categories,
-                ActiveOrders = activeOrders
+                ActiveOrders = new List<Order>() // Privacy: never leak other diners' orders in server HTML; client loads own orders via API using local tokens
             };
 
             return View(viewModel);
@@ -95,6 +84,23 @@ namespace MenuScan.Controllers
             [FromQuery] string restaurantSlug,
             [FromQuery] string? tokens = null)
         {
+            // Privacy protection: if tokens query param is missing or empty, return empty list
+            if (string.IsNullOrWhiteSpace(tokens))
+            {
+                return Ok(Array.Empty<object>());
+            }
+
+            const int MaxTokensAllowed = 20;
+            var tokenList = tokens.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(MaxTokensAllowed)
+                .ToList();
+
+            if (!tokenList.Any())
+            {
+                return Ok(Array.Empty<object>());
+            }
+
             var restaurant = await _context.Restaurants.IgnoreQueryFilters()
                 .FirstOrDefaultAsync(r => r.Slug == restaurantSlug && r.IsActive);
             if (restaurant == null) return NotFound();
@@ -109,23 +115,15 @@ namespace MenuScan.Controllers
                 .Include(o => o.Bill)
                 .Where(o => o.RestaurantId == restaurant.Id 
                          && o.TableId == table.Id 
+                         && tokenList.Contains(o.OrderToken)
                          && o.Status != OrderStatus.Cancelled 
                          && o.Status != OrderStatus.Completed 
                          && (o.Bill == null || o.Bill.Status != BillStatus.Paid)
                          && o.CreatedAtUtc >= cutoffUtc);
 
-            if (!string.IsNullOrWhiteSpace(tokens))
-            {
-                var tokenList = tokens.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
-                if (tokenList.Any())
-                {
-                    query = query.Where(o => tokenList.Contains(o.OrderToken));
-                }
-            }
-
             var orders = await query
                 .OrderByDescending(o => o.CreatedAtUtc)
-                .Take(10)
+                .Take(MaxTokensAllowed)
                 .Select(o => new
                 {
                     orderId = o.Id,
@@ -138,7 +136,9 @@ namespace MenuScan.Controllers
                     taxAmount = o.TaxAmount,
                     itemCount = o.OrderItems.Sum(i => i.Quantity),
                     items = o.OrderItems.Select(i => new { name = i.ItemNameSnapshot, qty = i.Quantity, price = i.TotalPrice, custom = i.CustomizationSummary }).ToList(),
-                    createdAt = o.CreatedAtUtc.ToLocalTime().ToString("hh:mm tt"),
+                    createdAt = _timeHelper.Format(o.CreatedAtUtc, "hh:mm tt"),
+                    notes = o.CustomerNotes,
+                    customerName = o.CustomerName,
                     isPaid = o.Status == OrderStatus.Completed || (o.Bill != null && o.Bill.Status == BillStatus.Paid),
                     billNumber = o.Bill != null ? o.Bill.BillNumber : null
                 })
@@ -319,11 +319,12 @@ namespace MenuScan.Controllers
                         totalAmount = order.TotalAmount,
                         itemCount = order.OrderItems.Sum(i => i.Quantity),
                         items = order.OrderItems.Select(i => new { name = i.ItemNameSnapshot, qty = i.Quantity, customizations = i.CustomizationSummary }).ToList(),
-                        createdAt = order.CreatedAtUtc.ToString("HH:mm:ss"),
+                        createdAt = _timeHelper.Format(order.CreatedAtUtc, "hh:mm tt"),
                         status = order.Status.ToString(),
                         notes = order.CustomerNotes,
                         customerName = order.CustomerName,
-                        customerPhone = order.CustomerPhone
+                        customerPhone = order.CustomerPhone,
+                        orderToken = order.OrderToken
                     };
 
                     await _hubContext.Clients.Group($"Restaurant_{restaurant.Id}")
@@ -618,7 +619,7 @@ namespace MenuScan.Controllers
                     tableNumber = table.TableNumber,
                     requestType = serviceReq.RequestType,
                     notes = serviceReq.Note,
-                    createdAt = serviceReq.CreatedAtUtc.ToLocalTime().ToString("hh:mm tt")
+                    createdAt = _timeHelper.Format(serviceReq.CreatedAtUtc, "hh:mm tt")
                 });
 
             _logger.LogInformation("Service request '{Type}' logged for {TableNumber} at {Restaurant}",
@@ -1018,7 +1019,7 @@ namespace MenuScan.Controllers
                         tableNumber = order.Table?.TableNumber ?? "Table",
                         requestType = "UPI Payment",
                         notes = pendingRequest.Note,
-                        createdAt = pendingRequest.CreatedAtUtc.ToLocalTime().ToString("hh:mm tt"),
+                        createdAt = _timeHelper.Format(pendingRequest.CreatedAtUtc, "hh:mm tt"),
                         orderId = order.Id,
                         totalAmount = order.TotalAmount
                     });

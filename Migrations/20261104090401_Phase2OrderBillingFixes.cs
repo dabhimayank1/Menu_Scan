@@ -51,10 +51,31 @@ namespace MenuScan.Migrations
                     WHERE IdempotencyKey IS NOT NULL AND IdempotencyKey <> ''
                 )
                 UPDATE o
-                SET IdempotencyKey = SUBSTRING(o.IdempotencyKey + '_' + CAST(n.rn AS NVARCHAR(10)), 1, 100)
+                SET IdempotencyKey = SUBSTRING(SUBSTRING(o.IdempotencyKey, 1, 80) + '_' + CAST(n.rn AS NVARCHAR(10)), 1, 100)
                 FROM Orders o
                 INNER JOIN NumberedOrders n ON o.Id = n.Id
                 WHERE n.rn > 1;
+
+                -- If any collision still exists (e.g. KEY_2 already existed previously), resolve with GUID suffix
+                WHILE EXISTS (
+                    SELECT 1 FROM Orders 
+                    WHERE IdempotencyKey IS NOT NULL AND IdempotencyKey <> ''
+                    GROUP BY RestaurantId, IdempotencyKey 
+                    HAVING COUNT(*) > 1
+                )
+                BEGIN
+                    WITH RemainingDuplicates AS (
+                        SELECT Id,
+                               ROW_NUMBER() OVER (PARTITION BY RestaurantId, IdempotencyKey ORDER BY CreatedAtUtc) AS rn
+                        FROM Orders
+                        WHERE IdempotencyKey IS NOT NULL AND IdempotencyKey <> ''
+                    )
+                    UPDATE o
+                    SET IdempotencyKey = SUBSTRING(SUBSTRING(o.IdempotencyKey, 1, 60) + '_' + REPLACE(CAST(NEWID() AS NVARCHAR(36)), '-', ''), 1, 100)
+                    FROM Orders o
+                    INNER JOIN RemainingDuplicates rd ON o.Id = rd.Id
+                    WHERE rd.rn > 1;
+                END;
 
                 UPDATE Orders
                 SET IdempotencyKey = 'IDEMP-' + CAST(Id AS NVARCHAR(36))
