@@ -42,6 +42,9 @@ namespace MenuScan.Controllers
                 return Forbid();
             }
 
+            var rest = await _context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.Id == restaurantId.Value);
+            if (rest == null || (!rest.IsActive && !User.IsInRole(AppRoles.SuperAdmin))) return Forbid();
+
             var cutoffUtc = DateTime.UtcNow.AddHours(-24);
             var orders = await _context.Orders
                 .IgnoreQueryFilters()
@@ -139,6 +142,8 @@ namespace MenuScan.Controllers
     {
         [System.ComponentModel.DataAnnotations.Required]
         public Guid OrderId { get; set; }
+
+        [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
         public OrderStatus NewStatus { get; set; }
     }
 }

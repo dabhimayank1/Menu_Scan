@@ -182,7 +182,9 @@ namespace MenuScan.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("RestaurantId");
+                    b.HasIndex("RestaurantId", "Name")
+                        .IsUnique()
+                        .HasFilter("[IsActive] = 1");
 
                     b.ToTable("Categories");
                 });
@@ -265,10 +267,12 @@ namespace MenuScan.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("RestaurantId");
-
                     b.HasIndex("Token")
                         .IsUnique();
+
+                    b.HasIndex("RestaurantId", "TableNumber")
+                        .IsUnique()
+                        .HasFilter("[IsActive] = 1");
 
                     b.ToTable("DiningTables");
                 });

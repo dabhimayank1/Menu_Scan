@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace MenuScan.Controllers
 {
-    [Authorize(Roles = $"{AppRoles.RestaurantAdmin},{AppRoles.SuperAdmin},{AppRoles.Cashier}")]
+    [Authorize(Roles = $"{AppRoles.RestaurantAdmin},{AppRoles.SuperAdmin}")]
     public class AdminController : Controller
     {
         private readonly ApplicationDbContext _context;
@@ -57,6 +57,10 @@ namespace MenuScan.Controllers
 
             var r = await _context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.Id == restaurantId.Value);
             if (r == null) return (null, NotFound("Restaurant not configured."));
+            if (!r.IsActive && !User.IsInRole(AppRoles.SuperAdmin))
+            {
+                return (null, Forbid());
+            }
             return (r, null);
         }
 
@@ -125,17 +129,34 @@ namespace MenuScan.Controllers
             var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
             if (errorResult != null) return errorResult;
 
-            if (string.IsNullOrWhiteSpace(tableNumber))
+            tableNumber = tableNumber?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(tableNumber) || tableNumber.Length > 20)
             {
-                TempData["Error"] = "Table number cannot be empty.";
+                TempData["Error"] = "Table number is required and cannot exceed 20 characters.";
+                return RedirectToAction(nameof(Tables));
+            }
+
+            if (capacity < 1 || capacity > 100)
+            {
+                TempData["Error"] = "Table capacity must be between 1 and 100 guests.";
+                return RedirectToAction(nameof(Tables));
+            }
+
+            var tableExists = await _context.DiningTables
+                .IgnoreQueryFilters()
+                .AnyAsync(t => t.RestaurantId == restaurant!.Id && t.TableNumber.ToLower() == tableNumber.ToLower() && t.IsActive);
+
+            if (tableExists)
+            {
+                TempData["Error"] = $"A table with number '{tableNumber}' already exists in this restaurant.";
                 return RedirectToAction(nameof(Tables));
             }
 
             var table = new DiningTable
             {
                 RestaurantId = restaurant!.Id,
-                TableNumber = tableNumber.Trim(),
-                Capacity = capacity > 0 ? capacity : 4,
+                TableNumber = tableNumber,
+                Capacity = capacity,
                 Token = Guid.NewGuid().ToString("N")[..10].ToUpperInvariant(),
                 IsActive = true
             };
@@ -160,10 +181,74 @@ namespace MenuScan.Controllers
 
             if (table == null) return NotFound();
 
+            if (!table.IsActive)
+            {
+                var conflict = await _context.DiningTables
+                    .IgnoreQueryFilters()
+                    .AnyAsync(t => t.RestaurantId == restaurant!.Id 
+                        && t.TableNumber.ToLower() == table.TableNumber.ToLower() 
+                        && t.IsActive 
+                        && t.Id != table.Id);
+
+                if (conflict)
+                {
+                    var msg = $"Cannot reactivate table '{table.TableNumber}' because another active table with the same number already exists.";
+                    if (Request.Headers["Accept"].ToString().Contains("application/json") || Request.Headers["X-Requested-With"] == "XMLHttpRequest")
+                    {
+                        return BadRequest(new { success = false, message = msg });
+                    }
+                    TempData["Error"] = msg;
+                    return RedirectToAction(nameof(Tables));
+                }
+            }
+
             table.IsActive = !table.IsActive;
             await _context.SaveChangesAsync();
 
-            return Ok(new { success = true, isActive = table.IsActive });
+            if (Request.Headers["Accept"].ToString().Contains("application/json") || Request.Headers["X-Requested-With"] == "XMLHttpRequest")
+            {
+                return Ok(new { success = true, isActive = table.IsActive });
+            }
+            TempData["Success"] = $"Table '{table.TableNumber}' status changed to {(table.IsActive ? "Active" : "Inactive")}.";
+            return RedirectToAction(nameof(Tables));
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        [Authorize(Roles = $"{AppRoles.RestaurantAdmin},{AppRoles.SuperAdmin}")]
+        public async Task<IActionResult> DeleteTable(Guid id)
+        {
+            var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
+            if (errorResult != null) return errorResult;
+
+            var table = await _context.DiningTables
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(t => t.Id == id && t.RestaurantId == restaurant!.Id);
+
+            if (table == null)
+            {
+                TempData["Error"] = "Table not found.";
+                return RedirectToAction(nameof(Tables));
+            }
+
+            var hasOrders = await _context.Orders
+                .IgnoreQueryFilters()
+                .AnyAsync(o => o.TableId == id);
+
+            if (hasOrders)
+            {
+                table.IsActive = false;
+                await _context.SaveChangesAsync();
+                TempData["Success"] = $"Table '{table.TableNumber}' has associated order records and has been deactivated.";
+            }
+            else
+            {
+                _context.DiningTables.Remove(table);
+                await _context.SaveChangesAsync();
+                TempData["Success"] = $"Table '{table.TableNumber}' deleted successfully.";
+            }
+
+            return RedirectToAction(nameof(Tables));
         }
 
         [HttpGet]
@@ -236,20 +321,84 @@ namespace MenuScan.Controllers
             var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
             if (errorResult != null) return errorResult;
 
-            if (!string.IsNullOrWhiteSpace(name))
+            name = name?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(name) || name.Length > 100)
             {
-                var category = new Category
-                {
-                    RestaurantId = restaurant!.Id,
-                    Name = name.Trim(),
-                    DisplayOrder = displayOrder,
-                    IsActive = true
-                };
-                _context.Categories.Add(category);
-                await _context.SaveChangesAsync();
-                TempData["Success"] = "Category created successfully.";
+                TempData["Error"] = "Category name is required and cannot exceed 100 characters.";
+                return RedirectToAction(nameof(Menu));
             }
 
+            if (displayOrder < 0 || displayOrder > 1000)
+            {
+                displayOrder = 0;
+            }
+
+            var categoryExists = await _context.Categories
+                .IgnoreQueryFilters()
+                .AnyAsync(c => c.RestaurantId == restaurant!.Id && c.Name.ToLower() == name.ToLower() && c.IsActive);
+
+            if (categoryExists)
+            {
+                TempData["Error"] = $"A category with name '{name}' already exists in this restaurant.";
+                return RedirectToAction(nameof(Menu));
+            }
+
+            var category = new Category
+            {
+                RestaurantId = restaurant!.Id,
+                Name = name,
+                DisplayOrder = displayOrder,
+                IsActive = true
+            };
+            _context.Categories.Add(category);
+            await _context.SaveChangesAsync();
+            TempData["Success"] = $"Category '{category.Name}' created successfully.";
+
+            return RedirectToAction(nameof(Menu));
+        }
+
+        [HttpPost]
+        [Authorize(Roles = $"{AppRoles.RestaurantAdmin},{AppRoles.SuperAdmin}")]
+        public async Task<IActionResult> ToggleCategory(Guid id)
+        {
+            var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
+            if (errorResult != null) return errorResult;
+
+            var category = await _context.Categories
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(c => c.Id == id && c.RestaurantId == restaurant!.Id);
+
+            if (category == null) return NotFound();
+
+            if (!category.IsActive)
+            {
+                var conflict = await _context.Categories
+                    .IgnoreQueryFilters()
+                    .AnyAsync(c => c.RestaurantId == restaurant!.Id 
+                        && c.Name.ToLower() == category.Name.ToLower() 
+                        && c.IsActive 
+                        && c.Id != category.Id);
+
+                if (conflict)
+                {
+                    var msg = $"Cannot reactivate category '{category.Name}' because another active category with the same name already exists.";
+                    if (Request.Headers["Accept"].ToString().Contains("application/json") || Request.Headers["X-Requested-With"] == "XMLHttpRequest")
+                    {
+                        return BadRequest(new { success = false, message = msg });
+                    }
+                    TempData["Error"] = msg;
+                    return RedirectToAction(nameof(Menu));
+                }
+            }
+
+            category.IsActive = !category.IsActive;
+            await _context.SaveChangesAsync();
+
+            if (Request.Headers["Accept"].ToString().Contains("application/json") || Request.Headers["X-Requested-With"] == "XMLHttpRequest")
+            {
+                return Ok(new { success = true, isActive = category.IsActive });
+            }
+            TempData["Success"] = $"Category '{category.Name}' status changed to {(category.IsActive ? "Active" : "Inactive")}.";
             return RedirectToAction(nameof(Menu));
         }
 
@@ -274,7 +423,9 @@ namespace MenuScan.Controllers
 
             if (category.MenuItems.Any())
             {
-                TempData["Error"] = $"Cannot delete category '{category.Name}' because it contains {category.MenuItems.Count} items. Please delete or move items first.";
+                category.IsActive = false;
+                await _context.SaveChangesAsync();
+                TempData["Success"] = $"Category '{category.Name}' contains menu items and has been deactivated.";
                 return RedirectToAction(nameof(Menu));
             }
 
@@ -309,9 +460,22 @@ namespace MenuScan.Controllers
                 return RedirectToAction(nameof(Menu));
             }
 
-            if (string.IsNullOrWhiteSpace(name) || price < 0)
+            name = name?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(name) || name.Length > 150)
             {
-                TempData["Error"] = "Invalid menu item details. Name and a valid price are required.";
+                TempData["Error"] = "Item name is required and cannot exceed 150 characters.";
+                return RedirectToAction(nameof(Menu));
+            }
+
+            if (price < 0 || price > 1000000m)
+            {
+                TempData["Error"] = "Item price must be between ₹0 and ₹10,00,000.";
+                return RedirectToAction(nameof(Menu));
+            }
+
+            if (!string.IsNullOrWhiteSpace(description) && description.Length > 500)
+            {
+                TempData["Error"] = "Item description cannot exceed 500 characters.";
                 return RedirectToAction(nameof(Menu));
             }
 
@@ -403,8 +567,11 @@ namespace MenuScan.Controllers
 
             try
             {
-                // Check if this item is referenced in any past customer orders
-                var hasOrders = await _context.OrderItems
+                // Check if this item is referenced in any past customer orders of this restaurant
+                var hasOrders = await _context.Orders
+                    .IgnoreQueryFilters()
+                    .Where(o => o.RestaurantId == restaurant!.Id)
+                    .SelectMany(o => o.OrderItems)
                     .AnyAsync(oi => oi.MenuItemId == id);
 
                 if (hasOrders)
@@ -610,9 +777,24 @@ namespace MenuScan.Controllers
             var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
             if (errorResult != null) return errorResult;
 
-            if (string.IsNullOrWhiteSpace(fullName) || string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+            fullName = fullName?.Trim() ?? string.Empty;
+            email = email?.Trim() ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(fullName) || fullName.Length < 2 || fullName.Length > 100)
             {
-                TempData["Error"] = "Full name, email address, and password are required.";
+                TempData["Error"] = "Full name must be between 2 and 100 characters.";
+                return RedirectToAction(nameof(Staff));
+            }
+
+            if (string.IsNullOrWhiteSpace(email) || email.Length > 150 || !new System.ComponentModel.DataAnnotations.EmailAddressAttribute().IsValid(email))
+            {
+                TempData["Error"] = "Please enter a valid email address.";
+                return RedirectToAction(nameof(Staff));
+            }
+
+            if (!SecurityRules.ValidatePassword(password, out var passwordError))
+            {
+                TempData["Error"] = passwordError;
                 return RedirectToAction(nameof(Staff));
             }
 
@@ -623,18 +805,18 @@ namespace MenuScan.Controllers
                 return RedirectToAction(nameof(Staff));
             }
 
-            var existingUser = await _userManager.FindByEmailAsync(email.Trim());
+            var existingUser = await _userManager.FindByEmailAsync(email);
             if (existingUser != null)
             {
-                TempData["Error"] = $"An account with email '{email.Trim()}' already exists.";
+                TempData["Error"] = $"An account with email '{email}' already exists.";
                 return RedirectToAction(nameof(Staff));
             }
 
             var staffUser = new ApplicationUser
             {
-                UserName = email.Trim(),
-                Email = email.Trim(),
-                FullName = fullName.Trim(),
+                UserName = email,
+                Email = email,
+                FullName = fullName,
                 RestaurantId = restaurant!.Id,
                 EmailConfirmed = true,
                 IsActive = true,

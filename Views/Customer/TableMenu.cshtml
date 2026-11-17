@@ -169,7 +169,7 @@
                             <div class="cafe-product-card">
                                 <!-- Card Image -->
                                 <div class="cafe-card-img-wrap mb-3">
-                                    <img src="@(string.IsNullOrEmpty(item.ImageUrl) ? "https://images.unsplash.com/photo-1509785307050-d4066910ec1e?auto=format&fit=crop&w=600&q=80" : item.ImageUrl)" 
+                                    <img src="@(string.IsNullOrEmpty(item.SafeImageUrl) ? "https://images.unsplash.com/photo-1509785307050-d4066910ec1e?auto=format&fit=crop&w=600&q=80" : item.SafeImageUrl)" 
                                          alt="@item.Name" class="cafe-card-img" loading="lazy" />
                                     <span class="cafe-badge @badgeClass">@badgeType</span>
                                 </div>

@@ -72,6 +72,9 @@
 
             <!-- Export & WhatsApp Actions -->
             <div class="d-flex align-items-center gap-2">
+                <a asp-action="ExportDailyExcel" asp-route-date="@selectedDate.ToString("yyyy-MM-dd")" class="btn btn-outline-success btn-sm rounded-pill px-3 fw-bold shadow-sm d-flex align-items-center gap-1" title="Download detailed Excel spreadsheet (.xlsx)">
+                    <i class="bi bi-file-earmark-excel"></i> Export Excel (.xlsx)
+                </a>
                 <button type="button" class="btn btn-success btn-sm rounded-pill px-3 fw-bold shadow-sm d-flex align-items-center gap-1" onclick="openDayEndWhatsAppModal()">
                     <i class="bi bi-whatsapp fs-6"></i> Send WhatsApp Summary
                 </button>

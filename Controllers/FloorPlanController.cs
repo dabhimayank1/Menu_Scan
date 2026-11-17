@@ -44,6 +44,10 @@ namespace MenuScan.Controllers
 
             var r = await _context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.Id == restaurantId.Value);
             if (r == null) return (null, NotFound("Restaurant not configured."));
+            if (!r.IsActive && !User.IsInRole(AppRoles.SuperAdmin))
+            {
+                return (null, Forbid());
+            }
             return (r, null);
         }
 
@@ -62,7 +66,7 @@ namespace MenuScan.Controllers
             var activeOrders = await _context.Orders
                 .IgnoreQueryFilters()
                 .Include(o => o.OrderItems)
-                .Where(o => o.RestaurantId == restaurant.Id &&
+                .Where(o => o.RestaurantId == restaurant!.Id &&
                             o.Status != OrderStatus.Cancelled &&
                             o.Status != OrderStatus.Completed &&
                             o.CreatedAtUtc >= DateTime.UtcNow.AddHours(-24))
@@ -70,7 +74,7 @@ namespace MenuScan.Controllers
 
             var pendingRequests = await _context.ServiceRequests
                 .IgnoreQueryFilters()
-                .Where(s => s.RestaurantId == restaurant.Id && !s.IsHandled)
+                .Where(s => s.RestaurantId == restaurant!.Id && !s.IsHandled)
                 .ToListAsync();
 
             var tableDtos = new List<FloorTableDto>();
@@ -161,7 +165,7 @@ namespace MenuScan.Controllers
 
             var vm = new FloorPlanViewModel
             {
-                Restaurant = restaurant,
+                Restaurant = restaurant!,
                 Tables = tableDtos
             };
 

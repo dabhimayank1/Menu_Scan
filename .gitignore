@@ -488,4 +488,5 @@ $RECYCLE.BIN/
 scratch/
 backups/
 *.bak
-wwwroot/uploads/
+wwwroot/uploads/*
+!wwwroot/uploads/**/.gitkeep

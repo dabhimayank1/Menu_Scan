@@ -57,7 +57,24 @@
         <div><strong>Order No:</strong> @Model.OrderNumber</div>
         <div><strong>Table:</strong> @Model.Table?.TableNumber</div>
         <div><strong>Date:</strong> @TimeHelper.Format((bill?.ClosedAtUtc ?? Model.CreatedAtUtc), "dd/MM/yyyy hh:mm tt")</div>
-        <div><strong>Payment:</strong> @(payment?.Method.ToString() ?? "Settled")</div>
+        <div><strong>Payment:</strong> @(payment?.Method.ToString() ?? (bill?.Status == MenuScan.Models.Entities.BillStatus.Paid ? "Settled" : "Pending"))</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="text-center" style="margin: 6px 0;">
+        @if (bill != null && bill.Status == MenuScan.Models.Entities.BillStatus.Paid)
+        {
+            <div style="font-weight: bold; font-size: 14px; border: 2px solid #000; display: inline-block; padding: 3px 14px; letter-spacing: 1px;">
+                *** PAID ***
+            </div>
+        }
+        else
+        {
+            <div style="font-weight: bold; font-size: 13px; border: 2px dashed #000; display: inline-block; padding: 3px 8px; letter-spacing: 1px;">
+                *** UNPAID / PAYMENT PENDING ***
+            </div>
+        }
     </div>
 
     <div class="divider"></div>

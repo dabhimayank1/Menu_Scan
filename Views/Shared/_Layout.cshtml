@@ -359,11 +359,16 @@
                     <div class="text-white small fw-bold text-truncate" style="max-width: 140px;">@(User.Identity?.Name ?? "User")</div>
                     <small class="text-white-50" style="font-size: 0.72rem;">@(User.IsInRole("SuperAdmin") ? "Super Admin" : "Store Staff")</small>
                 </div>
-                <form asp-controller="Account" asp-action="Logout" method="post" class="d-inline">
-                    <button type="submit" class="btn btn-outline-light btn-sm rounded-circle p-1" style="width: 32px; height: 32px;" title="Sign Out">
-                        <i class="bi bi-box-arrow-right"></i>
-                    </button>
-                </form>
+                <div class="d-flex align-items-center gap-1">
+                    <a asp-controller="Account" asp-action="ChangePassword" class="btn btn-outline-light btn-sm rounded-circle p-1 d-inline-flex align-items-center justify-content-center" style="width: 32px; height: 32px;" title="Change Password">
+                        <i class="bi bi-key"></i>
+                    </a>
+                    <form asp-controller="Account" asp-action="Logout" method="post" class="d-inline">
+                        <button type="submit" class="btn btn-outline-light btn-sm rounded-circle p-1 d-inline-flex align-items-center justify-content-center" style="width: 32px; height: 32px;" title="Sign Out">
+                            <i class="bi bi-box-arrow-right"></i>
+                        </button>
+                    </form>
+                </div>
             </div>
             <a href="@customerMenuUrl" target="_blank" class="btn btn-dark btn-sm w-100 rounded-pill border border-secondary border-opacity-50 text-white-50 text-truncate" style="font-size: 0.75rem;">
                 <i class="bi bi-phone me-1 text-warning"></i> Diner Menu (@primaryTableName)

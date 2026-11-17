@@ -17,17 +17,20 @@ namespace MenuScan.Controllers
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly ApplicationDbContext _context;
         private readonly ITenantService _tenantService;
+        private readonly IWebHostEnvironment _env;
 
         public AccountController(
             SignInManager<ApplicationUser> signInManager,
             UserManager<ApplicationUser> userManager,
             ApplicationDbContext context,
-            ITenantService tenantService)
+            ITenantService tenantService,
+            IWebHostEnvironment env)
         {
             _signInManager = signInManager;
             _userManager = userManager;
             _context = context;
             _tenantService = tenantService;
+            _env = env;
         }
 
         [HttpGet]
@@ -84,6 +87,13 @@ namespace MenuScan.Controllers
                     }
                 }
 
+                // In non-Development environments, force password change if using known weak/default password
+                if (!_env.IsDevelopment() && SecurityRules.IsBlocklistedPassword(model.Password))
+                {
+                    TempData["Warning"] = "You are currently using a default or insecure password. For security compliance, you must set a new password before continuing.";
+                    return RedirectToAction(nameof(ChangePassword));
+                }
+
                 if (!string.IsNullOrEmpty(model.ReturnUrl) && Url.IsLocalUrl(model.ReturnUrl))
                 {
                     return Redirect(model.ReturnUrl);
@@ -100,6 +110,59 @@ namespace MenuScan.Controllers
 
             ModelState.AddModelError(string.Empty, "Invalid login credentials.");
             return View(model);
+        }
+
+        [HttpGet]
+        [Authorize]
+        public IActionResult ChangePassword()
+        {
+            return View(new ChangePasswordViewModel());
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        [Authorize]
+        public async Task<IActionResult> ChangePassword(ChangePasswordViewModel model)
+        {
+            if (!ModelState.IsValid)
+            {
+                return View(model);
+            }
+
+            if (string.Equals(model.CurrentPassword, model.NewPassword))
+            {
+                ModelState.AddModelError("NewPassword", "New password cannot be the same as your current password.");
+                return View(model);
+            }
+
+            if (!SecurityRules.ValidatePassword(model.NewPassword, out var passwordError))
+            {
+                ModelState.AddModelError("NewPassword", passwordError!);
+                return View(model);
+            }
+
+            var user = await _userManager.GetUserAsync(User);
+            if (user == null)
+            {
+                return RedirectToAction(nameof(Login));
+            }
+
+            var result = await _userManager.ChangePasswordAsync(user, model.CurrentPassword, model.NewPassword);
+            if (!result.Succeeded)
+            {
+                foreach (var error in result.Errors)
+                {
+                    ModelState.AddModelError(string.Empty, error.Description);
+                }
+                return View(model);
+            }
+
+            // Refresh security stamp to invalidate cookies on other sessions/devices
+            await _userManager.UpdateSecurityStampAsync(user);
+            await _signInManager.RefreshSignInAsync(user);
+
+            TempData["Success"] = "Your password has been changed successfully.";
+            return RedirectBasedOnRole();
         }
 
         [HttpPost]

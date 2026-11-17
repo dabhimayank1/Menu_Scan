@@ -50,6 +50,7 @@ namespace MenuScan.Controllers
             }
 
             var restaurant = await _context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.Id == restaurantId.Value);
+            if (restaurant == null || (!restaurant.IsActive && !User.IsInRole(AppRoles.SuperAdmin))) return Forbid();
 
             // 1. Fetch active orders requiring settlement (unpaid orders)
             var activeOrdersQuery = _context.Orders
@@ -374,7 +375,7 @@ namespace MenuScan.Controllers
             // If already settled, do not create duplicate payments or inflate drawer cash
             if (order.Status == OrderStatus.Completed && order.Bill != null && order.Bill.Status == BillStatus.Paid)
             {
-                var existingReceiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={order.Id}";
+                var existingReceiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={order.Id}&token={order.OrderToken}";
                 var existingWpUrl = WhatsAppHelper.BuildWhatsAppUrl(
                     order.CustomerPhone,
                     WhatsAppHelper.BuildBillReceiptMessage(restName, order.Bill.BillNumber, order.OrderNumber, order.Table?.TableNumber ?? "Table", order.Bill.GrandTotal, dto.Method.ToString(), existingReceiptUrl),
@@ -401,7 +402,7 @@ namespace MenuScan.Controllers
                 using var transaction = await _context.Database.BeginTransactionAsync();
                 try
                 {
-                    var bill = order.Bill;
+                    var bill = order!.Bill;
                     if (bill == null)
                     {
                         bill = new Bill
@@ -498,7 +499,7 @@ namespace MenuScan.Controllers
                     _logger.LogInformation("Bill {BillNumber} settled for Order {OrderNumber} amount {Amount} via {Method}",
                         bill.BillNumber, order.OrderNumber, bill.GrandTotal, dto.Method);
 
-                    var fullReceiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={order.Id}";
+                    var fullReceiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={order.Id}&token={order.OrderToken}";
                     var whatsAppUrl = WhatsAppHelper.BuildWhatsAppUrl(
                         order.CustomerPhone,
                         WhatsAppHelper.BuildBillReceiptMessage(restName, bill.BillNumber, order.OrderNumber, order.Table?.TableNumber ?? "Table", bill.GrandTotal, dto.Method.ToString(), fullReceiptUrl),
@@ -518,7 +519,7 @@ namespace MenuScan.Controllers
                 {
                     await transaction.RollbackAsync();
                     _logger.LogWarning(ex, "Concurrency conflict settling bill for Order {OrderId}. Returning already paid result.", dto.OrderId);
-                    return await GetAlreadyPaidResponseAsync(order.Id, baseUrl, restName, dto.Method);
+                    return await GetAlreadyPaidResponseAsync(order!.Id, baseUrl, restName, dto.Method);
                 }
                 catch (DbUpdateException ex) when (IsUniqueIndexViolation(ex))
                 {
@@ -537,7 +538,7 @@ namespace MenuScan.Controllers
                     }
 
                     _logger.LogWarning(ex, "Duplicate bill detected for Order {OrderId}. Returning already paid result.", dto.OrderId);
-                    return await GetAlreadyPaidResponseAsync(order.Id, baseUrl, restName, dto.Method);
+                    return await GetAlreadyPaidResponseAsync(order!.Id, baseUrl, restName, dto.Method);
                 }
                 catch (Exception ex)
                 {
@@ -572,7 +573,7 @@ namespace MenuScan.Controllers
                 .FirstOrDefaultAsync(o => o.Id == orderId);
 
             var billNum = refreshedOrder?.Bill?.BillNumber ?? "PAID";
-            var receiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={orderId}";
+            var receiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={orderId}&token={refreshedOrder?.OrderToken}";
             var whatsAppUrl = WhatsAppHelper.BuildWhatsAppUrl(
                 refreshedOrder?.CustomerPhone,
                 WhatsAppHelper.BuildBillReceiptMessage(restName, billNum, refreshedOrder?.OrderNumber ?? "", refreshedOrder?.Table?.TableNumber ?? "Table", refreshedOrder?.Bill?.GrandTotal ?? 0, method.ToString(), receiptUrl),
@@ -592,7 +593,7 @@ namespace MenuScan.Controllers
 
         [HttpGet]
         [AllowAnonymous]
-        public async Task<IActionResult> PrintReceipt(Guid orderId)
+        public async Task<IActionResult> PrintReceipt(Guid orderId, [FromQuery] string? token = null)
         {
             var order = await _context.Orders
                 .IgnoreQueryFilters()
@@ -603,6 +604,37 @@ namespace MenuScan.Controllers
                 .FirstOrDefaultAsync(o => o.Id == orderId);
 
             if (order == null) return NotFound("Order not found.");
+
+            bool isAuthorized = false;
+
+            if (!string.IsNullOrWhiteSpace(token) && string.Equals(order.OrderToken, token.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                isAuthorized = true;
+            }
+            else if (User.Identity != null && User.Identity.IsAuthenticated)
+            {
+                if (User.IsInRole(AppRoles.SuperAdmin))
+                {
+                    isAuthorized = true;
+                }
+                else if (User.IsInRole(AppRoles.RestaurantAdmin) || User.IsInRole(AppRoles.Cashier) || User.IsInRole(AppRoles.KitchenStaff))
+                {
+                    var userTenantId = _tenantService.CurrentRestaurantId;
+                    if (userTenantId.HasValue && userTenantId.Value == order.RestaurantId)
+                    {
+                        isAuthorized = true;
+                    }
+                }
+            }
+
+            if (!isAuthorized)
+            {
+                if (User.Identity != null && User.Identity.IsAuthenticated)
+                {
+                    return Forbid();
+                }
+                return NotFound("Order not found or access denied.");
+            }
 
             var restaurant = await _context.Restaurants
                 .IgnoreQueryFilters()
@@ -615,14 +647,14 @@ namespace MenuScan.Controllers
         [HttpPost]
         public async Task<IActionResult> AcknowledgeServiceRequest([FromBody] Guid id)
         {
-            var req = await _context.ServiceRequests.IgnoreQueryFilters().FirstOrDefaultAsync(s => s.Id == id);
-            if (req == null) return NotFound(new { message = "Service request not found." });
-
             var currentTenantId = _tenantService.CurrentRestaurantId;
-            if (!User.IsInRole(AppRoles.SuperAdmin) && (!currentTenantId.HasValue || req.RestaurantId != currentTenantId.Value))
+            if (!User.IsInRole(AppRoles.SuperAdmin) && !currentTenantId.HasValue)
             {
                 return Forbid();
             }
+
+            var req = await _context.ServiceRequests.FirstOrDefaultAsync(s => s.Id == id && (User.IsInRole(AppRoles.SuperAdmin) || (currentTenantId.HasValue && s.RestaurantId == currentTenantId.Value)));
+            if (req == null) return NotFound(new { message = "Service request not found." });
 
             req.IsHandled = true;
             req.HandledAtUtc = DateTime.UtcNow;

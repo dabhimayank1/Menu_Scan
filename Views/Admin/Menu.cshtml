@@ -112,9 +112,9 @@
                                                     }
                                                 </td>
                                                 <td>
-                                                    @if (!string.IsNullOrEmpty(item.ImageUrl))
+                                                    @if (!string.IsNullOrEmpty(item.SafeImageUrl))
                                                     {
-                                                        <img src="@item.ImageUrl" alt="@item.Name" class="rounded-3 border object-fit-cover shadow-sm" style="width: 54px; height: 54px; cursor: pointer;" onclick="openImageModal('@item.ImageUrl', '@item.Name')" title="Click to view full photo" />
+                                                        <img src="@item.SafeImageUrl" alt="@item.Name" class="rounded-3 border object-fit-cover shadow-sm" style="width: 54px; height: 54px; cursor: pointer;" onclick="openImageModal('@item.SafeImageUrl', '@item.Name')" title="Click to view full photo" />
                                                     }
                                                     else
                                                     {

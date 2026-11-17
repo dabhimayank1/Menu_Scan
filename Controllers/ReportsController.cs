@@ -1,3 +1,4 @@
+using ClosedXML.Excel;
 using MenuScan.Data;
 using MenuScan.Models.Entities;
 using MenuScan.Models.ViewModels;
@@ -55,6 +56,10 @@ namespace MenuScan.Controllers
 
             var r = await _context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.Id == restaurantId.Value);
             if (r == null) return (null, NotFound("Restaurant not found."));
+            if (!r.IsActive && !User.IsInRole(AppRoles.SuperAdmin))
+            {
+                return (null, Forbid());
+            }
             return (r, null);
         }
 
@@ -386,8 +391,201 @@ namespace MenuScan.Controllers
         }
 
         // ==========================================
-        // 3. EXPORT EXCEL & CSV
+        // 3. EXPORT EXCEL (.xlsx) & CSV
         // ==========================================
+        [HttpGet]
+        public async Task<IActionResult> ExportDailyExcel(DateTime? date = null)
+        {
+            var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
+            if (errorResult != null) return errorResult;
+
+            var targetDate = date?.Date ?? _timeHelper.Today();
+            var (startUtc, endUtc) = _timeHelper.LocalDayRangeUtc(targetDate);
+
+            var bills = await _context.Bills
+                .IgnoreQueryFilters()
+                .Where(b => b.RestaurantId == restaurant!.Id 
+                    && b.Status == BillStatus.Paid 
+                    && b.Status != BillStatus.Cancelled
+                    && (b.Order == null || b.Order.Status != OrderStatus.Cancelled)
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) >= startUtc 
+                    && (b.ClosedAtUtc ?? b.CreatedAtUtc) < endUtc)
+                .Include(b => b.Payments)
+                .Include(b => b.Order)
+                    .ThenInclude(o => o!.Table)
+                .Include(b => b.Order)
+                    .ThenInclude(o => o!.OrderItems)
+                .OrderByDescending(b => b.ClosedAtUtc ?? b.CreatedAtUtc)
+                .ToListAsync();
+
+            using var workbook = new XLWorkbook();
+
+            // ------------------------------------------
+            // Sheet 1: Settled Bills & Orders
+            // ------------------------------------------
+            var wsOrders = workbook.Worksheets.Add("Settled Orders");
+            wsOrders.Cell(1, 1).Value = $"{restaurant!.Name} - Daily Sales Report";
+            wsOrders.Cell(1, 1).Style.Font.Bold = true;
+            wsOrders.Cell(1, 1).Style.Font.FontSize = 14;
+            wsOrders.Range(1, 1, 1, 8).Merge();
+
+            wsOrders.Cell(2, 1).Value = $"Date: {targetDate:dd MMMM yyyy} | Exported: {_timeHelper.Format(_timeHelper.Now(), "dd MMM yyyy, hh:mm tt")}";
+            wsOrders.Cell(2, 1).Style.Font.Italic = true;
+            wsOrders.Cell(2, 1).Style.Font.FontColor = XLColor.DarkGray;
+            wsOrders.Range(2, 1, 2, 8).Merge();
+
+            var orderHeaders = new[]
+            {
+                "Bill No", "Order No", "Table", "Payment Method", "Settled Time",
+                "Subtotal (₹)", "Tax / GST (₹)", "Grand Total (₹)"
+            };
+
+            for (int col = 0; col < orderHeaders.Length; col++)
+            {
+                var cell = wsOrders.Cell(4, col + 1);
+                cell.Value = orderHeaders[col];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromArgb(24, 18, 14);
+                cell.Style.Font.FontColor = XLColor.White;
+                cell.Style.Alignment.Horizontal = col switch
+                {
+                    0 or 1 or 2 or 3 => XLAlignmentHorizontalValues.Left,
+                    4 => XLAlignmentHorizontalValues.Center,
+                    _ => XLAlignmentHorizontalValues.Right
+                };
+            }
+
+            int row = 5;
+            foreach (var b in bills)
+            {
+                var settledTimeLocal = _timeHelper.ToLocal(b.ClosedAtUtc ?? b.CreatedAtUtc);
+                var payMethod = b.Payments.FirstOrDefault()?.Method.ToString() ?? "Settled";
+
+                wsOrders.Cell(row, 1).Value = b.BillNumber;
+                wsOrders.Cell(row, 2).Value = b.Order?.OrderNumber ?? "N/A";
+                wsOrders.Cell(row, 3).Value = b.Order?.Table?.TableNumber ?? "Table";
+                wsOrders.Cell(row, 4).Value = payMethod;
+                wsOrders.Cell(row, 5).Value = settledTimeLocal.ToString("hh:mm tt");
+                wsOrders.Cell(row, 6).Value = (double)b.SubTotal;
+                wsOrders.Cell(row, 6).Style.NumberFormat.Format = "₹#,##0.00";
+                wsOrders.Cell(row, 7).Value = (double)b.TaxAmount;
+                wsOrders.Cell(row, 7).Style.NumberFormat.Format = "₹#,##0.00";
+                wsOrders.Cell(row, 8).Value = (double)b.GrandTotal;
+                wsOrders.Cell(row, 8).Style.NumberFormat.Format = "₹#,##0.00";
+                wsOrders.Cell(row, 8).Style.Font.Bold = true;
+                row++;
+            }
+
+            if (bills.Count > 0)
+            {
+                wsOrders.Cell(row, 1).Value = "TOTAL";
+                wsOrders.Cell(row, 1).Style.Font.Bold = true;
+                wsOrders.Cell(row, 2).Value = $"{bills.Count} Bills";
+                wsOrders.Cell(row, 2).Style.Font.Bold = true;
+                wsOrders.Cell(row, 6).Value = (double)bills.Sum(b => b.SubTotal);
+                wsOrders.Cell(row, 6).Style.NumberFormat.Format = "₹#,##0.00";
+                wsOrders.Cell(row, 6).Style.Font.Bold = true;
+                wsOrders.Cell(row, 7).Value = (double)bills.Sum(b => b.TaxAmount);
+                wsOrders.Cell(row, 7).Style.NumberFormat.Format = "₹#,##0.00";
+                wsOrders.Cell(row, 7).Style.Font.Bold = true;
+                wsOrders.Cell(row, 8).Value = (double)bills.Sum(b => b.GrandTotal);
+                wsOrders.Cell(row, 8).Style.NumberFormat.Format = "₹#,##0.00";
+                wsOrders.Cell(row, 8).Style.Font.Bold = true;
+
+                wsOrders.Range(row, 1, row, 8).Style.Fill.BackgroundColor = XLColor.FromArgb(246, 239, 230);
+                wsOrders.Range(row, 1, row, 8).Style.Border.TopBorder = XLBorderStyleValues.Thin;
+                wsOrders.Range(row, 1, row, 8).Style.Border.BottomBorder = XLBorderStyleValues.Double;
+            }
+
+            wsOrders.ShowGridLines = true;
+            wsOrders.Columns().AdjustToContents();
+
+            // ------------------------------------------
+            // Sheet 2: Items Sold Breakdown
+            // ------------------------------------------
+            var wsItems = workbook.Worksheets.Add("Item Breakdown");
+            wsItems.Cell(1, 1).Value = $"{restaurant!.Name} - Daily Item Sales Breakdown";
+            wsItems.Cell(1, 1).Style.Font.Bold = true;
+            wsItems.Cell(1, 1).Style.Font.FontSize = 14;
+            wsItems.Range(1, 1, 1, 5).Merge();
+
+            wsItems.Cell(2, 1).Value = $"Date: {targetDate:dd MMMM yyyy}";
+            wsItems.Cell(2, 1).Style.Font.Italic = true;
+            wsItems.Cell(2, 1).Style.Font.FontColor = XLColor.DarkGray;
+            wsItems.Range(2, 1, 2, 5).Merge();
+
+            var itemHeaders = new[] { "Item Name", "Quantity Sold", "Avg. Unit Price (₹)", "Total Sales (₹)", "% of Sales" };
+            for (int col = 0; col < itemHeaders.Length; col++)
+            {
+                var cell = wsItems.Cell(4, col + 1);
+                cell.Value = itemHeaders[col];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromArgb(24, 18, 14);
+                cell.Style.Font.FontColor = XLColor.White;
+                cell.Style.Alignment.Horizontal = col == 0 ? XLAlignmentHorizontalValues.Left : XLAlignmentHorizontalValues.Right;
+            }
+
+            var allOrderItems = bills
+                .Where(b => b.Order != null)
+                .SelectMany(b => b.Order!.OrderItems)
+                .GroupBy(i => i.ItemNameSnapshot)
+                .Select(g => new
+                {
+                    Name = g.Key,
+                    Quantity = g.Sum(x => x.Quantity),
+                    Total = g.Sum(x => x.TotalPrice),
+                    UnitPrice = g.Any() ? g.Average(x => x.UnitPriceSnapshot) : 0m
+                })
+                .OrderByDescending(x => x.Quantity)
+                .ToList();
+
+            var grandItemTotal = allOrderItems.Sum(x => x.Total);
+            int itemRow = 5;
+            foreach (var item in allOrderItems)
+            {
+                wsItems.Cell(itemRow, 1).Value = item.Name;
+                wsItems.Cell(itemRow, 2).Value = item.Quantity;
+                wsItems.Cell(itemRow, 2).Style.NumberFormat.Format = "#,##0";
+                wsItems.Cell(itemRow, 3).Value = (double)item.UnitPrice;
+                wsItems.Cell(itemRow, 3).Style.NumberFormat.Format = "₹#,##0.00";
+                wsItems.Cell(itemRow, 4).Value = (double)item.Total;
+                wsItems.Cell(itemRow, 4).Style.NumberFormat.Format = "₹#,##0.00";
+                wsItems.Cell(itemRow, 5).Value = grandItemTotal > 0 ? (double)(item.Total / grandItemTotal) : 0.0;
+                wsItems.Cell(itemRow, 5).Style.NumberFormat.Format = "0.0%";
+                itemRow++;
+            }
+
+            if (allOrderItems.Count > 0)
+            {
+                wsItems.Cell(itemRow, 1).Value = "TOTAL";
+                wsItems.Cell(itemRow, 1).Style.Font.Bold = true;
+                wsItems.Cell(itemRow, 2).Value = allOrderItems.Sum(x => x.Quantity);
+                wsItems.Cell(itemRow, 2).Style.NumberFormat.Format = "#,##0";
+                wsItems.Cell(itemRow, 2).Style.Font.Bold = true;
+                wsItems.Cell(itemRow, 4).Value = (double)grandItemTotal;
+                wsItems.Cell(itemRow, 4).Style.NumberFormat.Format = "₹#,##0.00";
+                wsItems.Cell(itemRow, 4).Style.Font.Bold = true;
+                wsItems.Cell(itemRow, 5).Value = 1.0;
+                wsItems.Cell(itemRow, 5).Style.NumberFormat.Format = "0.0%";
+                wsItems.Cell(itemRow, 5).Style.Font.Bold = true;
+
+                wsItems.Range(itemRow, 1, itemRow, 5).Style.Fill.BackgroundColor = XLColor.FromArgb(246, 239, 230);
+                wsItems.Range(itemRow, 1, itemRow, 5).Style.Border.TopBorder = XLBorderStyleValues.Thin;
+                wsItems.Range(itemRow, 1, itemRow, 5).Style.Border.BottomBorder = XLBorderStyleValues.Double;
+            }
+
+            wsItems.ShowGridLines = true;
+            wsItems.Columns().AdjustToContents();
+
+            using var stream = new MemoryStream();
+            workbook.SaveAs(stream);
+            var content = stream.ToArray();
+
+            var safeSlug = string.IsNullOrWhiteSpace(restaurant.Slug) ? "restaurant" : restaurant.Slug;
+            var filename = $"DailySales_{safeSlug}_{targetDate:yyyy-MM-dd}.xlsx";
+            return File(content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename);
+        }
+
         [HttpGet]
         public async Task<IActionResult> ExportMonthlyExcel(int? year, int? month)
         {
@@ -409,120 +607,176 @@ namespace MenuScan.Controllers
                 .ToListAsync();
 
             var daysInMonth = DateTime.DaysInMonth(targetYear, targetMonth);
-            var sb = new System.Text.StringBuilder();
-
-            sb.AppendLine("<html xmlns:o=\"urn:schemas-microsoft-com:office:office\" xmlns:x=\"urn:schemas-microsoft-com:office:excel\" xmlns=\"http://www.w3.org/TR/REC-html40\">");
-            sb.AppendLine("<head>");
-            sb.AppendLine("<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">");
-            sb.AppendLine("<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Monthly Sales</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->");
-            sb.AppendLine("<style>");
-            sb.AppendLine("  body { font-family: Calibri, 'Segoe UI', Arial, sans-serif; font-size: 11pt; color: #18120E; }");
-            sb.AppendLine("  .report-title { font-size: 16pt; font-weight: bold; color: #18120E; padding-bottom: 4px; }");
-            sb.AppendLine("  .report-meta { font-size: 10pt; color: #555555; padding-bottom: 14px; }");
-            sb.AppendLine("  table { border-collapse: collapse; }");
-            sb.AppendLine("  th { background-color: #18120E; color: #FFFFFF; font-weight: bold; text-align: center; padding: 10px 16px; border: 1px solid #333333; mso-number-format:\"\\@\"; }");
-            sb.AppendLine("  td { padding: 8px 14px; border: 1px solid #DDDDDD; vertical-align: middle; }");
-            sb.AppendLine("  .date-col { mso-number-format:\"yyyy\\-mm\\-dd\"; text-align: center; }");
-            sb.AppendLine("  .day-col { mso-number-format:\"\\@\"; text-align: left; }");
-            sb.AppendLine("  .qty-col { mso-number-format:\"#,##0\"; text-align: center; font-weight: bold; }");
-            sb.AppendLine("  .num-col { mso-number-format:\"#,##0.00\"; text-align: right; }");
-            sb.AppendLine("  .rev-col { mso-number-format:\"#,##0.00\"; text-align: right; font-weight: bold; color: #198754; }");
-            sb.AppendLine("  .total-row td { font-weight: bold; background-color: #F6EFE6; border-top: 2px solid #18120E; border-bottom: 3px double #18120E; padding: 10px 14px; font-size: 11pt; }");
-            sb.AppendLine("  .weekend td { background-color: #FAFAF7; }");
-            sb.AppendLine("</style>");
-            sb.AppendLine("</head>");
-            sb.AppendLine("<body>");
-
             var monthDisplay = new DateTime(targetYear, targetMonth, 1).ToString("MMMM yyyy");
-            sb.AppendLine($"<div class=\"report-title\">{System.Net.WebUtility.HtmlEncode(restaurant!.Name)} &mdash; Monthly Sales &amp; Settlement Report</div>");
-            sb.AppendLine($"<div class=\"report-meta\">Month / Period: <b>{System.Net.WebUtility.HtmlEncode(monthDisplay)}</b> &bull; Exported On: {_timeHelper.Format(_timeHelper.Now(), "dd MMM yyyy, hh:mm tt")}</div>");
 
-            sb.AppendLine("<table border=\"1\" cellspacing=\"0\" cellpadding=\"6\">");
-            sb.AppendLine("<thead>");
-            sb.AppendLine("  <tr>");
-            sb.AppendLine("    <th style=\"width: 130px;\">Date</th>");
-            sb.AppendLine("    <th style=\"width: 130px;\">Day of Week</th>");
-            sb.AppendLine("    <th style=\"width: 110px;\">Orders Count</th>");
-            sb.AppendLine("    <th style=\"width: 130px;\">GST / Tax (₹)</th>");
-            sb.AppendLine("    <th style=\"width: 170px;\">Net Settled Sales (₹)</th>");
-            sb.AppendLine("    <th style=\"width: 140px;\">UPI Payment (₹)</th>");
-            sb.AppendLine("    <th style=\"width: 140px;\">Cash Counter (₹)</th>");
-            sb.AppendLine("    <th style=\"width: 140px;\">Card Payment (₹)</th>");
-            sb.AppendLine("  </tr>");
-            sb.AppendLine("</thead>");
-            sb.AppendLine("<tbody>");
+            using var workbook = new XLWorkbook();
 
-            decimal totalSales = 0;
-            decimal totalTax = 0;
+            // ------------------------------------------
+            // Sheet 1: Daily Sales & Settlements
+            // ------------------------------------------
+            var ws = workbook.Worksheets.Add("Monthly Sales");
+
+            ws.Cell(1, 1).Value = $"{restaurant!.Name} - Monthly Sales & Settlement Report";
+            ws.Cell(1, 1).Style.Font.Bold = true;
+            ws.Cell(1, 1).Style.Font.FontSize = 14;
+            ws.Range(1, 1, 1, 9).Merge();
+
+            ws.Cell(2, 1).Value = $"Period: {monthDisplay} | Exported On: {_timeHelper.Format(_timeHelper.Now(), "dd MMM yyyy, hh:mm tt")}";
+            ws.Cell(2, 1).Style.Font.Italic = true;
+            ws.Cell(2, 1).Style.Font.FontColor = XLColor.DarkGray;
+            ws.Range(2, 1, 2, 9).Merge();
+
+            var headers = new[]
+            {
+                "Date", "Day of Week", "Orders Count", "GST / Tax (₹)",
+                "Net Settled Sales (₹)", "UPI Payment (₹)", "Cash Counter (₹)",
+                "Card Payment (₹)", "Other Payment (₹)"
+            };
+
+            for (int col = 0; col < headers.Length; col++)
+            {
+                var cell = ws.Cell(4, col + 1);
+                cell.Value = headers[col];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromArgb(24, 18, 14);
+                cell.Style.Font.FontColor = XLColor.White;
+                cell.Style.Alignment.Horizontal = col switch
+                {
+                    0 or 1 => XLAlignmentHorizontalValues.Left,
+                    2 => XLAlignmentHorizontalValues.Center,
+                    _ => XLAlignmentHorizontalValues.Right
+                };
+            }
+
+            int currentRow = 5;
             int totalOrders = 0;
+            decimal totalTax = 0;
+            decimal totalMonthlySales = 0;
             decimal totalUpi = 0;
             decimal totalCash = 0;
             decimal totalCard = 0;
+            decimal totalOther = 0;
 
             for (int day = 1; day <= daysInMonth; day++)
             {
-                var curDate = new DateTime(targetYear, targetMonth, day);
-                var dayBills = bills.Where(b => _timeHelper.ToLocal(b.ClosedAtUtc ?? b.CreatedAtUtc).Date == curDate.Date).ToList();
-                var daySales = dayBills.Sum(b => b.GrandTotal);
-                var dayTax = dayBills.Sum(b => b.TaxAmount);
-                var dayPayments = dayBills.SelectMany(b => b.Payments).ToList();
-                var dayUpi = dayPayments.Where(p => p.Method == PaymentMethod.UPI).Sum(p => p.Amount);
-                var dayCash = dayPayments.Where(p => p.Method == PaymentMethod.Cash).Sum(p => p.Amount);
-                var dayCard = dayPayments.Where(p => p.Method == PaymentMethod.Card).Sum(p => p.Amount);
+                var localDate = new DateTime(targetYear, targetMonth, day);
+                var (dayStartUtc, dayEndUtc) = _timeHelper.LocalDayRangeUtc(localDate);
 
-                totalSales += daySales;
+                var dayBills = bills.Where(b => (b.ClosedAtUtc ?? b.CreatedAtUtc) >= dayStartUtc && (b.ClosedAtUtc ?? b.CreatedAtUtc) < dayEndUtc).ToList();
+                var dayOrderCount = dayBills.Count;
+                var dayTax = dayBills.Sum(b => b.TaxAmount);
+                var daySales = dayBills.Sum(b => b.GrandTotal);
+
+                var dayUpi = dayBills.SelectMany(b => b.Payments).Where(p => p.Method == PaymentMethod.UPI).Sum(p => p.Amount);
+                var dayCash = dayBills.SelectMany(b => b.Payments).Where(p => p.Method == PaymentMethod.Cash).Sum(p => p.Amount);
+                var dayCard = dayBills.SelectMany(b => b.Payments).Where(p => p.Method == PaymentMethod.Card).Sum(p => p.Amount);
+                var dayOther = dayBills.SelectMany(b => b.Payments).Where(p => p.Method == PaymentMethod.Other).Sum(p => p.Amount);
+
+                totalOrders += dayOrderCount;
                 totalTax += dayTax;
-                totalOrders += dayBills.Count;
+                totalMonthlySales += daySales;
                 totalUpi += dayUpi;
                 totalCash += dayCash;
                 totalCard += dayCard;
+                totalOther += dayOther;
 
-                var isWeekend = curDate.DayOfWeek == DayOfWeek.Saturday || curDate.DayOfWeek == DayOfWeek.Sunday;
-                var rowClass = isWeekend ? "class=\"weekend\"" : "";
+                ws.Cell(currentRow, 1).Value = localDate.ToString("yyyy-MM-dd");
+                ws.Cell(currentRow, 2).Value = localDate.ToString("dddd");
+                ws.Cell(currentRow, 3).Value = dayOrderCount;
+                ws.Cell(currentRow, 3).Style.NumberFormat.Format = "#,##0";
+                ws.Cell(currentRow, 4).Value = (double)dayTax;
+                ws.Cell(currentRow, 4).Style.NumberFormat.Format = "₹#,##0.00";
+                ws.Cell(currentRow, 5).Value = (double)daySales;
+                ws.Cell(currentRow, 5).Style.NumberFormat.Format = "₹#,##0.00";
+                ws.Cell(currentRow, 5).Style.Font.Bold = true;
+                ws.Cell(currentRow, 6).Value = (double)dayUpi;
+                ws.Cell(currentRow, 6).Style.NumberFormat.Format = "₹#,##0.00";
+                ws.Cell(currentRow, 7).Value = (double)dayCash;
+                ws.Cell(currentRow, 7).Style.NumberFormat.Format = "₹#,##0.00";
+                ws.Cell(currentRow, 8).Value = (double)dayCard;
+                ws.Cell(currentRow, 8).Style.NumberFormat.Format = "₹#,##0.00";
+                ws.Cell(currentRow, 9).Value = (double)dayOther;
+                ws.Cell(currentRow, 9).Style.NumberFormat.Format = "₹#,##0.00";
 
-                sb.AppendLine($"  <tr {rowClass}>");
-                sb.AppendLine($"    <td class=\"date-col\">{curDate:yyyy-MM-dd}</td>");
-                sb.AppendLine($"    <td class=\"day-col\">{curDate:dddd}</td>");
-                sb.AppendLine($"    <td class=\"qty-col\">{(dayBills.Count > 0 ? dayBills.Count.ToString() : "-")}</td>");
-                sb.AppendLine($"    <td class=\"num-col\">{dayTax:0.00}</td>");
-                sb.AppendLine($"    <td class=\"rev-col\">{daySales:0.00}</td>");
-                sb.AppendLine($"    <td class=\"num-col\">{dayUpi:0.00}</td>");
-                sb.AppendLine($"    <td class=\"num-col\">{dayCash:0.00}</td>");
-                sb.AppendLine($"    <td class=\"num-col\">{dayCard:0.00}</td>");
-                sb.AppendLine("  </tr>");
+                if (localDate.DayOfWeek == DayOfWeek.Saturday || localDate.DayOfWeek == DayOfWeek.Sunday)
+                {
+                    ws.Range(currentRow, 1, currentRow, 9).Style.Fill.BackgroundColor = XLColor.FromArgb(250, 250, 247);
+                }
+
+                currentRow++;
             }
 
-            sb.AppendLine("</tbody>");
-            sb.AppendLine("<tfoot>");
-            sb.AppendLine("  <tr class=\"total-row\">");
-            sb.AppendLine("    <td colspan=\"2\" style=\"text-align: left;\">TOTAL / MONTH SUMMARY</td>");
-            sb.AppendLine($"    <td class=\"qty-col\">{totalOrders}</td>");
-            sb.AppendLine($"    <td class=\"num-col\">{totalTax:0.00}</td>");
-            sb.AppendLine($"    <td class=\"rev-col\">{totalSales:0.00}</td>");
-            sb.AppendLine($"    <td class=\"num-col\">{totalUpi:0.00}</td>");
-            sb.AppendLine($"    <td class=\"num-col\">{totalCash:0.00}</td>");
-            sb.AppendLine($"    <td class=\"num-col\">{totalCard:0.00}</td>");
-            sb.AppendLine("  </tr>");
-            sb.AppendLine("</tfoot>");
-            sb.AppendLine("</table>");
+            ws.Cell(currentRow, 1).Value = "TOTAL";
+            ws.Cell(currentRow, 1).Style.Font.Bold = true;
+            ws.Cell(currentRow, 2).Value = $"{daysInMonth} Days";
+            ws.Cell(currentRow, 2).Style.Font.Bold = true;
 
-            // Cashier settlement section in Excel
-            sb.AppendLine("<br/><br/>");
-            sb.AppendLine($"<div class=\"report-title\">Cashier &amp; Settlement Breakdown &mdash; {System.Net.WebUtility.HtmlEncode(monthDisplay)}</div>");
-            sb.AppendLine("<table border=\"1\" cellspacing=\"0\" cellpadding=\"6\">");
-            sb.AppendLine("<thead>");
-            sb.AppendLine("  <tr>");
-            sb.AppendLine("    <th style=\"width: 220px;\">Cashier / Source</th>");
-            sb.AppendLine("    <th style=\"width: 110px;\">Bills Settled</th>");
-            sb.AppendLine("    <th style=\"width: 140px;\">Cash Counter (₹)</th>");
-            sb.AppendLine("    <th style=\"width: 140px;\">UPI Collected (₹)</th>");
-            sb.AppendLine("    <th style=\"width: 140px;\">Card Collected (₹)</th>");
-            sb.AppendLine("    <th style=\"width: 170px;\">Total Revenue Handled (₹)</th>");
-            sb.AppendLine("    <th style=\"width: 120px;\">Revenue Share (%)</th>");
-            sb.AppendLine("  </tr>");
-            sb.AppendLine("</thead>");
-            sb.AppendLine("<tbody>");
+            ws.Cell(currentRow, 3).Value = totalOrders;
+            ws.Cell(currentRow, 3).Style.NumberFormat.Format = "#,##0";
+            ws.Cell(currentRow, 3).Style.Font.Bold = true;
 
+            ws.Cell(currentRow, 4).Value = (double)totalTax;
+            ws.Cell(currentRow, 4).Style.NumberFormat.Format = "₹#,##0.00";
+            ws.Cell(currentRow, 4).Style.Font.Bold = true;
+
+            ws.Cell(currentRow, 5).Value = (double)totalMonthlySales;
+            ws.Cell(currentRow, 5).Style.NumberFormat.Format = "₹#,##0.00";
+            ws.Cell(currentRow, 5).Style.Font.Bold = true;
+
+            ws.Cell(currentRow, 6).Value = (double)totalUpi;
+            ws.Cell(currentRow, 6).Style.NumberFormat.Format = "₹#,##0.00";
+            ws.Cell(currentRow, 6).Style.Font.Bold = true;
+
+            ws.Cell(currentRow, 7).Value = (double)totalCash;
+            ws.Cell(currentRow, 7).Style.NumberFormat.Format = "₹#,##0.00";
+            ws.Cell(currentRow, 7).Style.Font.Bold = true;
+
+            ws.Cell(currentRow, 8).Value = (double)totalCard;
+            ws.Cell(currentRow, 8).Style.NumberFormat.Format = "₹#,##0.00";
+            ws.Cell(currentRow, 8).Style.Font.Bold = true;
+
+            ws.Cell(currentRow, 9).Value = (double)totalOther;
+            ws.Cell(currentRow, 9).Style.NumberFormat.Format = "₹#,##0.00";
+            ws.Cell(currentRow, 9).Style.Font.Bold = true;
+
+            ws.Range(currentRow, 1, currentRow, 9).Style.Fill.BackgroundColor = XLColor.FromArgb(246, 239, 230);
+            ws.Range(currentRow, 1, currentRow, 9).Style.Border.TopBorder = XLBorderStyleValues.Thin;
+            ws.Range(currentRow, 1, currentRow, 9).Style.Border.BottomBorder = XLBorderStyleValues.Double;
+
+            ws.ShowGridLines = true;
+            ws.Columns().AdjustToContents();
+
+            // ------------------------------------------
+            // Sheet 2: Cashier & Settlement Breakdown
+            // ------------------------------------------
+            var wsCashiers = workbook.Worksheets.Add("Cashier Breakdown");
+            wsCashiers.Cell(1, 1).Value = $"{restaurant!.Name} - Cashier Settlement Breakdown";
+            wsCashiers.Cell(1, 1).Style.Font.Bold = true;
+            wsCashiers.Cell(1, 1).Style.Font.FontSize = 14;
+            wsCashiers.Range(1, 1, 1, 7).Merge();
+
+            wsCashiers.Cell(2, 1).Value = $"Period: {monthDisplay}";
+            wsCashiers.Cell(2, 1).Style.Font.Italic = true;
+            wsCashiers.Cell(2, 1).Style.Font.FontColor = XLColor.DarkGray;
+            wsCashiers.Range(2, 1, 2, 7).Merge();
+
+            var cashierHeaders = new[]
+            {
+                "Cashier / Source", "Bills Settled", "Cash Counter (₹)",
+                "UPI Collected (₹)", "Card Collected (₹)", "Total Revenue Handled (₹)", "Revenue Share"
+            };
+
+            for (int col = 0; col < cashierHeaders.Length; col++)
+            {
+                var cell = wsCashiers.Cell(4, col + 1);
+                cell.Value = cashierHeaders[col];
+                cell.Style.Font.Bold = true;
+                cell.Style.Fill.BackgroundColor = XLColor.FromArgb(24, 18, 14);
+                cell.Style.Font.FontColor = XLColor.White;
+                cell.Style.Alignment.Horizontal = col == 0 ? XLAlignmentHorizontalValues.Left : XLAlignmentHorizontalValues.Right;
+            }
+
+            var totalSales = bills.Sum(b => b.GrandTotal);
             var excelCashiers = bills
                 .SelectMany(b => b.Payments.DefaultIfEmpty(), (b, p) => new { Bill = b, Payment = p })
                 .GroupBy(x => x.Payment?.RecordedBy ?? "Customer / Online")
@@ -536,34 +790,69 @@ namespace MenuScan.Controllers
                     TotalRevenue = g.Where(x => x.Payment != null).Sum(x => x.Payment!.Amount) > 0
                         ? g.Where(x => x.Payment != null).Sum(x => x.Payment!.Amount)
                         : g.Select(x => x.Bill).Distinct().Sum(x => x.GrandTotal),
-                    PercentageOfTotal = totalSales > 0 ? (double)(g.Select(x => x.Bill).Distinct().Sum(x => x.GrandTotal) / totalSales) * 100 : 0
+                    PercentageOfTotal = totalSales > 0 ? (double)(g.Select(x => x.Bill).Distinct().Sum(x => x.GrandTotal) / totalSales) * 100 : 0.0
                 })
                 .OrderByDescending(x => x.TotalRevenue)
                 .ToList();
 
+            int cRow = 5;
             foreach (var c in excelCashiers)
             {
-                var encodedCashier = System.Net.WebUtility.HtmlEncode(c.CashierName);
-                sb.AppendLine("  <tr>");
-                sb.AppendLine($"    <td class=\"day-col\"><b>{encodedCashier}</b></td>");
-                sb.AppendLine($"    <td class=\"qty-col\">{c.BillsCount}</td>");
-                sb.AppendLine($"    <td class=\"num-col\">{c.CashCollected:0.00}</td>");
-                sb.AppendLine($"    <td class=\"num-col\">{c.UpiCollected:0.00}</td>");
-                sb.AppendLine($"    <td class=\"num-col\">{c.CardCollected:0.00}</td>");
-                sb.AppendLine($"    <td class=\"rev-col\">{c.TotalRevenue:0.00}</td>");
-                sb.AppendLine($"    <td class=\"qty-col\">{c.PercentageOfTotal:0.0}%</td>");
-                sb.AppendLine("  </tr>");
+                wsCashiers.Cell(cRow, 1).Value = c.CashierName;
+                wsCashiers.Cell(cRow, 2).Value = c.BillsCount;
+                wsCashiers.Cell(cRow, 2).Style.NumberFormat.Format = "#,##0";
+                wsCashiers.Cell(cRow, 3).Value = (double)c.CashCollected;
+                wsCashiers.Cell(cRow, 3).Style.NumberFormat.Format = "₹#,##0.00";
+                wsCashiers.Cell(cRow, 4).Value = (double)c.UpiCollected;
+                wsCashiers.Cell(cRow, 4).Style.NumberFormat.Format = "₹#,##0.00";
+                wsCashiers.Cell(cRow, 5).Value = (double)c.CardCollected;
+                wsCashiers.Cell(cRow, 5).Style.NumberFormat.Format = "₹#,##0.00";
+                wsCashiers.Cell(cRow, 6).Value = (double)c.TotalRevenue;
+                wsCashiers.Cell(cRow, 6).Style.NumberFormat.Format = "₹#,##0.00";
+                wsCashiers.Cell(cRow, 6).Style.Font.Bold = true;
+                wsCashiers.Cell(cRow, 7).Value = c.PercentageOfTotal / 100.0;
+                wsCashiers.Cell(cRow, 7).Style.NumberFormat.Format = "0.0%";
+                cRow++;
             }
 
-            sb.AppendLine("</tbody>");
-            sb.AppendLine("</table>");
+            if (excelCashiers.Count > 0)
+            {
+                wsCashiers.Cell(cRow, 1).Value = "TOTAL";
+                wsCashiers.Cell(cRow, 1).Style.Font.Bold = true;
+                wsCashiers.Cell(cRow, 2).Value = excelCashiers.Sum(x => x.BillsCount);
+                wsCashiers.Cell(cRow, 2).Style.NumberFormat.Format = "#,##0";
+                wsCashiers.Cell(cRow, 2).Style.Font.Bold = true;
+                wsCashiers.Cell(cRow, 3).Value = (double)excelCashiers.Sum(x => x.CashCollected);
+                wsCashiers.Cell(cRow, 3).Style.NumberFormat.Format = "₹#,##0.00";
+                wsCashiers.Cell(cRow, 3).Style.Font.Bold = true;
+                wsCashiers.Cell(cRow, 4).Value = (double)excelCashiers.Sum(x => x.UpiCollected);
+                wsCashiers.Cell(cRow, 4).Style.NumberFormat.Format = "₹#,##0.00";
+                wsCashiers.Cell(cRow, 4).Style.Font.Bold = true;
+                wsCashiers.Cell(cRow, 5).Value = (double)excelCashiers.Sum(x => x.CardCollected);
+                wsCashiers.Cell(cRow, 5).Style.NumberFormat.Format = "₹#,##0.00";
+                wsCashiers.Cell(cRow, 5).Style.Font.Bold = true;
+                wsCashiers.Cell(cRow, 6).Value = (double)excelCashiers.Sum(x => x.TotalRevenue);
+                wsCashiers.Cell(cRow, 6).Style.NumberFormat.Format = "₹#,##0.00";
+                wsCashiers.Cell(cRow, 6).Style.Font.Bold = true;
+                wsCashiers.Cell(cRow, 7).Value = 1.0;
+                wsCashiers.Cell(cRow, 7).Style.NumberFormat.Format = "0.0%";
+                wsCashiers.Cell(cRow, 7).Style.Font.Bold = true;
 
-            sb.AppendLine("</body>");
-            sb.AppendLine("</html>");
+                wsCashiers.Range(cRow, 1, cRow, 7).Style.Fill.BackgroundColor = XLColor.FromArgb(246, 239, 230);
+                wsCashiers.Range(cRow, 1, cRow, 7).Style.Border.TopBorder = XLBorderStyleValues.Thin;
+                wsCashiers.Range(cRow, 1, cRow, 7).Style.Border.BottomBorder = XLBorderStyleValues.Double;
+            }
 
-            var bytes = System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
-            var cleanName = System.Text.RegularExpressions.Regex.Replace(restaurant!.Name, @"[^a-zA-Z0-9]", "_");
-            return File(bytes, "application/vnd.ms-excel", $"Monthly_Sales_{cleanName}_{targetYear}_{targetMonth:D2}.xls");
+            wsCashiers.ShowGridLines = true;
+            wsCashiers.Columns().AdjustToContents();
+
+            using var stream = new MemoryStream();
+            workbook.SaveAs(stream);
+            var content = stream.ToArray();
+
+            var safeSlug = string.IsNullOrWhiteSpace(restaurant.Slug) ? "restaurant" : restaurant.Slug;
+            var filename = $"MonthlySales_{safeSlug}_{targetYear}_{targetMonth:D2}.xlsx";
+            return File(content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename);
         }
 
         [HttpGet]

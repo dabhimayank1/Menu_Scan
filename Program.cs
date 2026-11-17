@@ -39,6 +39,26 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
 .AddEntityFrameworkStores<ApplicationDbContext>()
 .AddDefaultTokenProviders();
 
+var enforceHttps = builder.Configuration.GetValue<bool>("App:EnforceHttps");
+var httpsPort = builder.Configuration.GetValue<int?>("HTTPS_PORT") 
+    ?? builder.Configuration.GetValue<int?>("ANCM_HTTPS_PORT");
+var hasHttpsConfigured = enforceHttps || (httpsPort.HasValue && httpsPort.Value > 0);
+
+if (hasHttpsConfigured)
+{
+    builder.Services.AddHttpsRedirection(options =>
+    {
+        options.HttpsPort = httpsPort ?? 443;
+        options.RedirectStatusCode = StatusCodes.Status307TemporaryRedirect;
+    });
+    builder.Services.AddHsts(options =>
+    {
+        options.MaxAge = TimeSpan.FromDays(365);
+        options.IncludeSubDomains = true;
+        options.ExcludedHosts.Clear();
+    });
+}
+
 builder.Services.ConfigureApplicationCookie(options =>
 {
     options.LoginPath = "/Account/Login";
@@ -46,14 +66,16 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.ExpireTimeSpan = TimeSpan.FromHours(8);
     options.Cookie.HttpOnly = true;
     options.Cookie.SameSite = SameSiteMode.Lax;
-    options.Cookie.SecurePolicy = builder.Environment.IsProduction()
+    options.Cookie.SecurePolicy = hasHttpsConfigured
         ? CookieSecurePolicy.Always
         : CookieSecurePolicy.SameAsRequest;
 });
 
+var securityStampSeconds = builder.Configuration.GetValue<int?>("App:SecurityStampValidationSeconds") ?? 60;
+Console.WriteLine($"[CONFIG] App:SecurityStampValidationSeconds = {securityStampSeconds}");
 builder.Services.Configure<SecurityStampValidatorOptions>(options =>
 {
-    options.ValidationInterval = TimeSpan.FromMinutes(1);
+    options.ValidationInterval = TimeSpan.FromSeconds(securityStampSeconds);
 });
 
 // 3. MVC, Antiforgery & SignalR
@@ -77,9 +99,10 @@ builder.Services.AddRateLimiter(options =>
     options.AddPolicy("login-policy", httpContext =>
     {
         var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var isDev = builder.Environment.IsDevelopment();
         return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = 5,
+            PermitLimit = isDev ? 50 : 5,
             Window = TimeSpan.FromMinutes(1),
             QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
             QueueLimit = 0
@@ -90,9 +113,10 @@ builder.Services.AddRateLimiter(options =>
     options.AddPolicy("diner-api-policy", httpContext =>
     {
         var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var isDev = builder.Environment.IsDevelopment();
         return RateLimitPartition.GetFixedWindowLimiter(ip, _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = 60,
+            PermitLimit = isDev ? 200 : 60,
             Window = TimeSpan.FromMinutes(1),
             QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
             QueueLimit = 0
@@ -128,11 +152,8 @@ using (var scope = app.Services.CreateScope())
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "An error occurred while seeding the database.");
-        if (!app.Environment.IsDevelopment())
-        {
-            throw;
-        }
+        logger.LogError(ex, "A critical error occurred while seeding the database.");
+        throw;
     }
 }
 
@@ -156,6 +177,14 @@ if ((validProxies != null && validProxies.Length > 0) || (validNetworks != null 
             if (System.Net.IPAddress.TryParse(proxy.Trim(), out var ip))
             {
                 forwardedHeadersOptions.KnownProxies.Add(ip);
+                if (System.Net.IPAddress.IsLoopback(ip))
+                {
+                    forwardedHeadersOptions.KnownProxies.Add(System.Net.IPAddress.IPv6Loopback);
+                    if (System.Net.IPAddress.TryParse("::ffff:127.0.0.1", out var v4Mapped))
+                    {
+                        forwardedHeadersOptions.KnownProxies.Add(v4Mapped);
+                    }
+                }
             }
         }
     }
@@ -175,13 +204,86 @@ if ((validProxies != null && validProxies.Length > 0) || (validNetworks != null 
     app.UseForwardedHeaders(forwardedHeadersOptions);
 }
 
+MenuScan.Services.FileHelper.Initialize(app.Environment.WebRootPath ?? Path.Combine(builder.Environment.ContentRootPath, "wwwroot"));
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Home/Error");
-    app.UseHsts();
+    if (hasHttpsConfigured)
+    {
+        app.UseHsts();
+    }
 }
 
-app.UseHttpsRedirection();
+if (hasHttpsConfigured)
+{
+    app.UseHttpsRedirection();
+}
+
+// API error handling & RFC-7807 problem+json response middleware for all /api endpoints
+var enableTestHooks = app.Configuration.GetValue<bool>("App:EnableTestHooks");
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api"))
+    {
+        try
+        {
+            if (enableTestHooks && context.Request.Path == "/api/test/force-unhandled-exception")
+            {
+                throw new InvalidOperationException("Simulated API failure for exception testing");
+            }
+
+            await next();
+
+            if (context.Response.StatusCode == StatusCodes.Status404NotFound && !context.Response.HasStarted)
+            {
+                context.Response.ContentType = "application/problem+json";
+                var problem = new
+                {
+                    type = "https://tools.ietf.org/html/rfc7231#section-6.5.4",
+                    title = "Not Found",
+                    status = 404,
+                    detail = $"The requested endpoint '{context.Request.Path}' was not found.",
+                    traceId = context.TraceIdentifier
+                };
+                await context.Response.WriteAsJsonAsync(problem, options: (System.Text.Json.JsonSerializerOptions?)null, contentType: "application/problem+json");
+            }
+        }
+        catch (Exception ex)
+        {
+            var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+            logger.LogError(ex, "Unhandled API exception for {Path}", context.Request.Path);
+
+            if (!context.Response.HasStarted)
+            {
+                context.Response.Clear();
+                context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+                context.Response.ContentType = "application/problem+json";
+
+                var isDev = app.Environment.IsDevelopment();
+                var problem = new
+                {
+                    type = "https://tools.ietf.org/html/rfc7231#section-6.6.1",
+                    title = "An error occurred while processing your request.",
+                    status = 500,
+                    detail = isDev ? ex.Message : "An unexpected server error occurred.",
+                    traceId = context.TraceIdentifier
+                };
+                await context.Response.WriteAsJsonAsync(problem, options: (System.Text.Json.JsonSerializerOptions?)null, contentType: "application/problem+json");
+            }
+        }
+    }
+    else
+    {
+        if (enableTestHooks && context.Request.Path == "/test/force-unhandled-exception")
+        {
+            throw new InvalidOperationException("Simulated MVC failure for exception testing");
+        }
+
+        await next();
+    }
+});
+
 app.UseStaticFiles();
 
 app.UseRouting();

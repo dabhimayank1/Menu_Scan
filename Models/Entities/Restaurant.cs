@@ -30,6 +30,9 @@ namespace MenuScan.Models.Entities
         [MaxLength(500)]
         public string? PaymentQrImageUrl { get; set; }
 
+        [NotMapped]
+        public string? SafePaymentQrImageUrl => MenuScan.Services.FileHelper.SafeImageUrl(PaymentQrImageUrl);
+
         [MaxLength(50)]
         public string? TaxNumber { get; set; }
 
@@ -38,6 +41,9 @@ namespace MenuScan.Models.Entities
 
         [MaxLength(500)]
         public string? LogoUrl { get; set; }
+
+        [NotMapped]
+        public string? SafeLogoUrl => MenuScan.Services.FileHelper.SafeImageUrl(LogoUrl);
 
         public bool IsActive { get; set; } = true;
         public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;

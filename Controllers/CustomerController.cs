@@ -79,6 +79,7 @@ namespace MenuScan.Controllers
         }
 
         [HttpGet("api/table/active-orders")]
+        [EnableRateLimiting("diner-api-policy")]
         public async Task<IActionResult> GetTableActiveOrders(
             [FromQuery] string tableToken, 
             [FromQuery] string restaurantSlug,
@@ -152,7 +153,7 @@ namespace MenuScan.Controllers
         [EnableRateLimiting("diner-api-policy")]
         public async Task<IActionResult> SubmitOrder([FromBody] OrderSubmissionDto? dto)
         {
-            if (dto == null || !ModelState.IsValid || dto.Items == null || !dto.Items.Any() || dto.Items.All(i => i.Quantity <= 0))
+            if (dto == null || dto.Items == null || !dto.Items.Any() || dto.Items.All(i => i.Quantity <= 0))
             {
                 return BadRequest(new { message = "Invalid order submission. Cart cannot be empty." });
             }
@@ -179,6 +180,12 @@ namespace MenuScan.Controllers
                 {
                     return BadRequest(new { message = "Phone number must contain between 7 and 15 digits." });
                 }
+            }
+
+            if (!ModelState.IsValid)
+            {
+                var firstError = ModelState.Values.SelectMany(v => v.Errors).FirstOrDefault()?.ErrorMessage ?? "Invalid order submission.";
+                return BadRequest(new { message = firstError });
             }
 
             // 1. Validate Restaurant & Table
@@ -213,6 +220,7 @@ namespace MenuScan.Controllers
                 {
                     success = true,
                     isDuplicate = true,
+                    orderId = existingOrder.Id,
                     orderNumber = existingOrder.OrderNumber,
                     orderToken = existingOrder.OrderToken,
                     redirectUrl = $"/order/track/{existingOrder.OrderToken}"
@@ -336,6 +344,7 @@ namespace MenuScan.Controllers
                     return Ok(new
                     {
                         success = true,
+                        orderId = order.Id,
                         orderNumber = order.OrderNumber,
                         orderToken = order.OrderToken,
                         redirectUrl = $"/order/track/{order.OrderToken}"
@@ -434,7 +443,7 @@ namespace MenuScan.Controllers
 
             if (order.Bill != null)
             {
-                var receiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={order.Id}";
+                var receiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={order.Id}&token={order.OrderToken}";
                 var payMethod = order.Bill.Payments.FirstOrDefault()?.Method.ToString() ?? "Settled";
                 ViewBag.WhatsAppReceiptUrl = WhatsAppHelper.BuildWhatsAppUrl(
                     order.CustomerPhone,
@@ -507,7 +516,7 @@ namespace MenuScan.Controllers
             string? wpReceiptUrl = null;
             if (order.Bill != null)
             {
-                var receiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={order.Id}";
+                var receiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={order.Id}&token={order.OrderToken}";
                 var payMethod = order.Bill.Payments.FirstOrDefault()?.Method.ToString() ?? "Settled";
                 wpReceiptUrl = WhatsAppHelper.BuildWhatsAppUrl(
                     order.CustomerPhone,
@@ -526,9 +535,9 @@ namespace MenuScan.Controllers
         }
 
         [HttpGet("api/order/whatsapp-link")]
-        public async Task<IActionResult> GetWhatsAppLink([FromQuery] string orderToken, [FromQuery] string type = "confirm", [FromQuery] string? phone = null)
+        public async Task<IActionResult> GetWhatsAppLink([FromQuery] string? orderToken, [FromQuery] string type = "confirm", [FromQuery] string? phone = null)
         {
-            if (string.IsNullOrWhiteSpace(orderToken)) return BadRequest("Invalid order token");
+            if (string.IsNullOrWhiteSpace(orderToken)) return NotFound("Order token is required");
 
             var order = await _context.Orders
                 .IgnoreQueryFilters()
@@ -538,19 +547,10 @@ namespace MenuScan.Controllers
                     .ThenInclude(b => b!.Payments)
                 .FirstOrDefaultAsync(o => o.OrderToken == orderToken);
 
-            if (order == null) return NotFound();
+            if (order == null) return NotFound("Order not found");
 
-            // Ignore the phone query parameter unless the caller is authenticated staff of that order's restaurant
+            // Strictly use the diner's saved order phone, ignoring any client-supplied phone
             string? targetPhone = order.CustomerPhone;
-            if (User.Identity?.IsAuthenticated == true && !string.IsNullOrWhiteSpace(phone))
-            {
-                var isSuperAdmin = User.IsInRole(AppRoles.SuperAdmin);
-                var staffRestId = User.FindFirst("RestaurantId")?.Value;
-                if (isSuperAdmin || (staffRestId != null && Guid.TryParse(staffRestId, out var rid) && rid == order.RestaurantId))
-                {
-                    targetPhone = phone.Trim();
-                }
-            }
 
             var baseUrl = NetworkHelper.ResolveBaseUrl(Request, _configuration);
             var trackerUrl = $"{baseUrl}/order/track/{order.OrderToken}";
@@ -563,7 +563,7 @@ namespace MenuScan.Controllers
             }
             else if (type.Equals("bill", StringComparison.OrdinalIgnoreCase) && order.Bill != null)
             {
-                var receiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={order.Id}";
+                var receiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={order.Id}&token={order.OrderToken}";
                 var payMethod = order.Bill.Payments.FirstOrDefault()?.Method.ToString() ?? "Settled";
                 message = WhatsAppHelper.BuildBillReceiptMessage(restName, order.Bill.BillNumber, order.OrderNumber, order.Table?.TableNumber ?? "Table", order.Bill.GrandTotal, payMethod, receiptUrl);
             }
@@ -586,9 +586,25 @@ namespace MenuScan.Controllers
         [EnableRateLimiting("diner-api-policy")]
         public async Task<IActionResult> CallWaiter([FromBody] CallWaiterDto? dto)
         {
-            if (dto == null || !ModelState.IsValid || string.IsNullOrWhiteSpace(dto.TableToken) || string.IsNullOrWhiteSpace(dto.RestaurantSlug))
+            if (dto == null || string.IsNullOrWhiteSpace(dto.TableToken) || string.IsNullOrWhiteSpace(dto.RestaurantSlug))
             {
                 return BadRequest(new { message = "Invalid request details." });
+            }
+
+            if (!string.IsNullOrWhiteSpace(dto.Notes) && dto.Notes.Trim().Length > 200)
+            {
+                return BadRequest(new { message = "Notes cannot exceed 200 characters." });
+            }
+
+            if (!string.IsNullOrWhiteSpace(dto.RequestType) && dto.RequestType.Trim().Length > 50)
+            {
+                return BadRequest(new { message = "Request type cannot exceed 50 characters." });
+            }
+
+            if (!ModelState.IsValid)
+            {
+                var firstError = ModelState.Values.SelectMany(v => v.Errors).FirstOrDefault()?.ErrorMessage ?? "Invalid request details.";
+                return BadRequest(new { message = firstError });
             }
 
             var restaurant = await _context.Restaurants.IgnoreQueryFilters()
@@ -639,6 +655,16 @@ namespace MenuScan.Controllers
         {
             if (dto == null || !ModelState.IsValid || string.IsNullOrWhiteSpace(dto.OrderToken))
                 return BadRequest(new { success = false, message = "Invalid order token or feedback data." });
+
+            if (!string.IsNullOrWhiteSpace(dto.Comment) && dto.Comment.Trim().Length > 1000)
+            {
+                return BadRequest(new { success = false, message = "Comment cannot exceed 1000 characters." });
+            }
+
+            if (!string.IsNullOrWhiteSpace(dto.CustomerName) && dto.CustomerName.Trim().Length > 100)
+            {
+                return BadRequest(new { success = false, message = "Customer name cannot exceed 100 characters." });
+            }
 
             var order = await _context.Orders
                 .IgnoreQueryFilters()
@@ -793,7 +819,7 @@ namespace MenuScan.Controllers
                 IsAlreadyPaid = isPaid,
                 BillNumber = order.Bill?.BillNumber,
                 PayeeName = restaurant?.PayeeName ?? restName,
-                PaymentQrImageUrl = restaurant?.PaymentQrImageUrl,
+                PaymentQrImageUrl = restaurant?.SafePaymentQrImageUrl,
                 AppUris = appUris
             });
         }
@@ -802,9 +828,9 @@ namespace MenuScan.Controllers
         [Microsoft.AspNetCore.Authorization.Authorize(Roles = $"{AppRoles.RestaurantAdmin},{AppRoles.SuperAdmin}")]
         public async Task<IActionResult> SaveRestaurantUpiId([FromBody] SaveRestaurantUpiDto? dto)
         {
-            if (dto == null || !ModelState.IsValid)
+            if (dto == null || !ModelState.IsValid || (string.IsNullOrWhiteSpace(dto.UpiId) && string.IsNullOrWhiteSpace(dto.PayeeName)))
             {
-                return BadRequest(new { success = false, message = "Invalid restaurant UPI data." });
+                return BadRequest(new { success = false, message = "Invalid restaurant UPI data. Both UPI ID and Payee Name cannot be empty." });
             }
 
             var restaurant = await _context.Restaurants.IgnoreQueryFilters()
@@ -850,7 +876,7 @@ namespace MenuScan.Controllers
                 success = true,
                 upiId = restaurant.UpiId,
                 payeeName = restaurant.PayeeName,
-                paymentQrImageUrl = restaurant.PaymentQrImageUrl,
+                paymentQrImageUrl = restaurant.SafePaymentQrImageUrl,
                 message = "Payment configuration updated successfully!"
             });
         }
@@ -864,9 +890,9 @@ namespace MenuScan.Controllers
                 return BadRequest(new { success = false, message = "Please select a valid image file." });
             }
 
-            if (file.Length > 2 * 1024 * 1024)
+            if (file.Length > 5 * 1024 * 1024)
             {
-                return BadRequest(new { success = false, message = "QR image file is too large (Maximum allowed size is 2MB)." });
+                return BadRequest(new { success = false, message = "QR image file is too large (Maximum allowed size is 5MB)." });
             }
 
             var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp" };

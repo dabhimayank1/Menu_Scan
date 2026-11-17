@@ -42,6 +42,16 @@ namespace MenuScan.Data
                 .HasIndex(t => t.Token)
                 .IsUnique();
 
+            builder.Entity<DiningTable>()
+                .HasIndex(t => new { t.RestaurantId, t.TableNumber })
+                .IsUnique()
+                .HasFilter("[IsActive] = 1");
+
+            builder.Entity<Category>()
+                .HasIndex(c => new { c.RestaurantId, c.Name })
+                .IsUnique()
+                .HasFilter("[IsActive] = 1");
+
             builder.Entity<Order>()
                 .HasIndex(o => o.OrderNumber)
                 .IsUnique();
@@ -114,14 +124,26 @@ namespace MenuScan.Data
             builder.Entity<MenuItem>()
                 .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.RestaurantId == _tenantService.CurrentRestaurantId);
 
+            builder.Entity<ItemCustomization>()
+                .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.MenuItem!.RestaurantId == _tenantService.CurrentRestaurantId);
+
             builder.Entity<DiningTable>()
                 .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.RestaurantId == _tenantService.CurrentRestaurantId);
 
             builder.Entity<Order>()
                 .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.RestaurantId == _tenantService.CurrentRestaurantId);
 
+            builder.Entity<OrderItem>()
+                .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.Order!.RestaurantId == _tenantService.CurrentRestaurantId);
+
+            builder.Entity<OrderStatusHistory>()
+                .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.Order!.RestaurantId == _tenantService.CurrentRestaurantId);
+
             builder.Entity<Bill>()
                 .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.RestaurantId == _tenantService.CurrentRestaurantId);
+
+            builder.Entity<Payment>()
+                .HasQueryFilter(e => _tenantService.CurrentRestaurantId == null || e.Bill!.RestaurantId == _tenantService.CurrentRestaurantId);
 
             builder.Entity<ServiceRequest>()
                 .HasOne(s => s.Restaurant)

@@ -28,6 +28,9 @@ namespace MenuScan.Models.Entities
         [MaxLength(500)]
         public string? ImageUrl { get; set; }
 
+        [NotMapped]
+        public string? SafeImageUrl => MenuScan.Services.FileHelper.SafeImageUrl(ImageUrl);
+
         public bool IsVeg { get; set; } = true;
         public bool IsAvailable { get; set; } = true;
         public int DisplayOrder { get; set; } = 0;

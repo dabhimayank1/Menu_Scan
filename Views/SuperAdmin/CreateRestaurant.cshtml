@@ -16,7 +16,7 @@
 
                 <div class="card-body p-4 p-md-5">
                     <form asp-action="CreateRestaurant" method="post">
-                        <div asp-validation-summary="ModelOnly" class="alert alert-danger mb-4 rounded-3"></div>
+                        <div asp-validation-summary="All" class="alert alert-danger mb-4 rounded-3"></div>
 
                         <!-- 1. Store Details -->
                         <h5 class="fw-bold mb-3" style="color: var(--cafe-primary);">
@@ -27,13 +27,14 @@
                             <div class="col-md-6">
                                 <label asp-for="Name" class="form-label fw-semibold">Restaurant Name *</label>
                                 <input asp-for="Name" class="form-control rounded-3" placeholder="e.g. Sunset Artisan Bistro" id="restNameInput" required oninput="autoSlug(this.value)" />
+                                <span asp-validation-for="Name" class="text-danger small"></span>
                             </div>
 
                             <div class="col-md-6">
-                                <label asp-for="Slug" class="form-label fw-semibold">URL Slug *</label>
+                                <label asp-for="Slug" class="form-label fw-semibold">URL Slug (leave blank to auto-generate)</label>
                                 <div class="input-group">
                                     <span class="input-group-text bg-light small">/r/</span>
-                                    <input asp-for="Slug" class="form-control rounded-end-3" placeholder="sunset-bistro" id="slugInput" required />
+                                    <input asp-for="Slug" class="form-control rounded-end-3" placeholder="sunset-bistro" id="slugInput" />
                                 </div>
                                 <span asp-validation-for="Slug" class="text-danger small"></span>
                             </div>
@@ -41,11 +42,13 @@
                             <div class="col-md-6">
                                 <label asp-for="Phone" class="form-label fw-semibold">Contact Phone</label>
                                 <input asp-for="Phone" class="form-control rounded-3" placeholder="+91 98765 00000" />
+                                <span asp-validation-for="Phone" class="text-danger small"></span>
                             </div>
 
                             <div class="col-md-6">
                                 <label asp-for="DefaultTaxRate" class="form-label fw-semibold">Default GST / Tax Rate (%)</label>
                                 <input asp-for="DefaultTaxRate" type="number" step="0.5" class="form-control rounded-3" value="5.0" required />
+                                <span asp-validation-for="DefaultTaxRate" class="text-danger small"></span>
                             </div>
 
                             <div class="col-12">
@@ -75,6 +78,7 @@
                             <div class="col-md-12">
                                 <label asp-for="AdminFullName" class="form-label fw-semibold">Manager Full Name *</label>
                                 <input asp-for="AdminFullName" class="form-control rounded-3" placeholder="e.g. Alex Mercer" required />
+                                <span asp-validation-for="AdminFullName" class="text-danger small"></span>
                             </div>
 
                             <div class="col-md-6">
@@ -85,7 +89,8 @@
 
                             <div class="col-md-6">
                                 <label asp-for="AdminPassword" class="form-label fw-semibold">Initial Password *</label>
-                                <input asp-for="AdminPassword" type="password" class="form-control rounded-3" placeholder="Minimum 6 characters" required />
+                                <input asp-for="AdminPassword" type="password" class="form-control rounded-3" placeholder="Minimum 8 characters with upper, lower, number, symbol" required />
+                                <span asp-validation-for="AdminPassword" class="text-danger small"></span>
                             </div>
                         </div>
 
