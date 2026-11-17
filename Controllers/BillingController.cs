@@ -519,7 +519,7 @@ namespace MenuScan.Controllers
                 {
                     await transaction.RollbackAsync();
                     _logger.LogWarning(ex, "Concurrency conflict settling bill for Order {OrderId}. Returning already paid result.", dto.OrderId);
-                    return await GetAlreadyPaidResponseAsync(order!.Id, baseUrl, restName, dto.Method);
+                    return await GetAlreadyPaidResponseAsync(order!.Id, order.RestaurantId, baseUrl, restName, dto.Method);
                 }
                 catch (DbUpdateException ex) when (IsUniqueIndexViolation(ex))
                 {
@@ -528,17 +528,18 @@ namespace MenuScan.Controllers
                     {
                         _logger.LogWarning("BillNumber collision detected. Retrying with new BillNumber (attempt {Attempt}).", attempts);
                         _context.ChangeTracker.Clear();
+                        var tenantIdCheck = currentTenantId ?? order?.RestaurantId;
                         order = await _context.Orders
                             .IgnoreQueryFilters()
                             .Include(o => o.Restaurant)
                             .Include(o => o.Table)
                             .Include(o => o.Bill)
-                            .FirstOrDefaultAsync(o => o.Id == dto.OrderId);
+                            .FirstOrDefaultAsync(o => o.Id == dto.OrderId && (User.IsInRole(AppRoles.SuperAdmin) || (tenantIdCheck.HasValue && o.RestaurantId == tenantIdCheck.Value)));
                         continue;
                     }
 
                     _logger.LogWarning(ex, "Duplicate bill detected for Order {OrderId}. Returning already paid result.", dto.OrderId);
-                    return await GetAlreadyPaidResponseAsync(order!.Id, baseUrl, restName, dto.Method);
+                    return await GetAlreadyPaidResponseAsync(order!.Id, order.RestaurantId, baseUrl, restName, dto.Method);
                 }
                 catch (Exception ex)
                 {
@@ -563,14 +564,14 @@ namespace MenuScan.Controllers
             return msg.Contains("IX_") || msg.Contains("UNIQUE") || msg.Contains("duplicate") || msg.Contains("2601") || msg.Contains("2627");
         }
 
-        private async Task<IActionResult> GetAlreadyPaidResponseAsync(Guid orderId, string baseUrl, string restName, PaymentMethod method)
+        private async Task<IActionResult> GetAlreadyPaidResponseAsync(Guid orderId, Guid restaurantId, string baseUrl, string restName, PaymentMethod method)
         {
             _context.ChangeTracker.Clear();
             var refreshedOrder = await _context.Orders
                 .IgnoreQueryFilters()
                 .Include(o => o.Bill)
                 .Include(o => o.Table)
-                .FirstOrDefaultAsync(o => o.Id == orderId);
+                .FirstOrDefaultAsync(o => o.Id == orderId && (User.IsInRole(AppRoles.SuperAdmin) || o.RestaurantId == restaurantId));
 
             var billNum = refreshedOrder?.Bill?.BillNumber ?? "PAID";
             var receiptUrl = $"{baseUrl}/Billing/PrintReceipt?orderId={orderId}&token={refreshedOrder?.OrderToken}";

@@ -207,14 +207,14 @@
                 @if (allRestaurants.Count > 1)
                 {
                     <div class="dropdown w-100 mt-2">
-                        <button class="btn btn-dark btn-sm w-100 rounded-3 border border-secondary border-opacity-50 py-2 px-3 text-start d-flex justify-content-between align-items-center" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Switch Active Shop">
+                        <button id="tenantSwitcherDropdown" class="btn btn-dark btn-sm w-100 rounded-3 border border-secondary border-opacity-50 py-2 px-3 text-start d-flex justify-content-between align-items-center" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Switch Active Shop">
                             <div class="text-truncate" style="max-width: 180px;">
                                 <i class="bi bi-shop text-warning me-2"></i>
                                 <span class="small fw-bold">@brandName</span>
                             </div>
                             <i class="bi bi-chevron-expand small text-white-50"></i>
                         </button>
-                        <ul class="dropdown-menu dropdown-menu-dark shadow-lg rounded-3 w-100 py-2 border-secondary">
+                        <ul class="dropdown-menu dropdown-menu-dark shadow-lg rounded-3 w-100 py-2 border-secondary" aria-labelledby="tenantSwitcherDropdown">
                             <li class="dropdown-header text-uppercase text-white-50 small fw-bold px-3 py-1">
                                 <i class="bi bi-buildings me-1"></i> Switch Active Shop
                             </li>
@@ -222,10 +222,10 @@
                             {
                                 var isSel = currentRestaurant != null && rest.Id == currentRestaurant.Id;
                                 <li>
-                                    <form asp-controller="Account" asp-action="SwitchRestaurant" method="post" class="m-0 p-0">
+                                    <form asp-controller="Account" asp-action="SwitchRestaurant" method="post" class="m-0 p-0" data-testid="tenant-switch-form">
                                         <input type="hidden" name="id" value="@rest.Id" />
                                         <input type="hidden" name="returnUrl" value="@Context.Request.Path@Context.Request.QueryString" />
-                                        <button type="submit" class="dropdown-item d-flex justify-content-between align-items-center py-2 px-3 @(isSel ? "active fw-bold text-warning" : "")">
+                                        <button type="submit" class="dropdown-item d-flex justify-content-between align-items-center py-2 px-3 @(isSel ? "active fw-bold text-warning" : "")" data-testid="tenant-switch-btn" data-restaurant-slug="@rest.Slug">
                                             <span class="small text-truncate"><i class="bi bi-cup-hot me-2 text-warning"></i>@rest.Name</span>
                                             @if (isSel)
                                             {

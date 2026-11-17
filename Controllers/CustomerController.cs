@@ -3,6 +3,7 @@ using MenuScan.Hubs;
 using MenuScan.Models.Entities;
 using MenuScan.Models.ViewModels;
 using MenuScan.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
@@ -19,6 +20,7 @@ namespace MenuScan.Controllers
         private readonly IWebHostEnvironment _env;
         private readonly IConfiguration _configuration;
         private readonly ITimeHelper _timeHelper;
+        private readonly ITenantService _tenantService;
 
         public CustomerController(
             ApplicationDbContext context,
@@ -27,7 +29,8 @@ namespace MenuScan.Controllers
             ILogger<CustomerController> logger,
             IWebHostEnvironment env,
             IConfiguration configuration,
-            ITimeHelper timeHelper)
+            ITimeHelper timeHelper,
+            ITenantService tenantService)
         {
             _context = context;
             _hubContext = hubContext;
@@ -36,6 +39,7 @@ namespace MenuScan.Controllers
             _env = env;
             _configuration = configuration;
             _timeHelper = timeHelper;
+            _tenantService = tenantService;
         }
 
         [HttpGet("r/{slug}/t/{token}")]
@@ -825,7 +829,7 @@ namespace MenuScan.Controllers
         }
 
         [HttpPost("api/restaurant/save-upi-id")]
-        [Microsoft.AspNetCore.Authorization.Authorize(Roles = $"{AppRoles.RestaurantAdmin},{AppRoles.SuperAdmin}")]
+        [Authorize(Roles = $"{AppRoles.RestaurantAdmin},{AppRoles.SuperAdmin}")]
         public async Task<IActionResult> SaveRestaurantUpiId([FromBody] SaveRestaurantUpiDto? dto)
         {
             if (dto == null || !ModelState.IsValid || (string.IsNullOrWhiteSpace(dto.UpiId) && string.IsNullOrWhiteSpace(dto.PayeeName)))
@@ -833,22 +837,46 @@ namespace MenuScan.Controllers
                 return BadRequest(new { success = false, message = "Invalid restaurant UPI data. Both UPI ID and Payee Name cannot be empty." });
             }
 
+            // Always resolve target restaurant from the authenticated user's tenant claim, never solely from request parameters
+            Guid? targetRestaurantId = null;
+            if (!User.IsInRole(AppRoles.SuperAdmin))
+            {
+                var userClaim = User.FindFirst("RestaurantId");
+                if (userClaim == null || !Guid.TryParse(userClaim.Value, out var claimTenantId))
+                {
+                    return Forbid();
+                }
+                if (!string.IsNullOrWhiteSpace(dto.RestaurantSlug))
+                {
+                    var slugRest = await _context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.Slug == dto.RestaurantSlug);
+                    if (slugRest == null || slugRest.Id != claimTenantId)
+                    {
+                        return Forbid();
+                    }
+                }
+                targetRestaurantId = claimTenantId;
+            }
+            else
+            {
+                targetRestaurantId = _tenantService.CurrentRestaurantId;
+                if (!targetRestaurantId.HasValue && !string.IsNullOrWhiteSpace(dto.RestaurantSlug))
+                {
+                    var slugRest = await _context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.Slug == dto.RestaurantSlug);
+                    targetRestaurantId = slugRest?.Id;
+                }
+            }
+
+            if (!targetRestaurantId.HasValue)
+            {
+                return Forbid();
+            }
+
             var restaurant = await _context.Restaurants.IgnoreQueryFilters()
-                .FirstOrDefaultAsync(r => r.Slug == dto.RestaurantSlug && r.IsActive);
+                .FirstOrDefaultAsync(r => r.Id == targetRestaurantId.Value && r.IsActive);
 
             if (restaurant == null)
             {
                 return NotFound(new { success = false, message = "Restaurant not found." });
-            }
-
-            // Tenant security check
-            if (!User.IsInRole(AppRoles.SuperAdmin))
-            {
-                var userClaim = User.FindFirst("RestaurantId");
-                if (userClaim == null || !Guid.TryParse(userClaim.Value, out var claimTenantId) || claimTenantId != restaurant.Id)
-                {
-                    return Forbid();
-                }
             }
 
             if (!string.IsNullOrWhiteSpace(dto.UpiId))
@@ -882,7 +910,7 @@ namespace MenuScan.Controllers
         }
 
         [HttpPost("api/restaurant/upload-payment-qr")]
-        [Microsoft.AspNetCore.Authorization.Authorize(Roles = $"{AppRoles.RestaurantAdmin},{AppRoles.SuperAdmin}")]
+        [Authorize(Roles = $"{AppRoles.RestaurantAdmin},{AppRoles.SuperAdmin}")]
         public async Task<IActionResult> UploadPaymentQr([FromForm] IFormFile file, [FromForm] string? restaurantSlug)
         {
             if (file == null || file.Length == 0)
@@ -910,21 +938,45 @@ namespace MenuScan.Controllers
                 }
             }
 
-            var restaurant = await _context.Restaurants.IgnoreQueryFilters()
-                .FirstOrDefaultAsync(r => r.Slug == restaurantSlug && r.IsActive);
-            if (restaurant == null)
-            {
-                return NotFound(new { success = false, message = "Restaurant not found." });
-            }
-
-            // Tenant security check
+            // Always resolve target restaurant from the authenticated user's tenant claim, never solely from request parameters
+            Guid? targetRestaurantId = null;
             if (!User.IsInRole(AppRoles.SuperAdmin))
             {
                 var userClaim = User.FindFirst("RestaurantId");
-                if (userClaim == null || !Guid.TryParse(userClaim.Value, out var claimTenantId) || claimTenantId != restaurant.Id)
+                if (userClaim == null || !Guid.TryParse(userClaim.Value, out var claimTenantId))
                 {
                     return Forbid();
                 }
+                if (!string.IsNullOrWhiteSpace(restaurantSlug))
+                {
+                    var slugRest = await _context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.Slug == restaurantSlug);
+                    if (slugRest == null || slugRest.Id != claimTenantId)
+                    {
+                        return Forbid();
+                    }
+                }
+                targetRestaurantId = claimTenantId;
+            }
+            else
+            {
+                targetRestaurantId = _tenantService.CurrentRestaurantId;
+                if (!targetRestaurantId.HasValue && !string.IsNullOrWhiteSpace(restaurantSlug))
+                {
+                    var slugRest = await _context.Restaurants.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.Slug == restaurantSlug);
+                    targetRestaurantId = slugRest?.Id;
+                }
+            }
+
+            if (!targetRestaurantId.HasValue)
+            {
+                return Forbid();
+            }
+
+            var restaurant = await _context.Restaurants.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(r => r.Id == targetRestaurantId.Value && r.IsActive);
+            if (restaurant == null)
+            {
+                return NotFound(new { success = false, message = "Restaurant not found." });
             }
 
             // Delete old file when replacing

@@ -69,6 +69,19 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.Cookie.SecurePolicy = hasHttpsConfigured
         ? CookieSecurePolicy.Always
         : CookieSecurePolicy.SameAsRequest;
+    options.Events.OnRedirectToAccessDenied = context =>
+    {
+        if (context.Request.Path.StartsWithSegments("/api") ||
+            context.Request.Headers["Accept"].ToString().Contains("application/json") ||
+            context.Request.Headers["X-Requested-With"] == "XMLHttpRequest" ||
+            context.Request.ContentType?.Contains("application/json") == true)
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return Task.CompletedTask;
+        }
+        context.Response.Redirect(context.RedirectUri);
+        return Task.CompletedTask;
+    };
 });
 
 var securityStampSeconds = builder.Configuration.GetValue<int?>("App:SecurityStampValidationSeconds") ?? 60;

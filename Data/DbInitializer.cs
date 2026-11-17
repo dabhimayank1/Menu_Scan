@@ -21,6 +21,11 @@ namespace MenuScan.Data
 
             await context.Database.MigrateAsync();
 
+            if (configuration.GetValue<bool>("App:EnableTestHooks") && configuration.GetValue<bool>("App:ForceSeederFailure"))
+            {
+                throw new InvalidOperationException("Forced seeder failure via App:ForceSeederFailure test hook.");
+            }
+
             // 1. Seed Roles
             string[] roles = [AppRoles.SuperAdmin, AppRoles.RestaurantAdmin, AppRoles.Cashier, AppRoles.KitchenStaff];
             foreach (var role in roles)

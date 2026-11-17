@@ -233,7 +233,7 @@ namespace MenuScan.Controllers
 
             var hasOrders = await _context.Orders
                 .IgnoreQueryFilters()
-                .AnyAsync(o => o.TableId == id);
+                .AnyAsync(o => o.RestaurantId == restaurant!.Id && o.TableId == id);
 
             if (hasOrders)
             {
@@ -613,7 +613,7 @@ namespace MenuScan.Controllers
             {
                 _logger.LogError(ex, "Failed to delete menu item {ItemId}", id);
                 _context.ChangeTracker.Clear();
-                var itemToDeactivate = await _context.MenuItems.IgnoreQueryFilters().FirstOrDefaultAsync(m => m.Id == id);
+                var itemToDeactivate = await _context.MenuItems.IgnoreQueryFilters().FirstOrDefaultAsync(m => m.Id == id && m.RestaurantId == restaurant!.Id);
                 if (itemToDeactivate != null)
                 {
                     itemToDeactivate.IsAvailable = false;
