@@ -3,29 +3,53 @@
 @inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
 @using Microsoft.EntityFrameworkCore
 @{
-    var tenantId = TenantService.CurrentRestaurantId;
-    var currentRestaurant = tenantId.HasValue 
-        ? AppDb.Restaurants.IgnoreQueryFilters().FirstOrDefault(r => r.Id == tenantId.Value) 
-        : null;
-    if (currentRestaurant == null)
-    {
-        currentRestaurant = AppDb.Restaurants.IgnoreQueryFilters().FirstOrDefault(r => r.Slug == "spice-symphony" && r.IsActive)
-            ?? AppDb.Restaurants.IgnoreQueryFilters().FirstOrDefault(r => r.IsActive);
-    }
-    var allRestaurants = AppDb.Restaurants.IgnoreQueryFilters().Where(r => r.IsActive).OrderBy(r => r.Name).ToList();
-
-    var brandName = currentRestaurant?.Name ?? "Brew & Bliss Coffee House";
-    var primaryTable = currentRestaurant != null
-        ? AppDb.DiningTables.IgnoreQueryFilters().Where(t => t.RestaurantId == currentRestaurant.Id).OrderBy(t => t.TableNumber).FirstOrDefault()
-        : null;
-    var primaryTableToken = primaryTable?.Token ?? "TAB-01";
-    var primaryTableName = primaryTable?.TableNumber ?? "Table 1";
-    var primarySlug = currentRestaurant?.Slug ?? "spice-symphony";
-    var customerMenuUrl = $"/r/{primarySlug}/t/{primaryTableToken}";
-
+    var isAuth = User.Identity?.IsAuthenticated == true;
     var currentController = ViewContext.RouteData.Values["controller"]?.ToString() ?? "";
     var currentAction = ViewContext.RouteData.Values["action"]?.ToString() ?? "";
-    var isAuth = User.Identity?.IsAuthenticated == true;
+
+    MenuScan.Models.Entities.Restaurant? currentRestaurant = null;
+    var allRestaurants = new List<MenuScan.Models.Entities.Restaurant>();
+    string brandName = "MenuScan";
+    string primaryTableName = "Table 1";
+    string customerMenuUrl = "/";
+
+    if (isAuth)
+    {
+        var tenantId = TenantService.CurrentRestaurantId;
+        currentRestaurant = tenantId.HasValue 
+            ? AppDb.Restaurants.IgnoreQueryFilters().FirstOrDefault(r => r.Id == tenantId.Value) 
+            : null;
+        if (currentRestaurant == null)
+        {
+            currentRestaurant = AppDb.Restaurants.IgnoreQueryFilters().FirstOrDefault(r => r.Slug == "spice-symphony" && r.IsActive)
+                ?? AppDb.Restaurants.IgnoreQueryFilters().FirstOrDefault(r => r.IsActive);
+        }
+        allRestaurants = AppDb.Restaurants.IgnoreQueryFilters().Where(r => r.IsActive).OrderBy(r => r.Name).ToList();
+
+        brandName = currentRestaurant?.Name ?? "Brew & Bliss Coffee House";
+        var primaryTable = currentRestaurant != null
+            ? AppDb.DiningTables.IgnoreQueryFilters().Where(t => t.RestaurantId == currentRestaurant.Id).OrderBy(t => t.TableNumber).FirstOrDefault()
+            : null;
+        var primaryTableToken = primaryTable?.Token ?? "TAB-01";
+        primaryTableName = primaryTable?.TableNumber ?? "Table 1";
+        var primarySlug = currentRestaurant?.Slug ?? "spice-symphony";
+        customerMenuUrl = $"/r/{primarySlug}/t/{primaryTableToken}";
+    }
+    else
+    {
+        if (Model is MenuScan.Models.ViewModels.CustomerMenuViewModel cmvm)
+        {
+            brandName = cmvm.Restaurant.Name;
+        }
+        else if (Model is MenuScan.Models.ViewModels.OrderTrackingViewModel otvm)
+        {
+            brandName = otvm.Restaurant.Name;
+        }
+        else
+        {
+            brandName = "MenuScan";
+        }
+    }
 }
 <!DOCTYPE html>
 <html lang="en">
@@ -310,6 +334,11 @@
                         <i class="bi bi-people"></i>
                         <span>Staff &amp; Roles</span>
                     </a>
+
+                    <a asp-controller="Admin" asp-action="Settings" class="sidebar-link @(currentController == "Admin" && currentAction == "Settings" ? "active" : "")">
+                        <i class="bi bi-qr-code text-warning"></i>
+                        <span>Payment QR &amp; Settings</span>
+                    </a>
                 </div>
 
                 <!-- 3. Reports & Analytics -->
@@ -360,8 +389,8 @@
                     <small class="text-white-50" style="font-size: 0.72rem;">@(User.IsInRole("SuperAdmin") ? "Super Admin" : "Store Staff")</small>
                 </div>
                 <div class="d-flex align-items-center gap-1">
-                    <a asp-controller="Account" asp-action="ChangePassword" class="btn btn-outline-light btn-sm rounded-circle p-1 d-inline-flex align-items-center justify-content-center" style="width: 32px; height: 32px;" title="Change Password">
-                        <i class="bi bi-key"></i>
+                    <a asp-controller="Account" asp-action="ChangePassword" class="btn btn-outline-light btn-sm rounded-circle p-1 d-inline-flex align-items-center justify-content-center" style="width: 32px; height: 32px;" title="Account Security (Change Email &amp; Password)">
+                        <i class="bi bi-shield-lock"></i>
                     </a>
                     <form asp-controller="Account" asp-action="Logout" method="post" class="d-inline">
                         <button type="submit" class="btn btn-outline-light btn-sm rounded-circle p-1 d-inline-flex align-items-center justify-content-center" style="width: 32px; height: 32px;" title="Sign Out">
@@ -464,7 +493,10 @@ else
 
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/lib/signalr/signalr.min.js"></script>
-    <script src="~/js/soundbox.js" asp-append-version="true"></script>
+    @if (isAuth)
+    {
+        <script src="~/js/soundbox.js" asp-append-version="true"></script>
+    }
     <script src="~/js/realtime.js" asp-append-version="true"></script>
     <script>
         function getAntiForgeryToken() {
@@ -481,6 +513,26 @@ else
                 backdrop.classList.toggle('show');
             }
         }
+
+        function togglePasswordVisibility(inputId, btn) {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+            const icon = btn.querySelector('i');
+            if (input.type === 'password') {
+                input.type = 'text';
+                if (icon) {
+                    icon.classList.remove('bi-eye');
+                    icon.classList.add('bi-eye-slash');
+                }
+            } else {
+                input.type = 'password';
+                if (icon) {
+                    icon.classList.remove('bi-eye-slash');
+                    icon.classList.add('bi-eye');
+                }
+            }
+        }
+        window.togglePasswordVisibility = togglePasswordVisibility;
     </script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>

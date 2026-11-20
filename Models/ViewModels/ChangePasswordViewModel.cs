@@ -4,20 +4,26 @@ namespace MenuScan.Models.ViewModels
 {
     public class ChangePasswordViewModel
     {
-        [Required(ErrorMessage = "Current password is required.")]
+        [Display(Name = "Current Email")]
+        public string? CurrentEmail { get; set; }
+
+        [EmailAddress(ErrorMessage = "Please enter a valid email address.")]
+        [MaxLength(150, ErrorMessage = "Email cannot exceed 150 characters.")]
+        [Display(Name = "New Email Address")]
+        public string? NewEmail { get; set; }
+
+        [Required(ErrorMessage = "Current password is required to verify your identity.")]
         [DataType(DataType.Password)]
         [Display(Name = "Current Password")]
         public string CurrentPassword { get; set; } = string.Empty;
 
-        [Required(ErrorMessage = "New password is required.")]
         [DataType(DataType.Password)]
-        [Display(Name = "New Password")]
-        public string NewPassword { get; set; } = string.Empty;
+        [Display(Name = "New Secure Password")]
+        public string? NewPassword { get; set; }
 
-        [Required(ErrorMessage = "Please confirm your new password.")]
         [DataType(DataType.Password)]
         [Compare("NewPassword", ErrorMessage = "New password and confirmation password do not match.")]
         [Display(Name = "Confirm New Password")]
-        public string ConfirmPassword { get; set; } = string.Empty;
+        public string? ConfirmPassword { get; set; }
     }
 }

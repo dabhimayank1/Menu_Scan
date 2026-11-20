@@ -47,6 +47,7 @@ namespace MenuScan.Controllers
         {
             var restaurant = await _context.Restaurants
                 .IgnoreQueryFilters()
+                .AsNoTracking()
                 .FirstOrDefaultAsync(r => r.Slug == slug && r.IsActive);
 
             if (restaurant == null)
@@ -56,6 +57,7 @@ namespace MenuScan.Controllers
 
             var table = await _context.DiningTables
                 .IgnoreQueryFilters()
+                .AsNoTracking()
                 .FirstOrDefaultAsync(t => t.RestaurantId == restaurant.Id && t.Token == token && t.IsActive);
 
             if (table == null)
@@ -65,10 +67,12 @@ namespace MenuScan.Controllers
 
             var categories = await _context.Categories
                 .IgnoreQueryFilters()
+                .AsNoTracking()
                 .Where(c => c.RestaurantId == restaurant.Id && c.IsActive)
                 .OrderBy(c => c.DisplayOrder)
                 .Include(c => c.MenuItems.Where(m => m.IsAvailable).OrderBy(m => m.DisplayOrder))
                     .ThenInclude(m => m.Customizations.Where(cu => cu.IsAvailable))
+                .AsSplitQuery()
                 .ToListAsync();
 
             var viewModel = new CustomerMenuViewModel

@@ -89,7 +89,7 @@
 
                             <div class="col-md-6">
                                 <label asp-for="AdminPassword" class="form-label fw-semibold">Initial Password *</label>
-                                <input asp-for="AdminPassword" type="password" class="form-control rounded-3" placeholder="Minimum 8 characters with upper, lower, number, symbol" required />
+                                <input asp-for="AdminPassword" type="password" id="adminPasswordInput" class="form-control rounded-3" placeholder="Minimum 8 characters with upper, lower, number, symbol" required />
                                 <span asp-validation-for="AdminPassword" class="text-danger small"></span>
                             </div>
                         </div>

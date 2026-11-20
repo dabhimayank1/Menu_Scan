@@ -114,9 +114,13 @@ namespace MenuScan.Controllers
 
         [HttpGet]
         [Authorize]
-        public IActionResult ChangePassword()
+        public async Task<IActionResult> ChangePassword()
         {
-            return View(new ChangePasswordViewModel());
+            var user = await _userManager.GetUserAsync(User);
+            return View(new ChangePasswordViewModel
+            {
+                CurrentEmail = user?.Email
+            });
         }
 
         [HttpPost]
@@ -124,44 +128,130 @@ namespace MenuScan.Controllers
         [Authorize]
         public async Task<IActionResult> ChangePassword(ChangePasswordViewModel model)
         {
-            if (!ModelState.IsValid)
-            {
-                return View(model);
-            }
-
-            if (string.Equals(model.CurrentPassword, model.NewPassword))
-            {
-                ModelState.AddModelError("NewPassword", "New password cannot be the same as your current password.");
-                return View(model);
-            }
-
-            if (!SecurityRules.ValidatePassword(model.NewPassword, out var passwordError))
-            {
-                ModelState.AddModelError("NewPassword", passwordError!);
-                return View(model);
-            }
-
             var user = await _userManager.GetUserAsync(User);
             if (user == null)
             {
                 return RedirectToAction(nameof(Login));
             }
 
-            var result = await _userManager.ChangePasswordAsync(user, model.CurrentPassword, model.NewPassword);
-            if (!result.Succeeded)
+            model.CurrentEmail = user.Email;
+
+            if (!ModelState.IsValid)
             {
-                foreach (var error in result.Errors)
-                {
-                    ModelState.AddModelError(string.Empty, error.Description);
-                }
                 return View(model);
             }
 
-            // Refresh security stamp to invalidate cookies on other sessions/devices
+            var trimmedNewEmail = model.NewEmail?.Trim();
+            var trimmedNewPassword = model.NewPassword?.Trim();
+
+            bool isChangingEmail = !string.IsNullOrWhiteSpace(trimmedNewEmail) &&
+                                  !string.Equals(trimmedNewEmail, user.Email, StringComparison.OrdinalIgnoreCase);
+            bool isChangingPassword = !string.IsNullOrWhiteSpace(trimmedNewPassword);
+
+            if (!isChangingEmail && !isChangingPassword)
+            {
+                ModelState.AddModelError(string.Empty, "Please enter a new email address, a new password, or both to update.");
+                return View(model);
+            }
+
+            // Always verify current password first
+            var passwordCheck = await _userManager.CheckPasswordAsync(user, model.CurrentPassword);
+            if (!passwordCheck)
+            {
+                ModelState.AddModelError("CurrentPassword", "Incorrect current password. Please try again.");
+                return View(model);
+            }
+
+            // Validate password if changing
+            if (isChangingPassword)
+            {
+                if (string.Equals(model.CurrentPassword, trimmedNewPassword))
+                {
+                    ModelState.AddModelError("NewPassword", "New password cannot be the same as your current password.");
+                    return View(model);
+                }
+
+                if (!SecurityRules.ValidatePassword(trimmedNewPassword, out var passwordError))
+                {
+                    ModelState.AddModelError("NewPassword", passwordError!);
+                    return View(model);
+                }
+
+                if (string.IsNullOrWhiteSpace(model.ConfirmPassword) || !string.Equals(trimmedNewPassword, model.ConfirmPassword.Trim()))
+                {
+                    ModelState.AddModelError("ConfirmPassword", "New password and confirmation password do not match.");
+                    return View(model);
+                }
+            }
+
+            // Validate email uniqueness if changing email
+            if (isChangingEmail)
+            {
+                var existingUser = await _userManager.FindByEmailAsync(trimmedNewEmail!) ?? await _userManager.FindByNameAsync(trimmedNewEmail!);
+                if (existingUser != null && existingUser.Id != user.Id)
+                {
+                    ModelState.AddModelError("NewEmail", "This email address is already in use by another account.");
+                    return View(model);
+                }
+            }
+
+            // Execute Password change
+            if (isChangingPassword)
+            {
+                var passResult = await _userManager.ChangePasswordAsync(user, model.CurrentPassword, trimmedNewPassword!);
+                if (!passResult.Succeeded)
+                {
+                    foreach (var error in passResult.Errors)
+                    {
+                        ModelState.AddModelError(string.Empty, error.Description);
+                    }
+                    return View(model);
+                }
+            }
+
+            // Execute Email change
+            if (isChangingEmail)
+            {
+                var emailToken = await _userManager.GenerateChangeEmailTokenAsync(user, trimmedNewEmail!);
+                var emailResult = await _userManager.ChangeEmailAsync(user, trimmedNewEmail!, emailToken);
+                if (!emailResult.Succeeded)
+                {
+                    foreach (var error in emailResult.Errors)
+                    {
+                        ModelState.AddModelError("NewEmail", error.Description);
+                    }
+                    return View(model);
+                }
+
+                // Also update UserName to match new email so login with new email works seamlessly
+                var userNameResult = await _userManager.SetUserNameAsync(user, trimmedNewEmail!);
+                if (!userNameResult.Succeeded)
+                {
+                    foreach (var error in userNameResult.Errors)
+                    {
+                        ModelState.AddModelError("NewEmail", error.Description);
+                    }
+                    return View(model);
+                }
+            }
+
+            // Refresh security stamp and auth cookie session
             await _userManager.UpdateSecurityStampAsync(user);
             await _signInManager.RefreshSignInAsync(user);
 
-            TempData["Success"] = "Your password has been changed successfully.";
+            if (isChangingEmail && isChangingPassword)
+            {
+                TempData["Success"] = $"Your email has been changed to '{trimmedNewEmail}' and your password has been updated successfully.";
+            }
+            else if (isChangingEmail)
+            {
+                TempData["Success"] = $"Your email has been changed to '{trimmedNewEmail}' successfully. Use this new email for future logins.";
+            }
+            else
+            {
+                TempData["Success"] = "Your password has been changed successfully.";
+            }
+
             return RedirectBasedOnRole();
         }
 

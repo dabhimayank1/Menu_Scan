@@ -377,3 +377,24 @@ a:hover {
     box-shadow: var(--cafe-shadow-sm);
     font-weight: 700;
 }
+
+/* Mobile Performance Optimizations */
+.product-item-wrapper {
+    content-visibility: auto;
+    contain-intrinsic-size: 320px;
+}
+
+.cafe-card-img {
+    will-change: transform;
+    image-rendering: -webkit-optimize-contrast;
+}
+
+html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+}
+
+body {
+    -webkit-overflow-scrolling: touch;
+    touch-action: manipulation;
+}

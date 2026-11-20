@@ -24,6 +24,13 @@
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
     }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show rounded-4 shadow-sm" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i> @TempData["Error"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
 
     <!-- Platform KPI Cards -->
     <div class="row g-3 mb-4">
@@ -154,6 +161,10 @@
                                                 <i class="bi bi-qr-code me-1"></i> QR Menu
                                             </a>
                                         }
+                                        <button type="button" class="btn btn-outline-danger" title="Delete Restaurant & Offboard Company" 
+                                                onclick="confirmDeleteRestaurant('@rest.Id', '@rest.Name')">
+                                            <i class="bi bi-trash3 me-1"></i> Delete
+                                        </button>
                                     </div>
                                 </td>
                             </tr>
@@ -165,8 +176,58 @@
     </div>
 </div>
 
+<!-- Modal: Confirm Delete Restaurant -->
+<div class="modal fade" id="deleteRestaurantModal" tabindex="-1" aria-labelledby="deleteModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content rounded-4 border-0 shadow">
+            <div class="modal-header bg-danger text-white border-0 py-3">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-exclamation-octagon-fill fs-4"></i>
+                    <h5 class="modal-title fw-bold" id="deleteModalTitle">Offboard &amp; Delete Company</h5>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-action="DeleteRestaurant" method="post">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" id="deleteTargetRestaurantId" />
+                <div class="modal-body p-4 text-center">
+                    <div class="text-danger mb-3">
+                        <i class="bi bi-building-x display-3"></i>
+                    </div>
+                    <h5 class="fw-bold mb-2">Permanently Delete "<span id="deleteTargetRestaurantName" class="text-danger"></span>"?</h5>
+                    <p class="text-muted small mb-3">
+                        This company is leaving the platform. Deleting it will <strong>permanently erase</strong>:
+                    </p>
+                    <ul class="text-start small text-muted bg-light p-3 rounded-3 mb-0">
+                        <li>All Dining Tables &amp; customer QR codes</li>
+                        <li>Full food menu catalog, categories &amp; customizations</li>
+                        <li>Past customer orders, KDS history &amp; billing logs</li>
+                        <li>All associated Staff &amp; Restaurant Admin accounts</li>
+                    </ul>
+                    <div class="alert alert-warning small mt-3 mb-0 border-0">
+                        <i class="bi bi-shield-exclamation me-1"></i> <strong>Warning:</strong> This action cannot be undone.
+                    </div>
+                </div>
+                <div class="modal-footer bg-light border-0 p-3">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger rounded-pill px-4 fw-bold shadow-sm">
+                        <i class="bi bi-trash3-fill me-1"></i> Yes, Permanently Delete
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 @section Scripts {
     <script>
+        function confirmDeleteRestaurant(id, name) {
+            document.getElementById('deleteTargetRestaurantId').value = id;
+            document.getElementById('deleteTargetRestaurantName').innerText = name;
+            const modal = new bootstrap.Modal(document.getElementById('deleteRestaurantModal'));
+            modal.show();
+        }
+
         async function toggleStatus(restaurantId) {
             try {
                 const response = await fetch(`/SuperAdmin/ToggleRestaurantStatus?id=${restaurantId}`, {

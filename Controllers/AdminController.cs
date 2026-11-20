@@ -901,6 +901,134 @@ namespace MenuScan.Controllers
             return RedirectToAction(nameof(Staff));
         }
 
+        [HttpGet]
+        [Authorize(Roles = $"{AppRoles.RestaurantAdmin},{AppRoles.SuperAdmin}")]
+        public async Task<IActionResult> Settings()
+        {
+            var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
+            if (errorResult != null) return errorResult;
+
+            return View(restaurant);
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        [Authorize(Roles = $"{AppRoles.RestaurantAdmin},{AppRoles.SuperAdmin}")]
+        public async Task<IActionResult> UpdatePaymentSettings(string? upiId, string? payeeName, IFormFile? qrFile)
+        {
+            var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
+            if (errorResult != null) return errorResult;
+
+            upiId = upiId?.Trim();
+            payeeName = payeeName?.Trim();
+
+            if (!string.IsNullOrWhiteSpace(upiId))
+            {
+                if (upiId.Length > 100 || !upiId.Contains('@'))
+                {
+                    TempData["Error"] = "Please enter a valid UPI ID (e.g. merchant@okhdfcbank).";
+                    return RedirectToAction(nameof(Settings));
+                }
+                restaurant!.UpiId = upiId;
+            }
+
+            if (!string.IsNullOrWhiteSpace(payeeName))
+            {
+                if (payeeName.Length > 150)
+                {
+                    TempData["Error"] = "Payee name cannot exceed 150 characters.";
+                    return RedirectToAction(nameof(Settings));
+                }
+                restaurant!.PayeeName = payeeName;
+            }
+
+            if (qrFile != null && qrFile.Length > 0)
+            {
+                if (qrFile.Length > 5 * 1024 * 1024)
+                {
+                    TempData["Error"] = "QR image file is too large (Maximum allowed size is 5MB).";
+                    return RedirectToAction(nameof(Settings));
+                }
+
+                var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp" };
+                var ext = Path.GetExtension(qrFile.FileName).ToLowerInvariant();
+                if (!allowedExtensions.Contains(ext))
+                {
+                    TempData["Error"] = "Only valid image files (.jpg, .jpeg, .png, .webp) are allowed.";
+                    return RedirectToAction(nameof(Settings));
+                }
+
+                // Delete old QR file if replacing
+                if (!string.IsNullOrWhiteSpace(restaurant!.PaymentQrImageUrl))
+                {
+                    try
+                    {
+                        var relative = restaurant.PaymentQrImageUrl.TrimStart('/', '\\').Replace('/', Path.DirectorySeparatorChar);
+                        var oldPath = Path.Combine(_env.WebRootPath, relative);
+                        if (System.IO.File.Exists(oldPath))
+                        {
+                            System.IO.File.Delete(oldPath);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not delete old payment QR file: {Url}", restaurant.PaymentQrImageUrl);
+                    }
+                }
+
+                var uploadFolder = Path.Combine(_env.WebRootPath, "uploads", "payment-qrs");
+                if (!Directory.Exists(uploadFolder))
+                {
+                    Directory.CreateDirectory(uploadFolder);
+                }
+
+                var fileName = $"{restaurant.Slug}-qr-{DateTime.UtcNow.Ticks}{ext}";
+                var filePath = Path.Combine(uploadFolder, fileName);
+                using (var stream = new FileStream(filePath, FileMode.Create))
+                {
+                    await qrFile.CopyToAsync(stream);
+                }
+
+                restaurant.PaymentQrImageUrl = $"/uploads/payment-qrs/{fileName}";
+            }
+
+            await _context.SaveChangesAsync();
+            TempData["Success"] = "Payment QR code and UPI details updated successfully! Diners will now see this QR when paying.";
+            return RedirectToAction(nameof(Settings));
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        [Authorize(Roles = $"{AppRoles.RestaurantAdmin},{AppRoles.SuperAdmin}")]
+        public async Task<IActionResult> RemovePaymentQr()
+        {
+            var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
+            if (errorResult != null) return errorResult;
+
+            if (!string.IsNullOrWhiteSpace(restaurant!.PaymentQrImageUrl))
+            {
+                try
+                {
+                    var relative = restaurant.PaymentQrImageUrl.TrimStart('/', '\\').Replace('/', Path.DirectorySeparatorChar);
+                    var oldPath = Path.Combine(_env.WebRootPath, relative);
+                    if (System.IO.File.Exists(oldPath))
+                    {
+                        System.IO.File.Delete(oldPath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not delete payment QR file on removal: {Url}", restaurant.PaymentQrImageUrl);
+                }
+
+                restaurant.PaymentQrImageUrl = null;
+                await _context.SaveChangesAsync();
+                TempData["Success"] = "Payment QR code removed successfully.";
+            }
+
+            return RedirectToAction(nameof(Settings));
+        }
+
         private static string GetTimeAgo(DateTime utcTime)
         {
             var span = DateTime.UtcNow - utcTime;

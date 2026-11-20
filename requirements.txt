@@ -1,0 +1,35 @@
+# ==============================================================================
+# MenuScan - Python Requirements & System Dependencies
+# ==============================================================================
+#
+# --- SYSTEM PREREQUISITES ---
+# 1. .NET 9.0 SDK or later (https://dotnet.microsoft.com/download/dotnet/9.0)
+# 2. Microsoft SQL Server 2019/2022 or LocalDB
+# 3. Python 3.10+ (for test runner & verification suites)
+#
+# --- .NET NUGET PACKAGES (Specified in MenuScan.csproj) ---
+# - Microsoft.AspNetCore.Identity.EntityFrameworkCore (v9.0.2)
+# - Microsoft.EntityFrameworkCore.SqlServer (v9.0.2)
+# - Microsoft.EntityFrameworkCore.Tools (v9.0.2)
+# - QRCoder (v1.8.1)
+# - ClosedXML (v0.105.1)
+#
+# --- PYTHON TEST SUITE & AUTOMATION DEPENDENCIES ---
+# Install via: pip install -r requirements.txt
+#
+
+# Browser automation & UI multi-tenant testing
+playwright>=1.40.0
+
+# HTTP client for API & security regression testing
+requests>=2.31.0
+
+# Excel reports validation
+openpyxl>=3.1.2
+
+# Test runner framework
+pytest>=8.0.0
+pytest-playwright>=0.4.0
+
+# Git repository scrubbing and history cleanup
+git-filter-repo>=2.38.0

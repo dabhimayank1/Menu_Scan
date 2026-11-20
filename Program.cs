@@ -103,6 +103,14 @@ builder.Services.AddAntiforgery(options =>
 
 builder.Services.AddSignalR();
 
+// Mobile & Network Performance: Enable Gzip and Brotli response compression
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProvider>();
+    options.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();
+});
+
 // Rate limiting policies
 builder.Services.AddRateLimiter(options =>
 {
@@ -297,7 +305,23 @@ app.Use(async (context, next) =>
     }
 });
 
-app.UseStaticFiles();
+app.UseResponseCompression();
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        var path = ctx.Context.Request.Path.Value ?? "";
+        if (path.StartsWith("/lib", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/css", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/js", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/images", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/uploads", StringComparison.OrdinalIgnoreCase))
+        {
+            ctx.Context.Response.Headers.Append("Cache-Control", "public, max-age=604800, stale-while-revalidate=86400");
+        }
+    }
+});
 
 app.UseRouting();
 

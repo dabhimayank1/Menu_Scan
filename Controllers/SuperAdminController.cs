@@ -18,19 +18,22 @@ namespace MenuScan.Controllers
         private readonly ITenantService _tenantService;
         private readonly ILogger<SuperAdminController> _logger;
         private readonly ITimeHelper _timeHelper;
+        private readonly IWebHostEnvironment _env;
 
         public SuperAdminController(
             ApplicationDbContext context,
             UserManager<ApplicationUser> userManager,
             ITenantService tenantService,
             ILogger<SuperAdminController> logger,
-            ITimeHelper timeHelper)
+            ITimeHelper timeHelper,
+            IWebHostEnvironment env)
         {
             _context = context;
             _userManager = userManager;
             _tenantService = tenantService;
             _logger = logger;
             _timeHelper = timeHelper;
+            _env = env;
         }
 
         [HttpGet]
@@ -38,9 +41,11 @@ namespace MenuScan.Controllers
         {
             var restaurants = await _context.Restaurants
                 .IgnoreQueryFilters()
+                .AsNoTracking()
                 .Include(r => r.Tables)
                 .Include(r => r.MenuItems)
                 .Include(r => r.Orders)
+                .AsSplitQuery()
                 .OrderByDescending(r => r.CreatedAtUtc)
                 .ToListAsync();
 
@@ -276,6 +281,138 @@ namespace MenuScan.Controllers
             }
 
             return Ok(new { success = true, isActive = restaurant.IsActive });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> DeleteRestaurant(Guid id)
+        {
+            var restaurant = await _context.Restaurants
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(r => r.Id == id);
+
+            if (restaurant == null)
+            {
+                TempData["Error"] = "Restaurant not found.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            var totalRestaurants = await _context.Restaurants.IgnoreQueryFilters().CountAsync();
+            if (totalRestaurants <= 1)
+            {
+                TempData["Error"] = "Cannot delete the only existing restaurant on the platform.";
+                return RedirectToAction(nameof(Index));
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                // 1. Customer feedbacks
+                var feedbacks = await _context.CustomerFeedbacks.IgnoreQueryFilters()
+                    .Where(f => f.RestaurantId == id).ToListAsync();
+                _context.CustomerFeedbacks.RemoveRange(feedbacks);
+
+                // 2. Service requests
+                var serviceRequests = await _context.ServiceRequests.IgnoreQueryFilters()
+                    .Where(s => s.RestaurantId == id).ToListAsync();
+                _context.ServiceRequests.RemoveRange(serviceRequests);
+
+                // 3. Payments for this restaurant's bills
+                var bills = await _context.Bills.IgnoreQueryFilters()
+                    .Where(b => b.RestaurantId == id).ToListAsync();
+                var billIds = bills.Select(b => b.Id).ToList();
+
+                var payments = await _context.Payments.IgnoreQueryFilters()
+                    .Where(p => billIds.Contains(p.BillId)).ToListAsync();
+                _context.Payments.RemoveRange(payments);
+
+                // 4. Bills
+                _context.Bills.RemoveRange(bills);
+
+                // 5. Orders and related history / items
+                var orders = await _context.Orders.IgnoreQueryFilters()
+                    .Where(o => o.RestaurantId == id).ToListAsync();
+                var orderIds = orders.Select(o => o.Id).ToList();
+
+                var statusHistories = await _context.OrderStatusHistories.IgnoreQueryFilters()
+                    .Where(h => orderIds.Contains(h.OrderId)).ToListAsync();
+                _context.OrderStatusHistories.RemoveRange(statusHistories);
+
+                var orderItems = await _context.OrderItems.IgnoreQueryFilters()
+                    .Where(oi => orderIds.Contains(oi.OrderId)).ToListAsync();
+                _context.OrderItems.RemoveRange(orderItems);
+
+                _context.Orders.RemoveRange(orders);
+
+                // 6. Menu items & customizations
+                var menuItems = await _context.MenuItems.IgnoreQueryFilters()
+                    .Where(m => m.RestaurantId == id).ToListAsync();
+                var menuItemIds = menuItems.Select(m => m.Id).ToList();
+
+                var customizations = await _context.ItemCustomizations.IgnoreQueryFilters()
+                    .Where(ic => menuItemIds.Contains(ic.MenuItemId)).ToListAsync();
+                _context.ItemCustomizations.RemoveRange(customizations);
+
+                _context.MenuItems.RemoveRange(menuItems);
+
+                // 7. Categories
+                var categories = await _context.Categories.IgnoreQueryFilters()
+                    .Where(c => c.RestaurantId == id).ToListAsync();
+                _context.Categories.RemoveRange(categories);
+
+                // 8. Dining tables
+                var tables = await _context.DiningTables.IgnoreQueryFilters()
+                    .Where(t => t.RestaurantId == id).ToListAsync();
+                _context.DiningTables.RemoveRange(tables);
+
+                // 9. Staff accounts
+                var staffUsers = await _userManager.Users
+                    .Where(u => u.RestaurantId == id).ToListAsync();
+                foreach (var staff in staffUsers)
+                {
+                    await _userManager.DeleteAsync(staff);
+                }
+
+                // 10. Clean up physical files if any
+                if (!string.IsNullOrWhiteSpace(restaurant.PaymentQrImageUrl))
+                {
+                    try
+                    {
+                        var relative = restaurant.PaymentQrImageUrl.TrimStart('/', '\\').Replace('/', Path.DirectorySeparatorChar);
+                        var oldPath = Path.Combine(_env.WebRootPath, relative);
+                        if (System.IO.File.Exists(oldPath))
+                        {
+                            System.IO.File.Delete(oldPath);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not delete payment QR image for deleted restaurant {Id}", id);
+                    }
+                }
+
+                // 11. Remove Restaurant itself
+                _context.Restaurants.Remove(restaurant);
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                // 12. If SuperAdmin currently had this restaurant selected, clear selection cookie
+                if (_tenantService.CurrentRestaurantId == id)
+                {
+                    Response.Cookies.Delete("SelectedRestaurantId");
+                }
+
+                _logger.LogInformation("Restaurant '{Name}' ({Id}) and all associated records permanently deleted by SuperAdmin.", restaurant.Name, id);
+                TempData["Success"] = $"Restaurant '{restaurant.Name}' has been permanently deleted from the platform.";
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, "Failed to delete restaurant '{Name}' ({Id})", restaurant.Name, id);
+                TempData["Error"] = $"Failed to delete restaurant '{restaurant.Name}': {ex.Message}";
+            }
+
+            return RedirectToAction(nameof(Index));
         }
     }
 
