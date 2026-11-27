@@ -549,6 +549,159 @@ namespace MenuScan.Controllers
         [HttpPost]
         [ValidateAntiForgeryToken]
         [Authorize(Roles = $"{AppRoles.RestaurantAdmin},{AppRoles.SuperAdmin}")]
+        public async Task<IActionResult> EditMenuItem(
+            Guid id,
+            Guid categoryId,
+            string name,
+            string? description,
+            decimal price,
+            bool isVeg,
+            bool isAvailable,
+            IFormFile? imageFile,
+            string? imageUrl,
+            bool removeImage = false)
+        {
+            var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
+            if (errorResult != null) return errorResult;
+
+            var item = await _context.MenuItems
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(m => m.Id == id && m.RestaurantId == restaurant!.Id);
+
+            if (item == null)
+            {
+                TempData["Error"] = "Menu item not found or does not belong to this restaurant.";
+                return RedirectToAction(nameof(Menu));
+            }
+
+            var category = await _context.Categories
+                .IgnoreQueryFilters()
+                .FirstOrDefaultAsync(c => c.Id == categoryId && c.RestaurantId == restaurant!.Id);
+
+            if (category == null)
+            {
+                TempData["Error"] = "Selected category does not exist or does not belong to this restaurant.";
+                return RedirectToAction(nameof(Menu));
+            }
+
+            name = name?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(name) || name.Length > 120)
+            {
+                TempData["Error"] = "Item name is required and cannot exceed 120 characters.";
+                return RedirectToAction(nameof(Menu));
+            }
+
+            if (price < 0 || price > 1000000m)
+            {
+                TempData["Error"] = "Item price must be between ₹0 and ₹10,00,000.";
+                return RedirectToAction(nameof(Menu));
+            }
+
+            if (!string.IsNullOrWhiteSpace(description) && description.Length > 500)
+            {
+                TempData["Error"] = "Item description cannot exceed 500 characters.";
+                return RedirectToAction(nameof(Menu));
+            }
+
+            // Image handling
+            if (removeImage)
+            {
+                if (!string.IsNullOrWhiteSpace(item.ImageUrl) && item.ImageUrl.StartsWith("/uploads/menu-items/"))
+                {
+                    try
+                    {
+                        var oldPath = Path.Combine(_env.WebRootPath, item.ImageUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+                        if (System.IO.File.Exists(oldPath))
+                        {
+                            System.IO.File.Delete(oldPath);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not delete old menu item image file {Url}", item.ImageUrl);
+                    }
+                }
+                item.ImageUrl = null;
+            }
+            else if (imageFile != null && imageFile.Length > 0)
+            {
+                var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp" };
+                var ext = Path.GetExtension(imageFile.FileName).ToLowerInvariant();
+                if (!allowedExtensions.Contains(ext))
+                {
+                    TempData["Error"] = "Invalid image format. Supported formats: JPG, PNG, WEBP.";
+                    return RedirectToAction(nameof(Menu));
+                }
+
+                if (imageFile.Length > 10 * 1024 * 1024)
+                {
+                    TempData["Error"] = "Image file is too large (Maximum allowed size is 10MB).";
+                    return RedirectToAction(nameof(Menu));
+                }
+
+                using (var checkStream = imageFile.OpenReadStream())
+                {
+                    if (!NetworkHelper.IsValidImageMagicBytes(checkStream))
+                    {
+                        TempData["Error"] = "Invalid image file content.";
+                        return RedirectToAction(nameof(Menu));
+                    }
+                }
+
+                // Delete previous local image if replacing
+                if (!string.IsNullOrWhiteSpace(item.ImageUrl) && item.ImageUrl.StartsWith("/uploads/menu-items/"))
+                {
+                    try
+                    {
+                        var oldPath = Path.Combine(_env.WebRootPath, item.ImageUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+                        if (System.IO.File.Exists(oldPath))
+                        {
+                            System.IO.File.Delete(oldPath);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not delete old menu item image file {Url}", item.ImageUrl);
+                    }
+                }
+
+                var uploadFolder = Path.Combine(_env.WebRootPath, "uploads", "menu-items");
+                if (!Directory.Exists(uploadFolder))
+                {
+                    Directory.CreateDirectory(uploadFolder);
+                }
+
+                var fileName = $"{Guid.NewGuid():N}{ext}";
+                var filePath = Path.Combine(uploadFolder, fileName);
+
+                using (var stream = new FileStream(filePath, FileMode.Create))
+                {
+                    await imageFile.CopyToAsync(stream);
+                }
+
+                item.ImageUrl = $"/uploads/menu-items/{fileName}";
+            }
+            else if (!string.IsNullOrWhiteSpace(imageUrl))
+            {
+                item.ImageUrl = imageUrl.Trim();
+            }
+
+            item.CategoryId = categoryId;
+            item.Name = name.Trim();
+            item.Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+            item.Price = price;
+            item.IsVeg = isVeg;
+            item.IsAvailable = isAvailable;
+
+            await _context.SaveChangesAsync();
+            TempData["Success"] = $"Menu item '{item.Name}' updated successfully.";
+
+            return RedirectToAction(nameof(Menu));
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        [Authorize(Roles = $"{AppRoles.RestaurantAdmin},{AppRoles.SuperAdmin}")]
         public async Task<IActionResult> DeleteMenuItem(Guid id)
         {
             var (restaurant, errorResult) = await GetCurrentRestaurantAsync();
